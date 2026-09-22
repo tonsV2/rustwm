@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0.104"
+fontdue = "0.9.4"
 serde = { version = "1.0.229", features = ["derive"] }
 smithay = { version = "0.7", default-features = false, features = ["backend_winit", "backend_drm", "backend_gbm", "backend_libinput", "backend_udev", "backend_session_libseat", "wayland_frontend", "desktop", "renderer_gl"] }
 toml = "1.1.6"

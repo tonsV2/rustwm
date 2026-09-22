@@ -7,6 +7,7 @@ mod keyboard;
 mod launcher;
 mod layout;
 mod state;
+mod switcher;
 mod udev;
 mod window;
 mod winit;

@@ -6,8 +6,8 @@ use smithay::{
     backend::{
         egl::EGLDevice,
         renderer::{
-            ImportDma, damage::OutputDamageTracker, element::surface::WaylandSurfaceRenderElement,
-            gles::GlesRenderer,
+            ImportDma, damage::OutputDamageTracker,
+            element::memory::MemoryRenderBufferRenderElement, gles::GlesRenderer,
         },
         winit::{self, WinitEvent, WinitEventLoop, WinitGraphicsBackend},
     },
@@ -145,22 +145,26 @@ pub fn run(
 }
 
 fn render(state: &mut State) {
-    let Backend::Winit(winit) = &mut state.backend else {
+    let Backend::Winit(winit) = &state.backend else {
         return;
     };
     let output = winit.output.clone();
+    let overlay: Vec<_> = state.switcher_element(&output).into_iter().collect();
+    let Backend::Winit(winit) = &mut state.backend else {
+        return;
+    };
     let size = winit.backend.window_size();
 
     let rendered = match winit.backend.bind() {
         Ok((renderer, mut framebuffer)) => {
-            render_output::<_, WaylandSurfaceRenderElement<GlesRenderer>, _, _>(
+            render_output::<_, MemoryRenderBufferRenderElement<GlesRenderer>, _, _>(
                 &output,
                 renderer,
                 &mut framebuffer,
                 1.0,
                 0,
                 [&state.space],
-                &[],
+                &overlay,
                 &mut winit.damage_tracker,
                 BACKGROUND,
             )

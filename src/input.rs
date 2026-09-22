@@ -62,6 +62,7 @@ impl State {
                     ctrl: mods.ctrl,
                     shift: mods.shift,
                 };
+                state.bindings.switching = state.focus.is_switching();
                 let outcome = state.bindings.key(keycode.raw(), key, pressed, mods);
                 action = outcome.action;
                 if outcome.forward {
@@ -84,16 +85,17 @@ impl State {
                 direction,
                 first_in_hold,
             } => self.snap_focused(direction, first_in_hold),
-            Action::SwitchNext => {
-                if self.focus.step().is_some() {
-                    self.sync_focus();
-                }
-            }
+            Action::Switch { forward } => self.step_switch(forward),
             Action::FinishSwitch => {
                 if self.focus.is_switching() {
                     self.focus.finish_switch();
+                    self.switcher.hide();
                     self.sync_focus();
                 }
+            }
+            Action::CancelSwitch => {
+                self.focus.cancel_switch();
+                self.switcher.hide();
             }
             Action::SwitchVt(vt) => {
                 if let Backend::Udev(udev) = &mut self.backend {
@@ -251,7 +253,8 @@ fn classify(sym: Keysym) -> Key {
     match sym {
         Keysym::Super_L | Keysym::Super_R => Key::Super,
         Keysym::Alt_L | Keysym::Alt_R => Key::Alt,
-        Keysym::Tab => Key::Tab,
+        Keysym::Tab | Keysym::ISO_Left_Tab => Key::Tab,
+        Keysym::Escape => Key::Escape,
         Keysym::Left => Key::Arrow(Direction::Left),
         Keysym::Right => Key::Arrow(Direction::Right),
         Keysym::Up => Key::Arrow(Direction::Up),

@@ -78,7 +78,8 @@ render_elements! {
     pub OutputElements<=GlesRenderer>;
     Space=SpaceRenderElements<GlesRenderer, WaylandSurfaceRenderElement<GlesRenderer>>,
     CursorSurface=WaylandSurfaceRenderElement<GlesRenderer>,
-    CursorImage=MemoryRenderBufferRenderElement<GlesRenderer>,
+    // Images drawn by the compositor: the default cursor and the switcher.
+    Memory=MemoryRenderBufferRenderElement<GlesRenderer>,
 }
 
 pub struct UdevData {
@@ -467,6 +468,18 @@ fn on_vblank(state: &mut State, crtc: crtc::Handle) {
 /// When nothing changed no page flip happens, so no vblank will arrive to
 /// trigger the next frame; a timer at the refresh interval takes its place.
 pub fn render(state: &mut State) {
+    let switcher = match &state.backend {
+        Backend::Udev(UdevData {
+            active: true,
+            render_pending: false,
+            screen: Some(screen),
+            ..
+        }) => {
+            let output = screen.output.clone();
+            state.switcher_element(&output)
+        }
+        _ => None,
+    };
     let pointer_location = state
         .seat
         .get_pointer()
@@ -536,6 +549,8 @@ pub fn render(state: &mut State) {
             }
         }
     }
+
+    elements.extend(switcher.map(OutputElements::Memory));
 
     match space_render_elements(&mut udev.renderer, [&*space], &screen.output, 1.0) {
         Ok(space_elements) => elements.extend(space_elements.into_iter().map(Into::into)),
