@@ -1,3 +1,4 @@
+mod apps;
 mod config;
 mod cursor;
 mod focus;

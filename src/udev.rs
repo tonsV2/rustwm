@@ -59,6 +59,7 @@ use crate::{
     config::{InputConfig, auto_scale},
     cursor::Cursor,
     state::{Backend, State},
+    switcher::SwitcherElement,
 };
 
 type GbmOutputManager = DrmOutputManager<
@@ -78,8 +79,8 @@ render_elements! {
     pub OutputElements<=GlesRenderer>;
     Space=SpaceRenderElements<GlesRenderer, WaylandSurfaceRenderElement<GlesRenderer>>,
     CursorSurface=WaylandSurfaceRenderElement<GlesRenderer>,
-    // Images drawn by the compositor: the default cursor and the switcher.
-    Memory=MemoryRenderBufferRenderElement<GlesRenderer>,
+    CursorImage=MemoryRenderBufferRenderElement<GlesRenderer>,
+    Switcher=SwitcherElement,
 }
 
 pub struct UdevData {
@@ -476,9 +477,9 @@ pub fn render(state: &mut State) {
             ..
         }) => {
             let output = screen.output.clone();
-            state.switcher_element(&output)
+            state.switcher_elements(&output)
         }
-        _ => None,
+        _ => Vec::new(),
     };
     let pointer_location = state
         .seat
@@ -550,7 +551,7 @@ pub fn render(state: &mut State) {
         }
     }
 
-    elements.extend(switcher.map(OutputElements::Memory));
+    elements.extend(switcher.into_iter().map(OutputElements::Switcher));
 
     match space_render_elements(&mut udev.renderer, [&*space], &screen.output, 1.0) {
         Ok(space_elements) => elements.extend(space_elements.into_iter().map(Into::into)),
