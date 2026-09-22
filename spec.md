@@ -1,5 +1,13 @@
 # Minimal Wayland Window Manager
 
+## Vision
+
+Most of the time one application fills the screen and that is what I work on. Sometimes I snap a few applications to halves or corners of the screen to see them side by side.
+
+Later, related applications should be groupable into a layer that comes into view all at once. For example, a set of terminals running htop on this machine, nvtop, and htop on other servers, shown together as one monitoring view.
+
+The rest of this document was generated as a starting point and is not a complete statement of this vision. Where the two disagree, the vision wins. Items that are ~~struck through~~ are implemented. Work beyond this document is tracked in GitHub issues.
+
 ## 1. Goal
 
 Build a minimal, keyboard-driven Wayland compositor/window manager for Linux using **Rust + Smithay**.
@@ -8,13 +16,13 @@ The project is intentionally small. It is not intended to become a desktop envir
 
 The desired workflow is:
 
-* Applications initially open fullscreen.
-* `Super` opens an application launcher.
-* The application launcher is provided by **Fuzzel**, running as a separate Wayland application.
-* `Alt+Tab` switches between applications.
-* `Super+Left/Right` snaps the focused application to the left/right half.
-* `Super+Up/Down` snaps the focused application to the top/bottom half.
-* Combining horizontal and vertical directions places the focused application in a quarter of the screen.
+* ~~Applications initially open fullscreen.~~
+* ~~`Super` opens an application launcher.~~
+* ~~The application launcher is provided by **Fuzzel**, running as a separate Wayland application.~~
+* ~~`Alt+Tab` switches between applications.~~
+* ~~`Super+Left/Right` snaps the focused application to the left/right half.~~
+* ~~`Super+Up/Down` snaps the focused application to the top/bottom half.~~
+* ~~Combining horizontal and vertical directions places the focused application in a quarter of the screen.~~
 
 The compositor should contain as little UI functionality as possible.
 
@@ -117,15 +125,15 @@ The compositor must maintain an explicit currently focused window.
 
 When a new top-level application appears:
 
-1. Register/manage it.
-2. Add it to the managed-window collection.
-3. Give it keyboard focus.
-4. Make it fullscreen.
-5. Render it on the appropriate output.
+1. ~~Register/manage it.~~
+2. ~~Add it to the managed-window collection.~~
+3. ~~Give it keyboard focus.~~
+4. ~~Make it fullscreen.~~
+5. ~~Render it on the appropriate output.~~
 
 ---
 
-# 5. Initial Window State
+# ~~5. Initial Window State~~
 
 Every newly managed top-level application should initially occupy the entire usable output.
 
@@ -147,7 +155,7 @@ When a new application is launched from Fuzzel, it should therefore automaticall
 
 ---
 
-# 6. Layouts
+# ~~6. Layouts~~
 
 Define a clear layout abstraction.
 
@@ -171,7 +179,7 @@ The exact implementation may differ, but layout calculations must be isolated fr
 
 ---
 
-# 7. Layout Geometry
+# ~~7. Layout Geometry~~
 
 For an output with:
 
@@ -182,7 +190,7 @@ height
 
 use these layouts.
 
-### Fullscreen
+### ~~Fullscreen~~
 
 ```text
 x = 0
@@ -191,7 +199,7 @@ width = output_width
 height = output_height
 ```
 
-### Left
+### ~~Left~~
 
 ```text
 x = 0
@@ -200,7 +208,7 @@ width = output_width / 2
 height = output_height
 ```
 
-### Right
+### ~~Right~~
 
 ```text
 x = output_width / 2
@@ -209,7 +217,7 @@ width = output_width - output_width / 2
 height = output_height
 ```
 
-### Top
+### ~~Top~~
 
 ```text
 x = 0
@@ -218,7 +226,7 @@ width = output_width
 height = output_height / 2
 ```
 
-### Bottom
+### ~~Bottom~~
 
 ```text
 x = 0
@@ -227,7 +235,7 @@ width = output_width
 height = output_height - output_height / 2
 ```
 
-### Top-left
+### ~~Top-left~~
 
 ```text
 x = 0
@@ -236,7 +244,7 @@ width = output_width / 2
 height = output_height / 2
 ```
 
-### Top-right
+### ~~Top-right~~
 
 ```text
 x = output_width / 2
@@ -245,7 +253,7 @@ width = output_width - output_width / 2
 height = output_height / 2
 ```
 
-### Bottom-left
+### ~~Bottom-left~~
 
 ```text
 x = 0
@@ -254,7 +262,7 @@ width = output_width / 2
 height = output_height - output_height / 2
 ```
 
-### Bottom-right
+### ~~Bottom-right~~
 
 ```text
 x = output_width / 2
@@ -267,7 +275,7 @@ Use integer-safe calculations so odd output dimensions do not produce gaps or ov
 
 ---
 
-# 8. Keyboard Shortcuts
+# ~~8. Keyboard Shortcuts~~
 
 The initial keybindings are:
 
@@ -311,7 +319,7 @@ should result in bottom-right.
 
 ---
 
-# 9. Super Key Handling
+# ~~9. Super Key Handling~~
 
 Standalone `Super` and `Super+key` must be distinguished.
 
@@ -336,7 +344,7 @@ Do not implement a separate raw keyboard subsystem.
 
 ---
 
-# 10. Application Launcher
+# ~~10. Application Launcher~~
 
 The compositor must **not** implement its own application launcher UI.
 
@@ -418,21 +426,21 @@ Maintain a focus history: the most recently focused window first.
 
 Behavior:
 
-* Pressing `Alt+Tab` once focuses the previously focused window, so a quick `Alt+Tab` toggles between the two most recent windows.
-* While `Alt` stays held, each further `Tab` press steps one window deeper into the MRU list.
-* Wrap around at the end of the list.
-* Focus and raise each window as it is stepped to, so the user sees the current selection. No switcher UI is drawn.
-* The MRU list is not reordered while `Alt` is held; otherwise stepping would keep bouncing between the same two windows.
-* When `Alt` is released, the selected window moves to the front of the MRU list.
-* Do not change the selected window's layout.
-* If only one window exists, do nothing.
+* ~~Pressing `Alt+Tab` once focuses the previously focused window, so a quick `Alt+Tab` toggles between the two most recent windows.~~
+* ~~While `Alt` stays held, each further `Tab` press steps one window deeper into the MRU list.~~
+* ~~Wrap around at the end of the list.~~
+* ~~Focus and raise each window as it is stepped to, so the user sees the current selection. No switcher UI is drawn.~~
+* ~~The MRU list is not reordered while `Alt` is held; otherwise stepping would keep bouncing between the same two windows.~~
+* ~~When `Alt` is released, the selected window moves to the front of the MRU list.~~
+* ~~Do not change the selected window's layout.~~
+* ~~If only one window exists, do nothing.~~
 
 Any other focus change (a new window appearing, a pointer click) also moves that window to the front of the MRU list.
 
 When a window is destroyed:
 
-* Remove it from the managed-window collection and the MRU list.
-* If it was focused, focus the next window in MRU order.
+* ~~Remove it from the managed-window collection and the MRU list.~~
+* ~~If it was focused, focus the next window in MRU order.~~
 
 Focus order should be deterministic given the same sequence of events.
 
@@ -447,7 +455,7 @@ Do not initially implement:
 
 ---
 
-# 12. Multiple Windows
+# ~~12. Multiple Windows~~
 
 Windows should be independently positioned.
 
@@ -479,9 +487,9 @@ The first version targets a single output. If more than one output is connected,
 
 Keep the architecture from precluding multiple outputs later:
 
-* Layout calculations take the output's geometry (including its position) as input rather than assuming a single global screen.
-* A window records which output it belongs to, even if there is only one.
-* Avoid global "the screen size" state.
+* ~~Layout calculations take the output's geometry (including its position) as input rather than assuming a single global screen.~~
+* ~~A window records which output it belongs to, even if there is only one.~~
+* ~~Avoid global "the screen size" state.~~
 
 Do not let multi-monitor concerns delay or complicate the single-output implementation.
 
@@ -507,25 +515,25 @@ Use Smithay's current protocol implementations.
 
 Investigate and implement the minimum required protocols for normal graphical Wayland applications, including the appropriate Smithay support for:
 
-* `wl_compositor`
-* `wl_shm`
-* `wl_seat`
-* keyboard
-* pointer
-* `xdg_wm_base`
-* `xdg_surface`
-* `xdg_toplevel`
+* ~~`wl_compositor`~~
+* ~~`wl_shm`~~
+* ~~`wl_seat`~~
+* ~~keyboard~~
+* ~~pointer~~
+* ~~`xdg_wm_base`~~
+* ~~`xdg_surface`~~
+* ~~`xdg_toplevel`~~
 
 The exact Smithay APIs should be determined from the current version.
 
 Applications must be able to:
 
-* create surfaces
-* receive keyboard input
-* receive pointer input
-* resize
-* close
-* create/destroy surfaces
+* ~~create surfaces~~
+* ~~receive keyboard input~~
+* ~~receive pointer input~~
+* ~~resize~~
+* ~~close~~
+* ~~create/destroy surfaces~~
 
 ---
 
@@ -565,18 +573,18 @@ The compositor should simply render client surfaces correctly.
 
 ---
 
-# 17. Window Lifecycle
+# ~~17. Window Lifecycle~~
 
 Correctly handle:
 
-* application creation
-* mapping
-* unmapping
-* destruction
-* focus
-* resize requests
-* client state changes
-* client termination
+* ~~application creation~~
+* ~~mapping~~
+* ~~unmapping~~
+* ~~destruction~~
+* ~~focus~~
+* ~~resize requests~~
+* ~~client state changes~~
+* ~~client termination~~
 
 A crashed or badly behaved client must not crash the compositor.
 
@@ -614,19 +622,19 @@ Hard-coded defaults are acceptable initially.
 
 Use:
 
-* `tracing`
-* `tracing-subscriber`
+* ~~`tracing`~~
+* ~~`tracing-subscriber`~~
 
 Log useful events:
 
-* compositor startup
-* output creation/removal
-* window creation
-* window destruction
-* focus changes
-* layout changes
-* launcher invocation
-* client errors
+* ~~compositor startup~~
+* ~~output creation/removal~~
+* ~~window creation~~
+* ~~window destruction~~
+* ~~focus changes~~
+* ~~layout changes~~
+* ~~launcher invocation~~
+* ~~client errors~~
 
 Do not produce excessive logging from the render loop.
 
@@ -642,17 +650,17 @@ They are acceptable when an invariant is genuinely guaranteed and the reason is 
 
 Startup failures should provide useful diagnostics for things such as:
 
-* DRM unavailable
-* permission problems
-* renderer initialization failure
-* Wayland socket failure
-* missing Fuzzel executable
+* ~~DRM unavailable~~
+* ~~permission problems~~
+* ~~renderer initialization failure~~
+* ~~Wayland socket failure~~
+* ~~missing Fuzzel executable~~
 
 Client failures should not bring down the compositor.
 
 ---
 
-# 21. Testing
+# ~~21. Testing~~
 
 The geometry/layout logic must have unit tests independent of Smithay.
 
@@ -689,15 +697,15 @@ Test MRU focus logic separately: quick toggle between two windows, stepping deep
 
 Do not implement everything in one large change.
 
-## Phase 1 — Project
+## ~~Phase 1 — Project~~
 
 Create:
 
-* Cargo project
-* Smithay dependency
-* logging
-* module structure
-* basic executable
+* ~~Cargo project~~
+* ~~Smithay dependency~~
+* ~~logging~~
+* ~~module structure~~
+* ~~basic executable~~
 
 Verify:
 
@@ -709,17 +717,17 @@ works.
 
 ---
 
-## Phase 2 — Minimal Compositor
+## ~~Phase 2 — Minimal Compositor~~
 
 Implement the smallest viable Smithay compositor.
 
 Get:
 
-* backend
-* renderer
-* output
-* event loop
-* Wayland socket
+* ~~backend~~
+* ~~renderer~~
+* ~~output~~
+* ~~event loop~~
+* ~~Wayland socket~~
 
 working.
 
@@ -727,7 +735,7 @@ The compositor should start successfully.
 
 ---
 
-## Phase 3 — First Application
+## ~~Phase 3 — First Application~~
 
 Run a simple Wayland application such as:
 
@@ -737,46 +745,46 @@ foot
 
 Verify:
 
-* application starts
-* application appears
-* keyboard input works
-* mouse input works
-* application can close
+* ~~application starts~~
+* ~~application appears~~
+* ~~keyboard input works~~
+* ~~mouse input works~~
+* ~~application can close~~
 
 ---
 
-## Phase 4 — Window Management
+## ~~Phase 4 — Window Management~~
 
 Implement:
 
-* managed window collection
-* focus
-* fullscreen initial placement
-* window lifecycle
+* ~~managed window collection~~
+* ~~focus~~
+* ~~fullscreen initial placement~~
+* ~~window lifecycle~~
 
 Verify that multiple applications can coexist.
 
 ---
 
-## Phase 5 — Layout Engine
+## ~~Phase 5 — Layout Engine~~
 
 Implement:
 
-* fullscreen
-* left
-* right
-* top
-* bottom
-* top-left
-* top-right
-* bottom-left
-* bottom-right
+* ~~fullscreen~~
+* ~~left~~
+* ~~right~~
+* ~~top~~
+* ~~bottom~~
+* ~~top-left~~
+* ~~top-right~~
+* ~~bottom-left~~
+* ~~bottom-right~~
 
 Add unit tests.
 
 ---
 
-## Phase 6 — Keyboard Management
+## ~~Phase 6 — Keyboard Management~~
 
 Implement:
 
@@ -792,7 +800,7 @@ Then implement quarter-screen combinations.
 
 ---
 
-## Phase 7 — Fuzzel
+## ~~Phase 7 — Fuzzel~~
 
 Install/use Fuzzel as an external launcher.
 
@@ -804,13 +812,13 @@ Super → spawn Fuzzel
 
 Verify:
 
-1. Press Super.
-2. Fuzzel appears.
-3. Search for an application.
-4. Press Enter.
-5. Fuzzel launches the application.
-6. The new application appears fullscreen.
-7. Focus moves to the new application.
+1. ~~Press Super.~~
+2. ~~Fuzzel appears.~~
+3. ~~Search for an application.~~
+4. ~~Press Enter.~~
+5. ~~Fuzzel launches the application.~~
+6. ~~The new application appears fullscreen.~~
+7. ~~Focus moves to the new application.~~
 
 The compositor should contain no launcher UI code.
 
@@ -822,20 +830,20 @@ Optional. Add multi-monitor handling only after the single-output compositor wor
 
 ---
 
-## Phase 9 — Polish
+## ~~Phase 9 — Polish~~
 
 Add:
 
-* robust error handling
-* useful logging
-* documentation
-* configuration
-* installation instructions
-* safe development workflow
+* ~~robust error handling~~
+* ~~useful logging~~
+* ~~documentation~~
+* ~~configuration~~
+* ~~installation instructions~~
+* ~~safe development workflow~~
 
 ---
 
-# 23. Development Environment
+# ~~23. Development Environment~~
 
 The project must be easy to develop without replacing the user's normal desktop session.
 
@@ -928,12 +936,12 @@ Do not create modules that exist only to satisfy a predetermined architecture.
 
 Before writing substantial code:
 
-1. Inspect the current Smithay documentation.
-2. Determine the current stable Smithay version.
-3. Inspect current Smithay compositor examples.
-4. Identify the recommended architecture for that version.
-5. Identify the appropriate Smithay backend for Fedora development.
-6. Determine how Smithay recommends handling:
+1. ~~Inspect the current Smithay documentation.~~
+2. ~~Determine the current stable Smithay version.~~
+3. ~~Inspect current Smithay compositor examples.~~
+4. ~~Identify the recommended architecture for that version.~~
+5. ~~Identify the appropriate Smithay backend for Fedora development.~~
+6. ~~Determine how Smithay recommends handling:~~
 
    * DRM
    * rendering
@@ -943,8 +951,8 @@ Before writing substantial code:
    * keyboard
    * pointer
    * client lifecycle
-7. Check how a nested development compositor can be run.
-8. Verify the current Fuzzel invocation and Wayland requirements.
+7. ~~Check how a nested development compositor can be run.~~
+8. ~~Verify the current Fuzzel invocation and Wayland requirements.~~
 
 Do not blindly copy old Smithay examples.
 
@@ -1004,24 +1012,24 @@ The purpose of the project is to have an extremely small and predictable Wayland
 
 The first usable release is complete when:
 
-1. The compositor starts successfully on Fedora.
-2. A normal Wayland application can run inside it.
-3. Applications initially occupy the entire output.
-4. Multiple applications can run simultaneously.
-5. `Alt+Tab` switches focus between applications in most-recently-used order.
-6. `Super+Left` moves the focused application to the left half.
-7. `Super+Right` moves it to the right half.
-8. `Super+Up` moves it to the top half.
-9. `Super+Down` moves it to the bottom half.
-10. Direction combinations can place a window in all four quarters.
-11. Standalone `Super` launches Fuzzel.
-12. Fuzzel can launch applications normally.
-13. Newly launched applications automatically become focused and fullscreen.
-14. Applications can close without crashing the compositor.
-15. Layout calculations have unit tests.
-16. A single output works. Multi-monitor support is optional; the architecture must not preclude adding it later.
-17. The project has a README with Fedora dependencies, build instructions, safe testing instructions, and known limitations.
-18. No unnecessary desktop-environment functionality has been added.
+1. ~~The compositor starts successfully on Fedora.~~
+2. ~~A normal Wayland application can run inside it.~~
+3. ~~Applications initially occupy the entire output.~~
+4. ~~Multiple applications can run simultaneously.~~
+5. ~~`Alt+Tab` switches focus between applications in most-recently-used order.~~
+6. ~~`Super+Left` moves the focused application to the left half.~~
+7. ~~`Super+Right` moves it to the right half.~~
+8. ~~`Super+Up` moves it to the top half.~~
+9. ~~`Super+Down` moves it to the bottom half.~~
+10. ~~Direction combinations can place a window in all four quarters.~~
+11. ~~Standalone `Super` launches Fuzzel.~~
+12. ~~Fuzzel can launch applications normally.~~
+13. ~~Newly launched applications automatically become focused and fullscreen.~~
+14. ~~Applications can close without crashing the compositor.~~
+15. ~~Layout calculations have unit tests.~~
+16. ~~A single output works. Multi-monitor support is optional; the architecture must not preclude adding it later.~~
+17. ~~The project has a README with Fedora dependencies, build instructions, safe testing instructions, and known limitations.~~
+18. ~~No unnecessary desktop-environment functionality has been added.~~
 
 The resulting system should feel like a deliberately minimal keyboard-driven Linux desktop rather than an attempt to recreate GNOME.
 
