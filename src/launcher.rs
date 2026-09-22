@@ -1,0 +1,116 @@
+//! Starts the external application launcher (Fuzzel).
+//!
+//! The compositor only spawns the process. Fuzzel finds, searches and
+//! launches applications on its own.
+
+use std::{
+    env,
+    ffi::OsStr,
+    path::Path,
+    process::{Child, Command},
+};
+
+use tracing::{info, warn};
+
+/// Launcher executable, overridable with `RUSTWM_LAUNCHER` for testing.
+const DEFAULT_COMMAND: &str = "fuzzel";
+
+pub struct Launcher {
+    command: String,
+    child: Option<Child>,
+}
+
+impl Launcher {
+    pub fn new() -> Self {
+        let command = env::var("RUSTWM_LAUNCHER").unwrap_or_else(|_| DEFAULT_COMMAND.into());
+        if !is_on_path(&command) {
+            warn!(
+                command,
+                "launcher not found on PATH; Super will do nothing until it is installed"
+            );
+        }
+        Self {
+            command,
+            child: None,
+        }
+    }
+
+    /// Starts the launcher, or closes it if it is already open.
+    ///
+    /// Toggling keeps a second Super tap from stacking launcher instances.
+    pub fn toggle(&mut self, wayland_display: &OsStr) {
+        if let Some(child) = &mut self.child {
+            match child.try_wait() {
+                Ok(None) => {
+                    info!("closing launcher");
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    self.child = None;
+                    return;
+                }
+                // Already exited; reaping it here avoids a zombie process.
+                Ok(Some(_)) | Err(_) => self.child = None,
+            }
+        }
+
+        info!(command = self.command, "starting launcher");
+        let result = Command::new(&self.command)
+            .env("WAYLAND_DISPLAY", wayland_display)
+            // Keep apps started from the launcher on our Wayland socket
+            // instead of falling back to the host's X server when nested.
+            .env_remove("DISPLAY")
+            .spawn();
+        match result {
+            Ok(child) => self.child = Some(child),
+            Err(err) => warn!(command = self.command, %err, "failed to start launcher"),
+        }
+    }
+}
+
+fn is_on_path(command: &str) -> bool {
+    if command.contains('/') {
+        return Path::new(command).is_file();
+    }
+    env::var_os("PATH")
+        .map(|paths| env::split_paths(&paths).any(|dir| dir.join(command).is_file()))
+        .unwrap_or(false)
+}
+
+/// Makes apps that D-Bus starts on our behalf connect to this compositor.
+///
+/// Single-instance apps (GTK apps, Ghostty, ...) first look for a running
+/// copy on the D-Bus session bus and hand the request to it. On the bus
+/// shared with a GNOME session, that copy lives in GNOME, so the window
+/// opens there. Running rustwm under `dbus-run-session` gives it a bus of
+/// its own; this then points that bus's activation environment at our
+/// Wayland socket.
+///
+/// The shared user bus is left alone: changing its activation environment
+/// would send GNOME's apps here instead.
+pub fn export_to_dbus(wayland_display: &OsStr) {
+    let bus = env::var("DBUS_SESSION_BUS_ADDRESS").unwrap_or_default();
+    let shared_bus = env::var("XDG_RUNTIME_DIR")
+        .map(|dir| format!("unix:path={dir}/bus"))
+        .unwrap_or_default();
+
+    if bus.is_empty() || bus == shared_bus {
+        warn!(
+            "running on the shared D-Bus session bus; single-instance apps that are \
+             already running in another session will open their windows there. \
+             Start rustwm with `dbus-run-session rustwm` to avoid this"
+        );
+        return;
+    }
+
+    let mut arg = std::ffi::OsString::from("WAYLAND_DISPLAY=");
+    arg.push(wayland_display);
+    match Command::new("dbus-update-activation-environment")
+        .arg(arg)
+        .arg("XDG_CURRENT_DESKTOP=rustwm")
+        .status()
+    {
+        Ok(status) if status.success() => info!("D-Bus activation environment updated"),
+        Ok(status) => warn!(%status, "failed to update D-Bus activation environment"),
+        Err(err) => warn!(%err, "failed to run dbus-update-activation-environment"),
+    }
+}
