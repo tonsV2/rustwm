@@ -6,7 +6,7 @@ A minimal, keyboard-driven Wayland compositor built on [Smithay](https://github.
 
 GNOME is a good desktop, it just does a bit more than I need. I never click the icons in the dock that appears when pressing Super, and it cannot snap windows to the corners of the screen out of the box.
 
-My day is mostly one application filling the screen, with a few others snapped to halves or corners when I want them side by side. rustwm is built for exactly that and little else. The [vision in the spec](spec.md#vision) has more.
+My day is mostly switching between full-screen applications: several IntelliJ windows, several Ghostty terminals, Chrome and more. Now and then I snap a few to halves or corners to see them side by side. rustwm is built for exactly that and little else. The [vision in the spec](spec.md#vision) has more.
 
 ## What it does
 
