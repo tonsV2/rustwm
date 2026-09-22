@@ -36,6 +36,7 @@ use smithay::{
         shm::ShmState,
         socket::ListeningSocketSource,
         viewporter::ViewporterState,
+        xdg_activation::XdgActivationState,
     },
 };
 use tracing::{error, info, warn};
@@ -93,6 +94,7 @@ pub struct State {
     pub fractional_scale_state: FractionalScaleManagerState,
     #[allow(dead_code)]
     pub output_manager_state: OutputManagerState,
+    pub xdg_activation_state: XdgActivationState,
     pub seat_state: SeatState<State>,
     pub data_device_state: DataDeviceState,
     pub primary_selection_state: PrimarySelectionState,
@@ -138,6 +140,7 @@ impl State {
         let viewporter_state = ViewporterState::new::<Self>(&dh);
         let fractional_scale_state = FractionalScaleManagerState::new::<Self>(&dh);
         let output_manager_state = OutputManagerState::new_with_xdg_output::<Self>(&dh);
+        let xdg_activation_state = XdgActivationState::new::<Self>(&dh);
         let data_device_state = DataDeviceState::new::<Self>(&dh);
         let primary_selection_state = PrimarySelectionState::new::<Self>(&dh);
 
@@ -166,6 +169,7 @@ impl State {
             viewporter_state,
             fractional_scale_state,
             output_manager_state,
+            xdg_activation_state,
             seat_state,
             data_device_state,
             primary_selection_state,
