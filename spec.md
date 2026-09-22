@@ -2,7 +2,7 @@
 
 ## Vision
 
-Most of the time one application fills the screen and that is what I work on. Sometimes I snap a few applications to halves or corners of the screen to see them side by side.
+Most of the time I switch between full-screen applications: several IntelliJ windows, several Ghostty terminals, Chrome and more. Switching between them quickly, including between windows of the same application, is the core of the workflow. Sometimes I snap a few applications to halves or corners of the screen to see them side by side.
 
 Later, related applications should be groupable into a layer that comes into view all at once. For example, a set of terminals running htop, ctop, k9s and nvtop, shown together as one monitoring view.
 
