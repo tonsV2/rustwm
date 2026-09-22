@@ -1,0 +1,16 @@
+# rustwm settings. Copy to ~/.config/rustwm/config.toml and adjust.
+# Every setting is optional; delete a line to use its default.
+# Changes take effect when rustwm restarts.
+
+[output]
+# Output scale. Without this line, rustwm guesses from the monitor's pixel
+# density. Fractional values such as 1.25 or 1.5 stay sharp in apps that
+# support fractional scaling (GTK 4, Qt 6, Firefox, Ghostty, ...).
+scale = 1.25
+
+[input]
+# Pointer acceleration speed, from -1.0 (slowest) to 1.0 (fastest).
+pointer_speed = 0.0
+# Touchpad content follows the fingers when scrolling.
+natural_scroll = false
+tap_to_click = true
