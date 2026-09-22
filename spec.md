@@ -4,7 +4,7 @@
 
 Most of the time one application fills the screen and that is what I work on. Sometimes I snap a few applications to halves or corners of the screen to see them side by side.
 
-Later, related applications should be groupable into a layer that comes into view all at once. For example, a set of terminals running htop on this machine, nvtop, and htop on other servers, shown together as one monitoring view.
+Later, related applications should be groupable into a layer that comes into view all at once. For example, a set of terminals running htop, ctop, k9s and nvtop, shown together as one monitoring view.
 
 The rest of this document was generated as a starting point and is not a complete statement of this vision. Where the two disagree, the vision wins. Items that are ~~struck through~~ are implemented. Work beyond this document is tracked in GitHub issues.
 
