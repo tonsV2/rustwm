@@ -28,6 +28,7 @@ Done:
 - Full-screen initial placement, dialogs floating centred, half and quarter layouts
 - Most-recently-used Alt+Tab
 - Super tap launches Fuzzel; Super used with another key or a click does not
+- xdg-activation: an application can bring another forward, for example a terminal opening a link in the running browser. Only the focused application can hand out a request, right after an input event, and it expires after 10 seconds
 
 Not done yet:
 

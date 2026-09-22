@@ -3,6 +3,7 @@
 
 mod compositor;
 mod layer_shell;
+mod xdg_activation;
 mod xdg_shell;
 
 use smithay::{
