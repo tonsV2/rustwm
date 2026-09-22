@@ -12,7 +12,9 @@ use crate::layout::Direction;
 pub enum Key {
     Super,
     Alt,
+    /// Tab, or Shift+Tab (ISO_Left_Tab).
     Tab,
+    Escape,
     Arrow(Direction),
     Backspace,
     /// One of the XF86Switch_VT_* keysyms, which the default keymap
@@ -40,8 +42,14 @@ pub enum Action {
         direction: Direction,
         first_in_hold: bool,
     },
-    SwitchNext,
+    /// Move the Alt+Tab highlight to the next (less recently used) window,
+    /// or the previous one.
+    Switch {
+        forward: bool,
+    },
     FinishSwitch,
+    /// Close the switcher and keep the current window.
+    CancelSwitch,
     /// Change to another virtual terminal (DRM backend only).
     SwitchVt(i32),
     /// Stop the compositor. On real hardware this is the way out when
@@ -83,6 +91,10 @@ pub struct Bindings {
     /// Keycodes whose press was consumed. Their release must be consumed
     /// too, or clients would see a release without a press.
     suppressed: HashSet<u32>,
+    /// Whether an Alt+Tab switch is in progress. The caller sets this before
+    /// each key, since a switch can also end outside the bindings, for
+    /// example when a click focuses a window.
+    pub switching: bool,
 }
 
 impl Bindings {
@@ -117,9 +129,13 @@ impl Bindings {
                     first_in_hold,
                 })
             }
-            Key::Tab if mods.alt && !mods.logo && !mods.ctrl && !mods.shift => {
-                Some(Action::SwitchNext)
-            }
+            Key::Tab if mods.alt && !mods.logo && !mods.ctrl => Some(Action::Switch {
+                forward: !mods.shift,
+            }),
+            Key::Arrow(direction) if self.switching => Some(Action::Switch {
+                forward: matches!(direction, Direction::Right | Direction::Down),
+            }),
+            Key::Escape if self.switching => Some(Action::CancelSwitch),
             Key::Backspace if mods.ctrl && mods.alt && !mods.logo && !mods.shift => {
                 Some(Action::Quit)
             }
@@ -161,6 +177,7 @@ mod tests {
     const A: u32 = 38;
     const BACKSPACE: u32 = 22;
     const F2: u32 = 68;
+    const ESCAPE: u32 = 9;
 
     fn logo() -> Mods {
         Mods {
@@ -267,22 +284,51 @@ mod tests {
         assert_eq!(b.key(SUPER, Key::Super, false, none()).action, None);
     }
 
+    const NEXT: Option<Action> = Some(Action::Switch { forward: true });
+    const PREV: Option<Action> = Some(Action::Switch { forward: false });
+
     #[test]
     fn alt_tab_switches_and_alt_release_finishes() {
         let mut b = Bindings::default();
         b.key(ALT, Key::Alt, true, alt());
-        assert_eq!(
-            b.key(TAB, Key::Tab, true, alt()),
-            Outcome::intercept(Some(Action::SwitchNext))
-        );
+        assert_eq!(b.key(TAB, Key::Tab, true, alt()), Outcome::intercept(NEXT));
         assert_eq!(b.key(TAB, Key::Tab, false, alt()), Outcome::intercept(None));
-        assert_eq!(
-            b.key(TAB, Key::Tab, true, alt()).action,
-            Some(Action::SwitchNext)
-        );
+        assert_eq!(b.key(TAB, Key::Tab, true, alt()).action, NEXT);
         assert_eq!(
             b.key(ALT, Key::Alt, false, none()),
             Outcome::forward(Some(Action::FinishSwitch))
+        );
+    }
+
+    #[test]
+    fn shift_tab_and_arrows_move_the_highlight() {
+        let mut b = Bindings::default();
+        let alt_shift = Mods {
+            alt: true,
+            shift: true,
+            ..Mods::default()
+        };
+        assert_eq!(b.key(TAB, Key::Tab, true, alt_shift).action, PREV);
+
+        // Arrows and Escape only mean something while switching.
+        let up = Key::Arrow(Direction::Up);
+        assert_eq!(b.key(UP, up, true, alt()), Outcome::forward(None));
+        assert_eq!(
+            b.key(ESCAPE, Key::Escape, true, alt()),
+            Outcome::forward(None)
+        );
+
+        b.switching = true;
+        assert_eq!(b.key(UP, up, true, alt()), Outcome::intercept(PREV));
+        let right = Key::Arrow(Direction::Right);
+        assert_eq!(b.key(LEFT, right, true, alt()).action, NEXT);
+        assert_eq!(
+            b.key(ESCAPE, Key::Escape, true, alt()),
+            Outcome::intercept(Some(Action::CancelSwitch))
+        );
+        assert_eq!(
+            b.key(ESCAPE, Key::Escape, false, alt()),
+            Outcome::intercept(None)
         );
     }
 

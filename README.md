@@ -17,7 +17,7 @@ Every application opens filling the screen. Snap windows to halves and quarters 
 | Keys | Action |
 | --- | --- |
 | `Super` (tap) | Open Fuzzel, or close it if it is open |
-| `Alt+Tab` | Switch to the previous window (most recently used first); keep Alt held and press Tab again to go further back |
+| `Alt+Tab` | Switch to the previous window (most recently used first). Keep Alt held to see thumbnails of your windows; Tab/Shift+Tab or the arrow keys move the highlight, releasing Alt switches, Escape cancels |
 | `Super+Left` / `Right` / `Up` / `Down` | Snap the focused window to that half |
 | `Super+Left` then `Up` (Super held) | Snap to a quarter; any horizontal plus vertical pair works |
 | `Super+<direction the window is already in>` | Back to full screen |
@@ -34,7 +34,7 @@ Done:
 - Hardware backend (DRM/KMS with libseat, libinput and GBM): one GPU and one monitor, the first connected one; VT switching; a drawn cursor (XCURSOR_THEME, or a built-in arrow); tap-to-click enabled on touchpads
 - xdg-shell windows and popups, wlr-layer-shell (needed by Fuzzel), clipboard and primary selection, linux-dmabuf, viewporter, server-side decoration negotiation (the compositor draws no decorations)
 - Full-screen initial placement, dialogs floating centred, half and quarter layouts
-- Most-recently-used Alt+Tab
+- Most-recently-used Alt+Tab with live window thumbnails, application icons and names
 - Super tap launches Fuzzel; Super used with another key or a click does not
 
 Not done yet:
@@ -156,6 +156,8 @@ GNOME Settings does not work here: it refuses to start outside GNOME, and its di
 | `src/window.rs` | Managed window and its configure logic |
 | `src/input.rs` | Routes input events to bindings and clients |
 | `src/handlers/` | Smithay protocol handlers (compositor, xdg-shell, layer-shell, seat, clipboard, ...) |
+| `src/switcher.rs` | Alt+Tab switcher: thumbnails, icons and text (fontdue, font from fontconfig) |
+| `src/apps.rs` | Application names and icons from desktop files and icon themes |
 | `src/launcher.rs` | Spawns Fuzzel |
 | `src/winit.rs` | Nested backend and rendering |
 | `src/udev.rs` | Hardware backend: session, GPU, monitor, libinput, rendering |

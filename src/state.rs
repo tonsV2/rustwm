@@ -46,6 +46,7 @@ use crate::{
     keyboard::Bindings,
     launcher::Launcher,
     layout::{Layout, Rect},
+    switcher::Switcher,
     udev::UdevData,
     window::ManagedWindow,
     winit::WinitData,
@@ -112,6 +113,7 @@ pub struct State {
     pub focus: FocusHistory,
     pub bindings: Bindings,
     pub launcher: Launcher,
+    pub switcher: Switcher,
     pub config: Config,
     /// A layer surface (the launcher) that has taken keyboard focus. While
     /// set, it keeps focus over windows.
@@ -176,6 +178,7 @@ impl State {
             focus: FocusHistory::default(),
             bindings: Bindings::default(),
             launcher: Launcher::new(),
+            switcher: Switcher::default(),
             config,
             layer_focus: None,
         })

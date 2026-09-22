@@ -429,7 +429,9 @@ Behavior:
 * ~~Pressing `Alt+Tab` once focuses the previously focused window, so a quick `Alt+Tab` toggles between the two most recent windows.~~
 * ~~While `Alt` stays held, each further `Tab` press steps one window deeper into the MRU list.~~
 * ~~Wrap around at the end of the list.~~
-* ~~Focus and raise each window as it is stepped to, so the user sees the current selection. No switcher UI is drawn.~~
+* ~~While `Alt` is held, draw a horizontal row of live window thumbnails in MRU order in the middle of the screen, each with the application's icon in its lower right corner and the application's name under it, with the selected one highlighted and its title shown below the row. Stepping only moves the highlight; windows are not raised until `Alt` is released.~~
+* ~~Show the list only after a short delay (150 ms) or at the second `Tab`, so a quick `Alt+Tab` does not flash it.~~
+* ~~`Shift+Tab` steps backwards. While the list is open, `Up`/`Left` and `Down`/`Right` also move the highlight, and `Escape` closes it and keeps the current window.~~
 * ~~The MRU list is not reordered while `Alt` is held; otherwise stepping would keep bouncing between the same two windows.~~
 * ~~When `Alt` is released, the selected window moves to the front of the MRU list.~~
 * ~~Do not change the selected window's layout.~~

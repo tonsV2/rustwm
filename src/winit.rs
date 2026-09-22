@@ -5,10 +5,7 @@ use anyhow::Context;
 use smithay::{
     backend::{
         egl::EGLDevice,
-        renderer::{
-            ImportDma, damage::OutputDamageTracker, element::surface::WaylandSurfaceRenderElement,
-            gles::GlesRenderer,
-        },
+        renderer::{ImportDma, damage::OutputDamageTracker, gles::GlesRenderer},
         winit::{self, WinitEvent, WinitEventLoop, WinitGraphicsBackend},
     },
     desktop::{layer_map_for_output, space::render_output},
@@ -19,7 +16,10 @@ use smithay::{
 };
 use tracing::{info, warn};
 
-use crate::state::{Backend, State};
+use crate::{
+    state::{Backend, State},
+    switcher::SwitcherElement,
+};
 
 const REFRESH_MHZ: i32 = 60_000;
 const BACKGROUND: [f32; 4] = [0.1, 0.1, 0.1, 1.0];
@@ -145,27 +145,29 @@ pub fn run(
 }
 
 fn render(state: &mut State) {
-    let Backend::Winit(winit) = &mut state.backend else {
+    let Backend::Winit(winit) = &state.backend else {
         return;
     };
     let output = winit.output.clone();
+    let overlay = state.switcher_elements(&output);
+    let Backend::Winit(winit) = &mut state.backend else {
+        return;
+    };
     let size = winit.backend.window_size();
 
     let rendered = match winit.backend.bind() {
-        Ok((renderer, mut framebuffer)) => {
-            render_output::<_, WaylandSurfaceRenderElement<GlesRenderer>, _, _>(
-                &output,
-                renderer,
-                &mut framebuffer,
-                1.0,
-                0,
-                [&state.space],
-                &[],
-                &mut winit.damage_tracker,
-                BACKGROUND,
-            )
-            .is_ok()
-        }
+        Ok((renderer, mut framebuffer)) => render_output::<_, SwitcherElement, _, _>(
+            &output,
+            renderer,
+            &mut framebuffer,
+            1.0,
+            0,
+            [&state.space],
+            &overlay,
+            &mut winit.damage_tracker,
+            BACKGROUND,
+        )
+        .is_ok(),
         Err(err) => {
             warn!(%err, "failed to bind nested window");
             false

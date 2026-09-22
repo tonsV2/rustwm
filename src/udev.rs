@@ -59,6 +59,7 @@ use crate::{
     config::{InputConfig, auto_scale},
     cursor::Cursor,
     state::{Backend, State},
+    switcher::SwitcherElement,
 };
 
 type GbmOutputManager = DrmOutputManager<
@@ -79,6 +80,7 @@ render_elements! {
     Space=SpaceRenderElements<GlesRenderer, WaylandSurfaceRenderElement<GlesRenderer>>,
     CursorSurface=WaylandSurfaceRenderElement<GlesRenderer>,
     CursorImage=MemoryRenderBufferRenderElement<GlesRenderer>,
+    Switcher=SwitcherElement,
 }
 
 pub struct UdevData {
@@ -467,6 +469,18 @@ fn on_vblank(state: &mut State, crtc: crtc::Handle) {
 /// When nothing changed no page flip happens, so no vblank will arrive to
 /// trigger the next frame; a timer at the refresh interval takes its place.
 pub fn render(state: &mut State) {
+    let switcher = match &state.backend {
+        Backend::Udev(UdevData {
+            active: true,
+            render_pending: false,
+            screen: Some(screen),
+            ..
+        }) => {
+            let output = screen.output.clone();
+            state.switcher_elements(&output)
+        }
+        _ => Vec::new(),
+    };
     let pointer_location = state
         .seat
         .get_pointer()
@@ -536,6 +550,8 @@ pub fn render(state: &mut State) {
             }
         }
     }
+
+    elements.extend(switcher.into_iter().map(OutputElements::Switcher));
 
     match space_render_elements(&mut udev.renderer, [&*space], &screen.output, 1.0) {
         Ok(space_elements) => elements.extend(space_elements.into_iter().map(Into::into)),

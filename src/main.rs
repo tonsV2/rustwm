@@ -1,3 +1,4 @@
+mod apps;
 mod config;
 mod cursor;
 mod focus;
@@ -7,6 +8,7 @@ mod keyboard;
 mod launcher;
 mod layout;
 mod state;
+mod switcher;
 mod udev;
 mod window;
 mod winit;
