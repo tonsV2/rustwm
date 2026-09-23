@@ -65,7 +65,7 @@ impl App {
     pub fn for_key(key: Key) -> Option<Self> {
         match key {
             Key::Return => Some(App::Terminal),
-            Key::Char('e') => Some(App::FileManager),
+            Key::Char('f') => Some(App::FileManager),
             Key::Char('b') => Some(App::Browser),
             Key::Char('l') => Some(App::Lock),
             _ => None,
@@ -281,7 +281,7 @@ mod tests {
     const UP: u32 = 111;
     const A: u32 = 38;
     const L: u32 = 46;
-    const E: u32 = 26;
+    const F: u32 = 41;
     const B: u32 = 56;
     const Q: u32 = 24;
     const THREE: u32 = 12;
@@ -564,7 +564,7 @@ mod tests {
         let mut b = Bindings::default();
         let cases = [
             (RETURN, Key::Return, Action::Spawn(App::Terminal)),
-            (E, Key::Char('e'), Action::Spawn(App::FileManager)),
+            (F, Key::Char('f'), Action::Spawn(App::FileManager)),
             (B, Key::Char('b'), Action::Spawn(App::Browser)),
             (Q, Key::Char('q'), Action::Close),
             (THREE, Key::Digit(3), Action::FocusNth(3)),

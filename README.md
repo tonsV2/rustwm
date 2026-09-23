@@ -22,7 +22,7 @@ Every application opens filling the screen. Snap windows to halves and quarters 
 | `Super+Left` then `Up` (Super held) | Snap to a quarter; any horizontal plus vertical pair works |
 | `Super+<direction the window is already in>` | Back to full screen |
 | `Super+Return` | Open a terminal: `xdg-terminal-exec`, else the first entry of `~/.config/xdg-terminals.list`, else foot |
-| `Super+e` | Open the file manager on your home folder |
+| `Super+f` | Open the file manager on your home folder |
 | `Super+b` | Open the default web browser |
 | `Super+q` | Close the focused window (the app may ask to save first) |
 | `Super+1` … `Super+9` | Focus the first … ninth window, in the order they were opened (dialogs not counted) |
@@ -176,7 +176,7 @@ Settings live in `~/.config/rustwm/config.toml`. Copy [resources/config.toml](re
 | `commands.volume_up`, `volume_down`, `volume_mute` | `rustwm-volume up 5`, `rustwm-volume down 5`, `wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle` | Volume keys |
 | `commands.mic_mute` | `wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle` | Microphone mute key |
 | `commands.terminal` | `rustwm-terminal` | Terminal for `Super+Return` |
-| `commands.file_manager` | `xdg-open "$HOME"` | File manager for `Super+e` |
+| `commands.file_manager` | `xdg-open "$HOME"` | File manager for `Super+f` |
 | `commands.browser` | `gtk-launch "$(xdg-settings get default-web-browser)"` | Browser for `Super+b` |
 | `commands.lock` | `swaylock -f -c 000000` | Screen locker for `Super+l` |
 | `osd.enabled` | `true` | Show the brightness and volume level after a key press; turn off if you run your own indicator (swayosd, wob) |

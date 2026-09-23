@@ -97,7 +97,7 @@ pub struct CommandsConfig {
     pub mic_mute: String,
     /// A new terminal window, Super+Return.
     pub terminal: String,
-    /// The file manager, Super+e.
+    /// The file manager, Super+f.
     pub file_manager: String,
     /// The web browser, Super+b.
     pub browser: String,
