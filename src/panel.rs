@@ -22,8 +22,6 @@ use crate::{
     state::State,
 };
 
-const HIDE_DELAY: Duration = Duration::from_millis(400);
-
 #[derive(Default)]
 pub struct Panel {
     surface: Option<(Output, LayerSurface)>,
@@ -108,9 +106,10 @@ impl State {
         } else if self.pointer_over_panel_at(pos) {
             self.cancel_panel_hide();
         } else if self.panel.hide_timer.is_none() {
+            let delay = Duration::from_millis(self.config.panel.hide_delay_ms);
             let timer =
                 self.loop_handle
-                    .insert_source(Timer::from_duration(HIDE_DELAY), |_, _, state| {
+                    .insert_source(Timer::from_duration(delay), |_, _, state| {
                         state.panel.hide_timer = None;
                         if !state.pointer_over_panel() {
                             state.hide_panel();

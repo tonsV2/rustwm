@@ -58,6 +58,8 @@ enabled = true
 position = "top"
 # "auto-hide" keeps the panel off screen until the pointer touches its edge; "always" keeps it shown and lays windows out beside it.
 mode = "auto-hide"
+# In auto-hide mode, how long the panel stays after the pointer leaves it, in milliseconds.
+hide_delay_ms = 1000
 # rustwm-panel runs Waybar with the config in resources/waybar (copy it to ~/.config/rustwm/waybar to change it). "" for no panel.
 command = "rustwm-panel"
 

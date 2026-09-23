@@ -191,6 +191,8 @@ pub struct PanelConfig {
     pub mode: PanelMode,
     /// The layer-shell namespace the bar gives its surface, so rustwm knows which surface to auto-hide.
     pub namespace: String,
+    /// In auto-hide mode, how long the panel stays after the pointer leaves it, in milliseconds.
+    pub hide_delay_ms: u64,
 }
 
 impl Default for PanelConfig {
@@ -200,6 +202,7 @@ impl Default for PanelConfig {
             position: PanelPosition::Top,
             mode: PanelMode::AutoHide,
             namespace: "waybar".into(),
+            hide_delay_ms: 1000,
         }
     }
 }
@@ -390,7 +393,11 @@ mod tests {
 
     #[test]
     fn panel_parses() {
-        let config = Config::parse("[panel]\nposition = \"bottom\"\nmode = \"always\"\n").unwrap();
+        let config = Config::parse(
+            "[panel]\nposition = \"bottom\"\nmode = \"always\"\nhide_delay_ms = 2500\n",
+        )
+        .unwrap();
+        assert_eq!(config.panel.hide_delay_ms, 2500);
         assert_eq!(config.panel.position, PanelPosition::Bottom);
         assert_eq!(config.panel.mode, PanelMode::Always);
         assert_eq!(config.panel.command, "rustwm-panel");
