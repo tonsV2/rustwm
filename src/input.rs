@@ -1,5 +1,7 @@
 //! Routes input events to keybindings and clients.
 
+use std::time::Duration;
+
 use smithay::{
     backend::input::{
         AbsolutePositionEvent, Axis, AxisSource, ButtonState, Event, InputBackend, InputEvent,
@@ -10,17 +12,19 @@ use smithay::{
         keyboard::{FilterResult, Keysym},
         pointer::{AxisFrame, ButtonEvent, MotionEvent},
     },
+    reexports::calloop::timer::{TimeoutAction, Timer},
     utils::{Logical, Point, SERIAL_COUNTER},
     wayland::shell::wlr_layer::Layer,
 };
 
 use crate::{
+    commands,
     focus::WindowId,
-    keyboard::{Action, Key, Mods},
+    keyboard::{Action, Command, Key, Mods, REPEAT_DELAY_MS, REPEAT_RATE},
     layout::{Direction, Layout},
     state::{Backend, State},
 };
-use tracing::info;
+use tracing::{info, warn};
 
 impl State {
     pub fn process_input_event<I: InputBackend>(&mut self, event: InputEvent<I>) {
@@ -45,6 +49,16 @@ impl State {
         let serial = SERIAL_COUNTER.next_serial();
         let time = Event::time_msec(&event);
 
+        // Any other key, or releasing the held one, stops a repeating
+        // brightness or volume key.
+        if pressed
+            || self
+                .key_repeat
+                .is_some_and(|(held, _)| held == keycode.raw())
+        {
+            self.stop_key_repeat();
+        }
+
         // The filter runs after xkb has applied this key, so `mods` already
         // reflects it: on Super's release, `logo` is false.
         let mut action = None;
@@ -55,7 +69,13 @@ impl State {
             serial,
             time,
             |state, mods, handle| {
-                let key = classify(handle.modified_sym());
+                let key = match classify(handle.modified_sym()) {
+                    // An empty command leaves the key to the client.
+                    Key::Command(command) if state.config.commands.get(command).is_empty() => {
+                        Key::Other
+                    }
+                    key => key,
+                };
                 let mods = Mods {
                     logo: mods.logo,
                     alt: mods.alt,
@@ -75,6 +95,34 @@ impl State {
 
         if let Some(action) = action {
             self.run_action(action);
+            if let Action::Run(command) = action
+                && command.repeats()
+            {
+                self.start_key_repeat(keycode.raw(), command);
+            }
+        }
+    }
+
+    /// Runs `command` again at the key repeat rate while its key is held,
+    /// after the usual repeat delay.
+    fn start_key_repeat(&mut self, keycode: u32, command: Command) {
+        let delay = Duration::from_millis(REPEAT_DELAY_MS as u64);
+        let interval = Duration::from_millis(1000 / REPEAT_RATE as u64);
+        let timer = Timer::from_duration(delay);
+        let inserted = self.loop_handle.insert_source(timer, move |_, _, state| {
+            commands::run(state.config.commands.get(command), &state.socket_name);
+            TimeoutAction::ToDuration(interval)
+        });
+        match inserted {
+            Ok(token) => self.key_repeat = Some((keycode, token)),
+            Err(err) => warn!(%err, "failed to schedule key repeat"),
+        }
+    }
+
+    /// Stops repeating a held brightness or volume key, if one repeats.
+    pub fn stop_key_repeat(&mut self) {
+        if let Some((_, token)) = self.key_repeat.take() {
+            self.loop_handle.remove(token);
         }
     }
 
@@ -101,6 +149,9 @@ impl State {
                 if let Backend::Udev(udev) = &mut self.backend {
                     udev.change_vt(vt);
                 }
+            }
+            Action::Run(command) => {
+                commands::run(self.config.commands.get(command), &self.socket_name)
             }
             Action::Quit => {
                 info!("quit requested");
@@ -260,6 +311,12 @@ fn classify(sym: Keysym) -> Key {
         Keysym::Up => Key::Arrow(Direction::Up),
         Keysym::Down => Key::Arrow(Direction::Down),
         Keysym::BackSpace => Key::Backspace,
+        Keysym::XF86_MonBrightnessUp => Key::Command(Command::BrightnessUp),
+        Keysym::XF86_MonBrightnessDown => Key::Command(Command::BrightnessDown),
+        Keysym::XF86_AudioRaiseVolume => Key::Command(Command::VolumeUp),
+        Keysym::XF86_AudioLowerVolume => Key::Command(Command::VolumeDown),
+        Keysym::XF86_AudioMute => Key::Command(Command::VolumeMute),
+        Keysym::XF86_AudioMicMute => Key::Command(Command::MicMute),
         sym if (Keysym::XF86_Switch_VT_1.raw()..=Keysym::XF86_Switch_VT_12.raw())
             .contains(&sym.raw()) =>
         {

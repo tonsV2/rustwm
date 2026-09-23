@@ -14,3 +14,14 @@ pointer_speed = 0.0
 # Touchpad content follows the fingers when scrolling.
 natural_scroll = false
 tap_to_click = true
+
+[commands]
+# Shell commands for the brightness and volume keys, run with `sh -c`. An
+# empty string ("") passes the key on to the focused application instead.
+# The up and down keys repeat while held; the mute keys do not.
+brightness_up = "brightnessctl set +5%"
+brightness_down = "brightnessctl set 5%-"
+volume_up = "wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%+"
+volume_down = "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-"
+volume_mute = "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"
+mic_mute = "wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle"

@@ -9,11 +9,14 @@ use std::{env, fs, path::PathBuf};
 use serde::Deserialize;
 use tracing::{info, warn};
 
+use crate::keyboard::Command;
+
 #[derive(Debug, Default, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
     pub output: OutputConfig,
     pub input: InputConfig,
+    pub commands: CommandsConfig,
 }
 
 #[derive(Debug, Default, Deserialize, PartialEq)]
@@ -40,6 +43,45 @@ impl Default for InputConfig {
             pointer_speed: 0.0,
             natural_scroll: false,
             tap_to_click: true,
+        }
+    }
+}
+
+/// Shell commands for the brightness and volume keys, run with `sh -c`.
+/// An empty string leaves the key to the focused application.
+#[derive(Debug, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct CommandsConfig {
+    pub brightness_up: String,
+    pub brightness_down: String,
+    pub volume_up: String,
+    pub volume_down: String,
+    pub volume_mute: String,
+    pub mic_mute: String,
+}
+
+impl Default for CommandsConfig {
+    fn default() -> Self {
+        Self {
+            brightness_up: "brightnessctl set +5%".into(),
+            brightness_down: "brightnessctl set 5%-".into(),
+            volume_up: "wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%+".into(),
+            volume_down: "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-".into(),
+            volume_mute: "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle".into(),
+            mic_mute: "wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle".into(),
+        }
+    }
+}
+
+impl CommandsConfig {
+    pub fn get(&self, command: Command) -> &str {
+        match command {
+            Command::BrightnessUp => &self.brightness_up,
+            Command::BrightnessDown => &self.brightness_down,
+            Command::VolumeUp => &self.volume_up,
+            Command::VolumeDown => &self.volume_down,
+            Command::VolumeMute => &self.volume_mute,
+            Command::MicMute => &self.mic_mute,
         }
     }
 }
@@ -126,6 +168,25 @@ mod tests {
         let config = Config::parse("[input]\nnatural_scroll = true\n").unwrap();
         assert_eq!(config.output.scale, None);
         assert!(config.input.tap_to_click);
+        assert_eq!(config.commands, CommandsConfig::default());
+    }
+
+    #[test]
+    fn commands_parse() {
+        let config = Config::parse(
+            "[commands]\nvolume_up = \"wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%+\"\nmic_mute = \"\"\n",
+        )
+        .unwrap();
+        assert_eq!(
+            config.commands.get(Command::VolumeUp),
+            "wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%+"
+        );
+        assert_eq!(config.commands.get(Command::MicMute), "");
+        assert_eq!(
+            config.commands.get(Command::BrightnessUp),
+            "brightnessctl set +5%"
+        );
+        assert!(Config::parse("[commands]\nvolume_raise = \"true\"\n").is_err());
     }
 
     #[test]

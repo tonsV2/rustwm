@@ -7,6 +7,12 @@ use std::collections::HashSet;
 
 use crate::layout::Direction;
 
+/// Delay before a held key starts repeating, in milliseconds. Clients are
+/// told the same values, so held keys repeat alike everywhere.
+pub const REPEAT_DELAY_MS: i32 = 200;
+/// Repeats per second once a held key repeats.
+pub const REPEAT_RATE: i32 = 25;
+
 /// The keys the bindings care about, already translated from keysyms.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Key {
@@ -20,7 +26,29 @@ pub enum Key {
     /// One of the XF86Switch_VT_* keysyms, which the default keymap
     /// produces for Ctrl+Alt+F1..F12.
     SwitchVt(i32),
+    /// A brightness or volume key, bound to an outside command.
+    Command(Command),
     Other,
+}
+
+/// Brightness and volume keys. The compositor has no audio or power logic
+/// of its own; each runs a configurable outside command.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Command {
+    BrightnessUp,
+    BrightnessDown,
+    VolumeUp,
+    VolumeDown,
+    VolumeMute,
+    MicMute,
+}
+
+impl Command {
+    /// Whether holding the key runs the command again at the key repeat
+    /// rate. Toggles do not repeat, or a held key would flip back and forth.
+    pub fn repeats(self) -> bool {
+        !matches!(self, Command::VolumeMute | Command::MicMute)
+    }
 }
 
 /// Modifier state after the current key event was applied.
@@ -52,6 +80,8 @@ pub enum Action {
     CancelSwitch,
     /// Change to another virtual terminal (DRM backend only).
     SwitchVt(i32),
+    /// Run the outside command bound to a brightness or volume key.
+    Run(Command),
     /// Stop the compositor. On real hardware this is the way out when
     /// something goes wrong.
     Quit,
@@ -140,6 +170,9 @@ impl Bindings {
                 Some(Action::Quit)
             }
             Key::SwitchVt(vt) => Some(Action::SwitchVt(vt)),
+            // With any modifiers, and while switching, since these keys
+            // mean nothing else.
+            Key::Command(command) => Some(Action::Run(command)),
             _ => None,
         };
 
@@ -366,6 +399,63 @@ mod tests {
             b.key(F2, Key::SwitchVt(2), false, ctrl_alt),
             Outcome::intercept(None)
         );
+    }
+
+    const VOLUME_UP: u32 = 123;
+    const MUTE: u32 = 121;
+
+    #[test]
+    fn command_keys_run_with_any_modifiers() {
+        let mut b = Bindings::default();
+        let up = Key::Command(Command::VolumeUp);
+        let run = Outcome::intercept(Some(Action::Run(Command::VolumeUp)));
+        assert_eq!(b.key(VOLUME_UP, up, true, none()), run);
+        assert_eq!(
+            b.key(VOLUME_UP, up, false, none()),
+            Outcome::intercept(None)
+        );
+        let everything = Mods {
+            logo: true,
+            alt: true,
+            ctrl: true,
+            shift: true,
+        };
+        assert_eq!(b.key(VOLUME_UP, up, true, everything), run);
+    }
+
+    #[test]
+    fn command_key_does_not_end_a_switch_or_launch() {
+        let mut b = Bindings::default();
+        let mute = Key::Command(Command::VolumeMute);
+        b.key(ALT, Key::Alt, true, alt());
+        b.key(TAB, Key::Tab, true, alt());
+        b.switching = true;
+        assert_eq!(
+            b.key(MUTE, mute, true, alt()).action,
+            Some(Action::Run(Command::VolumeMute))
+        );
+        b.key(MUTE, mute, false, alt());
+        assert_eq!(b.key(TAB, Key::Tab, true, alt()).action, NEXT);
+        assert_eq!(
+            b.key(ALT, Key::Alt, false, none()).action,
+            Some(Action::FinishSwitch)
+        );
+
+        // Super held while changing the volume is a modifier, not a tap.
+        b.key(SUPER, Key::Super, true, logo());
+        b.key(MUTE, mute, true, logo());
+        b.key(MUTE, mute, false, logo());
+        assert_eq!(b.key(SUPER, Key::Super, false, none()).action, None);
+    }
+
+    #[test]
+    fn only_up_and_down_commands_repeat() {
+        assert!(Command::BrightnessUp.repeats());
+        assert!(Command::BrightnessDown.repeats());
+        assert!(Command::VolumeUp.repeats());
+        assert!(Command::VolumeDown.repeats());
+        assert!(!Command::VolumeMute.repeats());
+        assert!(!Command::MicMute.repeats());
     }
 
     #[test]

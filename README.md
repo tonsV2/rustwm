@@ -23,6 +23,11 @@ Every application opens filling the screen. Snap windows to halves and quarters 
 | `Super+<direction the window is already in>` | Back to full screen |
 | `Ctrl+Alt+Backspace` | Quit rustwm |
 | `Ctrl+Alt+F1`…`F12` | Switch virtual terminal (hardware backend only) |
+| Brightness up / down | `brightnessctl set +5%` / `5%-`; repeats while held |
+| Volume up / down | `wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%+` / `5%-`; repeats while held |
+| Mute / microphone mute | Toggle mute: `wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle`, or `@DEFAULT_AUDIO_SOURCE@` for the microphone |
+
+The brightness and volume keys work with any modifiers held, and their commands can be changed in the [configuration](#configuration).
 
 Dialogs (windows with a parent, such as file pickers) open centred at their own size. Snapping a dialog treats it as full screen first.
 
@@ -51,6 +56,7 @@ Nested development needs only Rust and Mesa, which Fedora Workstation has alread
 sudo dnf install cargo rust rustfmt clippy mesa-libEGL-devel libxkbcommon-devel wayland-devel
 sudo dnf install fuzzel foot   # launcher, plus a simple terminal to test with
 sudo dnf install xwayland-satellite   # optional: runs X11-only apps
+sudo dnf install brightnessctl # brightness keys; wpctl for the volume keys comes with wireplumber
 ```
 
 The hardware backend additionally needs:
@@ -127,6 +133,11 @@ Settings live in `~/.config/rustwm/config.toml`. Copy [resources/config.toml](re
 | `input.pointer_speed` | `0.0` | Pointer acceleration, `-1.0` to `1.0` |
 | `input.natural_scroll` | `false` | Touchpad content follows the fingers |
 | `input.tap_to_click` | `true` | Tap the touchpad to click |
+| `commands.brightness_up`, `brightness_down` | `brightnessctl set +5%`, `… 5%-` | Brightness keys |
+| `commands.volume_up`, `volume_down`, `volume_mute` | `wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%+`, `… 5%-`, `wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle` | Volume keys |
+| `commands.mic_mute` | `wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle` | Microphone mute key |
+
+Commands run with `sh -c`, so quoting, `&&` and `$HOME` work as in a terminal. An empty command (`""`) passes the key on to the focused application.
 
 GNOME Settings does not work here: it refuses to start outside GNOME, and its display, mouse and keyboard pages configure GNOME's compositor, not rustwm. Settings that apps read themselves (dark style, fonts, text size) are stored in dconf and still apply when you change them from GNOME.
 
@@ -163,6 +174,7 @@ GNOME Settings does not work here: it refuses to start outside GNOME, and its di
 | `src/apps.rs` | Application names and icons from desktop files and icon themes |
 | `src/launcher.rs` | Spawns Fuzzel |
 | `src/xwayland.rs` | Starts xwayland-satellite for X11 apps |
+| `src/commands.rs` | Runs the brightness and volume key commands |
 | `src/winit.rs` | Nested backend and rendering |
 | `src/udev.rs` | Hardware backend: session, GPU, monitor, libinput, rendering |
 | `src/cursor.rs` | Default cursor image for the hardware backend |

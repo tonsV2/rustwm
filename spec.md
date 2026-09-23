@@ -1006,6 +1006,8 @@ In particular, do not spontaneously implement:
 * application indexing
 * desktop search
 
+The one exception to power and audio controls: the brightness and volume keys (`XF86MonBrightnessUp`/`Down`, `XF86AudioRaiseVolume`/`LowerVolume`/`Mute`, `XF86AudioMicMute`) are bound to configurable outside commands, by default `brightnessctl` and `wpctl`. The compositor only runs the command; it contains no brightness or audio logic and shows no on-screen indicator.
+
 The purpose of the project is to have an extremely small and predictable Wayland environment.
 
 ---
