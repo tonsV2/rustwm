@@ -52,3 +52,9 @@ lock = "swaylock -f -c 000000"
 # After a brightness or volume key, show the new level near the bottom of
 # the screen. Turn off if you run your own indicator, such as swayosd.
 enabled = true
+
+[autostart]
+# Started once when rustwm is ready, each with `sh -c`, with the same environment as apps started from Fuzzel. They stop on their own when rustwm exits and its Wayland socket goes away. This one locks after 5 minutes without input, turns the monitor off after 10, and locks before suspend.
+commands = [
+    "swayidle -w timeout 300 'swaylock -f -c 000000' timeout 600 'wlopm --off \"*\"' resume 'wlopm --on \"*\"' before-sleep 'swaylock -f -c 000000'",
+]
