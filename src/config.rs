@@ -19,6 +19,7 @@ pub struct Config {
     pub keyboard: KeyboardConfig,
     pub shortcuts: ShortcutsConfig,
     pub osd: OsdConfig,
+    pub autostart: AutostartConfig,
 }
 
 #[derive(Debug, Default, Deserialize, PartialEq)]
@@ -172,6 +173,13 @@ impl Default for OsdConfig {
     }
 }
 
+/// Programs started once the Wayland socket is ready, such as swayidle or a notification daemon.
+#[derive(Debug, Default, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct AutostartConfig {
+    pub commands: Vec<String>,
+}
+
 impl Config {
     pub fn load() -> Self {
         let Some(path) = path() else {
@@ -312,6 +320,14 @@ mod tests {
             config.shortcuts.terminal,
             ShortcutsConfig::default().terminal
         );
+    }
+
+    #[test]
+    fn autostart_parses() {
+        let config =
+            Config::parse("[autostart]\ncommands = [\"mako\", \"swayidle -w\"]\n").unwrap();
+        assert_eq!(config.autostart.commands, ["mako", "swayidle -w"]);
+        assert!(Config::default().autostart.commands.is_empty());
     }
 
     #[test]

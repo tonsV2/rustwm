@@ -145,13 +145,13 @@ Log out and pick "rustwm" from the gear menu on the login screen.
 
 ## Locking the screen
 
-rustwm draws no lock screen of its own; [swaylock](https://github.com/swaywm/swaylock) does, and [swayidle](https://github.com/swaywm/swayidle) runs it after a while without input. Run this once from a terminal inside rustwm (it stops when rustwm exits; starting it automatically waits for autostart, #4):
+rustwm draws no lock screen of its own; [swaylock](https://github.com/swaywm/swaylock) does, and [swayidle](https://github.com/swaywm/swayidle) runs it after a while without input. Start swayidle with rustwm through [autostart](#configuration) in `config.toml` (the sample config has this line):
 
-```sh
-setsid -f swayidle -w \
-    timeout 300 'swaylock -f -c 000000' \
-    timeout 600 'wlopm --off "*"' resume 'wlopm --on "*"' \
-    before-sleep 'swaylock -f -c 000000'
+```toml
+[autostart]
+commands = [
+    "swayidle -w timeout 300 'swaylock -f -c 000000' timeout 600 'wlopm --off \"*\"' resume 'wlopm --on \"*\"' before-sleep 'swaylock -f -c 000000'",
+]
 ```
 
 This locks after 5 minutes, turns the monitor off after 10, and locks before the laptop suspends (`-w` makes the suspend wait until the lock screen is up). To lock right away, run `swaylock -f -c 000000`. Any key or mouse movement turns the monitor back on. `wlr-randr --off` does not work, because rustwm has no output-management protocol; use `wlopm`.
@@ -188,6 +188,7 @@ Settings live in `~/.config/rustwm/config.toml`. Copy [resources/config.toml](re
 | `shortcuts.browser` | `gtk-launch "$(xdg-settings get default-web-browser)"` | Browser for `Super+b` |
 | `shortcuts.lock` | `swaylock -f -c 000000` | Screen locker for `Super+l` |
 | `osd.enabled` | `true` | Show the brightness and volume level after a key press; turn off if you run your own indicator (swayosd, wob) |
+| `autostart.commands` | none | Commands started once rustwm is ready, such as swayidle or a notification daemon (`mako`); they stop when rustwm exits |
 
 Commands run with `sh -c`, so quoting, `&&` and `$HOME` work as in a terminal. An empty command (`""`) passes the key on to the focused application.
 

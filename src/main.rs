@@ -86,6 +86,10 @@ fn main() -> anyhow::Result<()> {
     state.xwayland = xwayland::Satellite::start(&state.socket_name);
     let x_display = state.xwayland.as_ref().map(|s| s.display.clone());
     launcher::export_to_dbus(&state.socket_name, x_display.as_deref(), nested);
+    for command in &state.config.autostart.commands {
+        info!(command, "autostart");
+        commands::run(command, &state.child_env(), || {});
+    }
 
     event_loop
         .run(None, &mut state, State::after_dispatch)
