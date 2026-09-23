@@ -43,6 +43,7 @@ Done:
 - Super tap launches Fuzzel; Super used with another key or a click does not
 - X11-only apps through [xwayland-satellite](https://github.com/Supreeeme/xwayland-satellite): rustwm starts it on a free display when it is installed, stops it on exit, and gives apps started from Fuzzel that display as `DISPLAY`
 - xdg-activation: an application can bring another forward, for example a terminal opening a link in the running browser. Only the focused application can hand out a request, right after an input event, and it expires after 10 seconds
+- Screen locking and idle: ext-session-lock (swaylock), ext-idle-notify and idle-inhibit (swayidle, video players keeping the screen on), and wlr-output-power-management (`wlopm` turns the monitor off). See [Locking the screen](#locking-the-screen)
 
 Not done yet:
 
@@ -57,6 +58,7 @@ sudo dnf install cargo rust rustfmt clippy mesa-libEGL-devel libxkbcommon-devel 
 sudo dnf install fuzzel foot   # launcher, plus a simple terminal to test with
 sudo dnf install xwayland-satellite   # optional: runs X11-only apps
 sudo dnf install brightnessctl # brightness keys; wpctl for the volume keys comes with wireplumber
+sudo dnf install swaylock swayidle wlopm   # screen locking, idle timeout, monitor off
 ```
 
 The hardware backend additionally needs:
@@ -130,6 +132,28 @@ sudo install -m 644 resources/rustwm.desktop /usr/share/wayland-sessions/rustwm.
 
 Log out and pick "rustwm" from the gear menu on the login screen.
 
+## Locking the screen
+
+rustwm draws no lock screen of its own; [swaylock](https://github.com/swaywm/swaylock) does, and [swayidle](https://github.com/swaywm/swayidle) runs it after a while without input. Run this once from a terminal inside rustwm (it stops when rustwm exits; starting it automatically waits for autostart, #4):
+
+```sh
+setsid -f swayidle -w \
+    timeout 300 'swaylock -f -c 000000' \
+    timeout 600 'wlopm --off "*"' resume 'wlopm --on "*"' \
+    before-sleep 'swaylock -f -c 000000'
+```
+
+This locks after 5 minutes, turns the monitor off after 10, and locks before the laptop suspends (`-w` makes the suspend wait until the lock screen is up). To lock right away, run `swaylock -f -c 000000`. Any key or mouse movement turns the monitor back on. `wlr-randr --off` does not work, because rustwm has no output-management protocol; use `wlopm`.
+
+While locked:
+
+- Only the lock screen is drawn; windows, Fuzzel and the Alt+Tab switcher are hidden, and all keyboard and mouse input goes to the lock screen.
+- The window keys are off, and so is `Ctrl+Alt+Backspace`, which would otherwise quit past the lock. `Ctrl+Alt+F1`…`F12` (VT switching) and the brightness and volume keys still work.
+- If swaylock crashes, the screen stays black and locked. Switch to a text console with `Ctrl+Alt+F3`, log in and run `WAYLAND_DISPLAY=wayland-1 swaylock` (the `ready` line in `logs/rustwm.log` names the socket) to get a lock screen back, then switch back and unlock.
+- Unlocking returns focus to the window that had it.
+
+A video player or browser playing video can keep the screen from locking and turning off (idle-inhibit) while its window is shown.
+
 ## Configuration
 
 Settings live in `~/.config/rustwm/config.toml`. Copy [resources/config.toml](resources/config.toml) there as a starting point. Everything is optional, and changes take effect when rustwm restarts.
@@ -168,7 +192,7 @@ GNOME Settings does not work here: it refuses to start outside GNOME, and its di
 - Client requests to maximize or go full screen (such as F11 or full-screen video) are ignored, because the keyboard decides placement.
 - An application whose minimum size is larger than its slot draws past the slot's edge.
 - X11-only apps need `xwayland-satellite` installed; without it they do not run. Some Java apps show a blank window under it until `_JAVA_AWT_WM_NONREPARENTING=1` is set. JetBrains IDEs also have a Wayland mode: add `-Dawt.toolkit.name=WLToolkit` via Help → Edit Custom VM Options. They also run as a single instance per user, so close the IDE in any other session first.
-- No screen locking, built-in XWayland, workspaces or window decorations (the last three are out of scope by design).
+- No built-in XWayland, workspaces or window decorations (out of scope by design).
 
 ## Code layout
 
@@ -181,7 +205,7 @@ GNOME Settings does not work here: it refuses to start outside GNOME, and its di
 | `src/state.rs` | Compositor state and focus/layout plumbing |
 | `src/window.rs` | Managed window and its configure logic |
 | `src/input.rs` | Routes input events to bindings and clients |
-| `src/handlers/` | Smithay protocol handlers (compositor, xdg-shell, layer-shell, seat, clipboard, ...) |
+| `src/handlers/` | Smithay protocol handlers (compositor, xdg-shell, layer-shell, seat, clipboard, session lock, idle, output power, ...) |
 | `src/switcher.rs` | Alt+Tab switcher: thumbnails, icons and text (fontdue, font from fontconfig) |
 | `src/apps.rs` | Application names and icons from desktop files and icon themes |
 | `src/launcher.rs` | Spawns Fuzzel |
