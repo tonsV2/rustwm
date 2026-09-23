@@ -18,8 +18,9 @@ use smithay::{
 };
 
 use crate::{
+    commands,
     focus::WindowId,
-    keyboard::{Action, Command, Key, Mods},
+    keyboard::{Action, App, Command, Key, Mods},
     layout::{Direction, Layout},
     state::{Backend, State},
 };
@@ -79,6 +80,11 @@ impl State {
                 let key = match classify(handle.modified_sym()) {
                     // An empty command leaves the key to the client.
                     Key::Command(command) if state.config.commands.get(command).is_empty() => {
+                        Key::Other
+                    }
+                    key if App::for_key(key)
+                        .is_some_and(|app| state.config.commands.app(app).is_empty()) =>
+                    {
                         Key::Other
                     }
                     key => key,
@@ -159,6 +165,29 @@ impl State {
                 }
             }
             Action::Run(command) => self.run_command(command),
+            Action::Spawn(app) => {
+                info!(?app, "starting from shortcut");
+                commands::run(self.config.commands.app(app), &self.socket_name, || {});
+            }
+            Action::Close => {
+                let focused = self.focus.current().and_then(|id| self.window(id));
+                if let Some(toplevel) = focused.and_then(|w| w.window.toplevel()) {
+                    toplevel.send_close();
+                }
+            }
+            Action::FocusNth(n) => {
+                // Dialogs are left out, so the numbers stay put when one opens.
+                let nth = self
+                    .windows
+                    .iter()
+                    .filter(|w| w.mapped)
+                    .filter(|w| w.window.toplevel().is_some_and(|t| t.parent().is_none()))
+                    .nth(n - 1)
+                    .map(|w| w.id);
+                if let Some(id) = nth {
+                    self.focus_window(id);
+                }
+            }
             Action::Quit => {
                 info!("quit requested");
                 self.loop_signal.stop();
@@ -318,6 +347,17 @@ fn classify(sym: Keysym) -> Key {
         Keysym::Up => Key::Arrow(Direction::Up),
         Keysym::Down => Key::Arrow(Direction::Down),
         Keysym::BackSpace => Key::Backspace,
+        Keysym::Return | Keysym::KP_Enter => Key::Return,
+        // Letters as lowercase, so Caps Lock makes no difference.
+        sym if (Keysym::a.raw()..=Keysym::z.raw()).contains(&sym.raw()) => {
+            Key::Char(sym.raw() as u8 as char)
+        }
+        sym if (Keysym::A.raw()..=Keysym::Z.raw()).contains(&sym.raw()) => {
+            Key::Char((sym.raw() as u8 as char).to_ascii_lowercase())
+        }
+        sym if (Keysym::_1.raw()..=Keysym::_9.raw()).contains(&sym.raw()) => {
+            Key::Digit((sym.raw() - Keysym::_0.raw()) as u8)
+        }
         Keysym::XF86_MonBrightnessUp => Key::Command(Command::BrightnessUp),
         Keysym::XF86_MonBrightnessDown => Key::Command(Command::BrightnessDown),
         Keysym::XF86_AudioRaiseVolume => Key::Command(Command::VolumeUp),

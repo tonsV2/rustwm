@@ -21,6 +21,12 @@ Every application opens filling the screen. Snap windows to halves and quarters 
 | `Super+Left` / `Right` / `Up` / `Down` | Snap the focused window to that half |
 | `Super+Left` then `Up` (Super held) | Snap to a quarter; any horizontal plus vertical pair works |
 | `Super+<direction the window is already in>` | Back to full screen |
+| `Super+Return` | Open a terminal: `xdg-terminal-exec`, else the first entry of `~/.config/xdg-terminals.list`, else foot |
+| `Super+e` | Open the file manager on your home folder |
+| `Super+b` | Open the default web browser |
+| `Super+q` | Close the focused window (the app may ask to save first) |
+| `Super+1` … `Super+9` | Focus the first … ninth window, in the order they were opened (dialogs not counted) |
+| `Super+l` | Lock the screen (`swaylock -f -c 000000`) |
 | `Ctrl+Alt+Backspace` | Quit rustwm |
 | `Ctrl+Alt+F1`…`F12` | Switch virtual terminal (hardware backend only) |
 | Brightness up / down | `brightnessctl set +5%` / `5%-`; repeats while held |
@@ -129,7 +135,7 @@ Starting a second `gnome-keyring-daemon` on the private bus does not help: `--st
 Once it works from a console, you can add it to the GDM session list:
 
 ```sh
-sudo install -m 755 target/release/rustwm resources/rustwm-session resources/rustwm-secrets-relay resources/rustwm-volume /usr/local/bin/
+sudo install -m 755 target/release/rustwm resources/rustwm-session resources/rustwm-secrets-relay resources/rustwm-volume resources/rustwm-terminal /usr/local/bin/
 sudo install -m 644 resources/rustwm.desktop /usr/share/wayland-sessions/rustwm.desktop
 sudo install -m 644 resources/rustwm-portals.conf /usr/share/xdg-desktop-portal/rustwm-portals.conf
 ```
@@ -153,7 +159,7 @@ While locked:
 
 - Only the lock screen is drawn; windows, Fuzzel and the Alt+Tab switcher are hidden, and all keyboard and mouse input goes to the lock screen.
 - The window keys are off, and so is `Ctrl+Alt+Backspace`, which would otherwise quit past the lock. `Ctrl+Alt+F1`…`F12` (VT switching) and the brightness and volume keys still work.
-- If swaylock crashes, the screen stays black and locked. Switch to a text console with `Ctrl+Alt+F3`, log in and run `WAYLAND_DISPLAY=wayland-1 swaylock` (the `ready` line in `logs/rustwm.log` names the socket) to get a lock screen back, then switch back and unlock.
+- If swaylock crashes, the screen stays black and locked. From another console than rustwm's (a free text console, or GNOME's terminal if it runs alongside), run `WAYLAND_DISPLAY=wayland-1 setsid -f swaylock -f` (the `ready` line in `logs/rustwm.log` names the socket) to get a lock screen back, then switch back to rustwm and unlock.
 - Screen captures are refused: a screen share pauses on its last frame from before the lock, and screenshots (including Print) fail.
 - Unlocking returns focus to the window that had it.
 
@@ -175,6 +181,10 @@ Settings live in `~/.config/rustwm/config.toml`. Copy [resources/config.toml](re
 | `commands.volume_up`, `volume_down`, `volume_mute` | `rustwm-volume up 5`, `rustwm-volume down 5`, `wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle` | Volume keys |
 | `commands.mic_mute` | `wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle` | Microphone mute key |
 | `commands.screenshot` | `mkdir -p ~/Pictures/Screenshots && grim ~/Pictures/Screenshots/Screenshot-$(date +%Y-%m-%d-%H%M%S).png` | Print key |
+| `commands.terminal` | `rustwm-terminal` | Terminal for `Super+Return` |
+| `commands.file_manager` | `xdg-open "$HOME"` | File manager for `Super+e` |
+| `commands.browser` | `gtk-launch "$(xdg-settings get default-web-browser)"` | Browser for `Super+b` |
+| `commands.lock` | `swaylock -f -c 000000` | Screen locker for `Super+l` |
 | `osd.enabled` | `true` | Show the brightness and volume level after a key press; turn off if you run your own indicator (swayosd, wob) |
 
 Commands run with `sh -c`, so quoting, `&&` and `$HOME` work as in a terminal. An empty command (`""`) passes the key on to the focused application.

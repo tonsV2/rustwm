@@ -41,6 +41,14 @@ mic_mute = "wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle"
 # Print saves the screen; for a selected area use
 # 'grim -g "$(slurp)" ~/Pictures/Screenshots/Screenshot-$(date +%Y-%m-%d-%H%M%S).png'
 screenshot = "mkdir -p ~/Pictures/Screenshots && grim ~/Pictures/Screenshots/Screenshot-$(date +%Y-%m-%d-%H%M%S).png"
+# Super shortcuts. An empty string leaves the key to the focused app.
+# rustwm-terminal (next to rustwm-session) picks xdg-terminal-exec, the first
+# entry of ~/.config/xdg-terminals.list, or foot.
+terminal = "rustwm-terminal"
+file_manager = 'xdg-open "$HOME"'
+browser = 'gtk-launch "$(xdg-settings get default-web-browser)"'
+# `-f` returns once the screen is locked, `-c` sets the colour.
+lock = "swaylock -f -c 000000"
 
 [osd]
 # After a brightness or volume key, show the new level near the bottom of
