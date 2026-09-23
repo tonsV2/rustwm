@@ -24,7 +24,7 @@ Every application opens filling the screen. Snap windows to halves and quarters 
 | `Super+Return` | Open a terminal: `xdg-terminal-exec`, else the first entry of `~/.config/xdg-terminals.list`, else foot |
 | `Super+f` | Open the file manager on your home folder |
 | `Super+b` | Open the default web browser |
-| `Super+q` | Close the focused window (the app may ask to save first) |
+| `Super+q` or `Alt+F4` | Close the focused window (the app may ask to save first) |
 | `Super+1` … `Super+9` | Focus the first … ninth window, in the order they were opened (dialogs not counted) |
 | `Super+l` | Lock the screen (`swaylock -f -c 000000`) |
 | `Ctrl+Alt+Backspace` | Quit rustwm |

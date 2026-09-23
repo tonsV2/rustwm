@@ -17,6 +17,7 @@ pub enum Key {
     Escape,
     Arrow(Direction),
     Backspace,
+    F4,
     Return,
     /// A letter key, lowercase: `'l'` for Super+l.
     Char(char),
@@ -203,6 +204,7 @@ impl Bindings {
                 forward: matches!(direction, Direction::Right | Direction::Down),
             }),
             Key::Escape if self.switching => Some(Action::CancelSwitch),
+            Key::F4 if mods.alt && !mods.ctrl && !mods.logo && !mods.shift => Some(Action::Close),
             Key::Backspace if mods.ctrl && mods.alt && !mods.logo && !mods.shift => {
                 Some(Action::Quit)
             }
@@ -288,6 +290,7 @@ mod tests {
     const RETURN: u32 = 36;
     const BACKSPACE: u32 = 22;
     const F2: u32 = 68;
+    const F4: u32 = 70;
     const ESCAPE: u32 = 9;
 
     fn logo() -> Mods {
@@ -578,6 +581,17 @@ mod tests {
             // Without Super they are typing.
             assert_eq!(b.key(keycode, key, true, none()), Outcome::forward(None));
         }
+    }
+
+    #[test]
+    fn alt_f4_closes() {
+        let mut b = Bindings::default();
+        assert_eq!(
+            b.key(F4, Key::F4, true, alt()),
+            Outcome::intercept(Some(Action::Close))
+        );
+        assert_eq!(b.key(F4, Key::F4, false, alt()), Outcome::intercept(None));
+        assert_eq!(b.key(F4, Key::F4, true, none()), Outcome::forward(None));
     }
 
     #[test]
