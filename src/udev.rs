@@ -479,7 +479,7 @@ pub fn render(state: &mut State) {
             ..
         }) => {
             let output = screen.output.clone();
-            state.switcher_elements(&output)
+            state.overlay_elements(&output)
         }
         _ => Vec::new(),
     };

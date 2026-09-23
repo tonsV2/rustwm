@@ -18,6 +18,7 @@ pub struct Config {
     pub input: InputConfig,
     pub keyboard: KeyboardConfig,
     pub commands: CommandsConfig,
+    pub osd: OsdConfig,
 }
 
 #[derive(Debug, Default, Deserialize, PartialEq)]
@@ -119,6 +120,20 @@ impl CommandsConfig {
             Command::VolumeMute => &self.volume_mute,
             Command::MicMute => &self.mic_mute,
         }
+    }
+}
+
+/// The on-screen indicator shown after a brightness or volume key.
+#[derive(Debug, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct OsdConfig {
+    /// Off for people who run their own indicator, such as swayosd or wob.
+    pub enabled: bool,
+}
+
+impl Default for OsdConfig {
+    fn default() -> Self {
+        Self { enabled: true }
     }
 }
 
@@ -227,6 +242,13 @@ mod tests {
             "brightnessctl set +5%"
         );
         assert!(Config::parse("[commands]\nvolume_raise = \"true\"\n").is_err());
+    }
+
+    #[test]
+    fn osd_can_be_turned_off() {
+        assert!(Config::default().osd.enabled);
+        let config = Config::parse("[osd]\nenabled = false\n").unwrap();
+        assert!(!config.osd.enabled);
     }
 
     #[test]

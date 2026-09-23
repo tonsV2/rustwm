@@ -16,7 +16,8 @@ use tracing::{debug, warn};
 const NOT_FOUND: i32 = 127;
 
 /// Runs `command` through `sh -c`, without waiting for it to finish.
-pub fn run(command: &str, wayland_display: &OsStr) {
+/// `then` runs on the waiting thread once the command has succeeded.
+pub fn run(command: &str, wayland_display: &OsStr, then: impl FnOnce() + Send + 'static) {
     debug!(command, "running command");
     let result = Command::new("sh")
         .arg("-c")
@@ -40,7 +41,7 @@ pub fn run(command: &str, wayland_display: &OsStr) {
     let waiter = thread::Builder::new()
         .name("command".into())
         .spawn(move || match child.wait() {
-            Ok(status) if status.success() => {}
+            Ok(status) if status.success() => then(),
             Ok(status) if status.code() == Some(NOT_FOUND) => warn!(
                 command,
                 "command not found; install it or change it in config.toml"

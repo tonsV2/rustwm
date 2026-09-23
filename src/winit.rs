@@ -149,7 +149,7 @@ fn render(state: &mut State) {
         return;
     };
     let output = winit.output.clone();
-    let overlay = state.switcher_elements(&output);
+    let overlay = state.overlay_elements(&output);
     let Backend::Winit(winit) = &mut state.backend else {
         return;
     };
