@@ -18,6 +18,9 @@ const DEFAULT_COMMAND: &str = "fuzzel";
 pub struct Launcher {
     command: String,
     child: Option<Child>,
+    /// The X display of xwayland-satellite, given to launched apps as
+    /// `DISPLAY` so X11-only apps can run.
+    x_display: Option<String>,
 }
 
 impl Launcher {
@@ -32,7 +35,12 @@ impl Launcher {
         Self {
             command,
             child: None,
+            x_display: None,
         }
+    }
+
+    pub fn set_x_display(&mut self, display: Option<String>) {
+        self.x_display = display;
     }
 
     /// Starts the launcher, or closes it if it is already open.
@@ -54,12 +62,16 @@ impl Launcher {
         }
 
         info!(command = self.command, "starting launcher");
-        let result = Command::new(&self.command)
-            .env("WAYLAND_DISPLAY", wayland_display)
-            // Keep apps started from the launcher on our Wayland socket
-            // instead of falling back to the host's X server when nested.
-            .env_remove("DISPLAY")
-            .spawn();
+        let mut command = Command::new(&self.command);
+        command.env("WAYLAND_DISPLAY", wayland_display);
+        // Keep apps started from the launcher on our Wayland socket instead
+        // of falling back to the host's X server when nested. X11-only apps
+        // get xwayland-satellite's display, whose windows are ours too.
+        match &self.x_display {
+            Some(display) => command.env("DISPLAY", display),
+            None => command.env_remove("DISPLAY"),
+        };
+        let result = command.spawn();
         match result {
             Ok(child) => self.child = Some(child),
             Err(err) => warn!(command = self.command, %err, "failed to start launcher"),
@@ -67,7 +79,7 @@ impl Launcher {
     }
 }
 
-fn is_on_path(command: &str) -> bool {
+pub fn is_on_path(command: &str) -> bool {
     if command.contains('/') {
         return Path::new(command).is_file();
     }
@@ -91,7 +103,10 @@ fn is_on_path(command: &str) -> bool {
 /// that marker the shared bus is left alone: changing its activation
 /// environment would send GNOME's apps here instead. A nested compositor
 /// never touches it.
-pub fn export_to_dbus(wayland_display: &OsStr, nested: bool) {
+///
+/// `x_display` is xwayland-satellite's display, exported as `DISPLAY` when
+/// it runs.
+pub fn export_to_dbus(wayland_display: &OsStr, x_display: Option<&str>, nested: bool) {
     let bus = env::var("DBUS_SESSION_BUS_ADDRESS").unwrap_or_default();
     let shared_bus = env::var("XDG_RUNTIME_DIR")
         .map(|dir| format!("unix:path={dir}/bus"))
@@ -114,7 +129,11 @@ pub fn export_to_dbus(wayland_display: &OsStr, nested: bool) {
     if on_shared_bus {
         command.arg("--systemd");
     }
-    match command.arg(arg).arg("XDG_CURRENT_DESKTOP=rustwm").status() {
+    command.arg(arg).arg("XDG_CURRENT_DESKTOP=rustwm");
+    if let Some(display) = x_display {
+        command.arg(format!("DISPLAY={display}"));
+    }
+    match command.status() {
         Ok(status) if status.success() => info!("D-Bus activation environment updated"),
         Ok(status) => warn!(%status, "failed to update D-Bus activation environment"),
         Err(err) => warn!(%err, "failed to run dbus-update-activation-environment"),
