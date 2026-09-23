@@ -1,6 +1,6 @@
 [Desktop Entry]
 Name=rustwm
 Comment=Minimal keyboard-driven Wayland compositor
-Exec=dbus-run-session rustwm
+Exec=rustwm-session
 Type=Application
 DesktopNames=rustwm

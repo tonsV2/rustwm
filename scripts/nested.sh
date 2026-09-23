@@ -45,5 +45,6 @@ if [[ "${XDG_CURRENT_DESKTOP:-}" == *GNOME* ]] && command -v gsettings >/dev/nul
 fi
 
 # A private D-Bus session bus keeps single-instance apps (GTK, Ghostty) from
-# handing their windows to copies already running in the host session.
-dbus-run-session -- cargo run "$@"
+# handing their windows to copies already running in the host session;
+# rustwm-session sets it up with the host's keyring relayed onto it.
+resources/rustwm-session cargo run "$@"

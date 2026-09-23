@@ -17,6 +17,7 @@ if [[ -f "$log" ]]; then
     mv "$log" "$log.old"
 fi
 
-# A private D-Bus session bus keeps single-instance apps (GTK, Ghostty) from
-# handing their windows to copies already running in another session.
-exec dbus-run-session ./target/release/rustwm 2>"$log"
+# rustwm-session picks the D-Bus bus: a private one while GNOME runs on
+# another VT, so single-instance apps (GTK, Ghostty) open their windows here,
+# with the keyring relayed from the shared bus.
+exec resources/rustwm-session ./target/release/rustwm 2>"$log"

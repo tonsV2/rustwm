@@ -43,7 +43,8 @@ fn main() -> anyhow::Result<()> {
     let display: Display<State> = Display::new().context("failed to create Wayland display")?;
 
     let config = config::Config::load();
-    let mut state = if nested() {
+    let nested = nested();
+    let mut state = if nested {
         info!("running nested inside the current session");
         let (winit, winit_loop, dmabuf_state) = winit::init_backend(&display.handle())?;
         let mut state = State::new(
@@ -82,7 +83,7 @@ fn main() -> anyhow::Result<()> {
     state.xwayland = xwayland::Satellite::start(&state.socket_name);
     let x_display = state.xwayland.as_ref().map(|s| s.display.clone());
     state.launcher.set_x_display(x_display.clone());
-    launcher::export_to_dbus(&state.socket_name, x_display.as_deref());
+    launcher::export_to_dbus(&state.socket_name, x_display.as_deref(), nested);
 
     event_loop
         .run(None, &mut state, State::after_dispatch)
