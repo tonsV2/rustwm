@@ -21,6 +21,11 @@ Every application opens filling the screen. Snap windows to halves and quarters 
 | `Super+Left` / `Right` / `Up` / `Down` | Snap the focused window to that half |
 | `Super+Left` then `Up` (Super held) | Snap to a quarter; any horizontal plus vertical pair works |
 | `Super+<direction the window is already in>` | Back to full screen |
+| `Super+Return` | Open a terminal: `xdg-terminal-exec`, else the first entry of `~/.config/xdg-terminals.list`, else foot |
+| `Super+e` | Open the file manager on your home folder |
+| `Super+b` | Open the default web browser |
+| `Super+q` | Close the focused window (the app may ask to save first) |
+| `Super+1` … `Super+9` | Focus the first … ninth window, in the order they were opened (dialogs not counted) |
 | `Super+l` | Lock the screen (`swaylock -f -c 000000`) |
 | `Ctrl+Alt+Backspace` | Quit rustwm |
 | `Ctrl+Alt+F1`…`F12` | Switch virtual terminal (hardware backend only) |
@@ -127,7 +132,7 @@ Starting a second `gnome-keyring-daemon` on the private bus does not help: `--st
 Once it works from a console, you can add it to the GDM session list:
 
 ```sh
-sudo install -m 755 target/release/rustwm resources/rustwm-session resources/rustwm-secrets-relay resources/rustwm-volume /usr/local/bin/
+sudo install -m 755 target/release/rustwm resources/rustwm-session resources/rustwm-secrets-relay resources/rustwm-volume resources/rustwm-terminal /usr/local/bin/
 sudo install -m 644 resources/rustwm.desktop /usr/share/wayland-sessions/rustwm.desktop
 ```
 
@@ -170,6 +175,9 @@ Settings live in `~/.config/rustwm/config.toml`. Copy [resources/config.toml](re
 | `commands.brightness_up`, `brightness_down` | `brightnessctl set +5%`, `… 5%-` | Brightness keys |
 | `commands.volume_up`, `volume_down`, `volume_mute` | `rustwm-volume up 5`, `rustwm-volume down 5`, `wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle` | Volume keys |
 | `commands.mic_mute` | `wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle` | Microphone mute key |
+| `commands.terminal` | `rustwm-terminal` | Terminal for `Super+Return` |
+| `commands.file_manager` | `xdg-open "$HOME"` | File manager for `Super+e` |
+| `commands.browser` | `gtk-launch "$(xdg-settings get default-web-browser)"` | Browser for `Super+b` |
 | `commands.lock` | `swaylock -f -c 000000` | Screen locker for `Super+l` |
 | `osd.enabled` | `true` | Show the brightness and volume level after a key press; turn off if you run your own indicator (swayosd, wob) |
 
