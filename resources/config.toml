@@ -36,3 +36,8 @@ volume_up = "wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%+"
 volume_down = "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-"
 volume_mute = "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"
 mic_mute = "wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle"
+
+[osd]
+# After a brightness or volume key, show the new level near the bottom of
+# the screen. Turn off if you run your own indicator, such as swayosd.
+enabled = true

@@ -49,6 +49,7 @@ use crate::{
     keymap,
     launcher::Launcher,
     layout::{Layout, Rect},
+    osd::Osd,
     switcher::Switcher,
     udev::UdevData,
     window::ManagedWindow,
@@ -124,6 +125,8 @@ pub struct State {
     /// Runs X11 apps; `None` when xwayland-satellite is not installed.
     pub xwayland: Option<Satellite>,
     pub switcher: Switcher,
+    /// The brightness and volume indicator.
+    pub osd: Osd,
     pub config: Config,
     /// A layer surface (the launcher) that has taken keyboard focus. While
     /// set, it keeps focus over windows.
@@ -158,6 +161,7 @@ impl State {
         seat.add_pointer();
 
         let socket_name = init_wayland_listener(display, event_loop)?;
+        let osd = Osd::new(&event_loop.handle())?;
 
         Ok(Self {
             start_time: Instant::now(),
@@ -191,6 +195,7 @@ impl State {
             launcher: Launcher::new(),
             xwayland: None,
             switcher: Switcher::default(),
+            osd,
             config,
             layer_focus: None,
         })

@@ -42,9 +42,19 @@ pub fn load_icon(icon: &str, size: u32) -> Option<tiny_skia::Pixmap> {
     let path = if Path::new(icon).is_absolute() {
         PathBuf::from(icon)
     } else {
-        find_icon(icon, size)?
+        find_icon(icon, size, "apps")?
     };
-    let pixmap = render_icon(&path, size);
+    render_found_icon(&path, size)
+}
+
+/// Loads status icon `name`, such as `audio-volume-high-symbolic`, from the
+/// icon theme, scaled to fit a `size` by `size` pixel square.
+pub fn load_status_icon(name: &str, size: u32) -> Option<tiny_skia::Pixmap> {
+    render_found_icon(&find_icon(name, size, "status")?, size)
+}
+
+fn render_found_icon(path: &Path, size: u32) -> Option<tiny_skia::Pixmap> {
+    let pixmap = render_icon(path, size);
     if pixmap.is_none() {
         debug!(path = %path.display(), "cannot load icon");
     }
@@ -149,15 +159,16 @@ fn data_dirs() -> impl Iterator<Item = PathBuf> {
 }
 
 /// Searches the hicolor theme, where applications install their icons, and
-/// Adwaita, then the old pixmaps directory.
-fn find_icon(name: &str, size: u32) -> Option<PathBuf> {
+/// Adwaita, then the old pixmaps directory. `context` is the theme's
+/// directory for the kind of icon, such as `apps` or `status`.
+fn find_icon(name: &str, size: u32, context: &str) -> Option<PathBuf> {
     if name.contains('/') {
         return None;
     }
     for theme in ["hicolor", "Adwaita"] {
         let candidates: Vec<(Option<u32>, PathBuf)> = data_dirs()
             .map(|dir| dir.join("icons").join(theme))
-            .flat_map(|theme_dir| theme_candidates(&theme_dir, name))
+            .flat_map(|theme_dir| theme_candidates(&theme_dir, name, context))
             .collect();
         if let Some(path) = best_icon(candidates, size) {
             return Some(path);
@@ -169,9 +180,9 @@ fn find_icon(name: &str, size: u32) -> Option<PathBuf> {
         .find(|path| path.is_file())
 }
 
-/// The files for icon `name` in one theme, with their pixel size; `None`
-/// for scalable ones.
-fn theme_candidates(theme_dir: &Path, name: &str) -> Vec<(Option<u32>, PathBuf)> {
+/// The files for icon `name` in one theme's `context` directories, with
+/// their pixel size; `None` for scalable ones.
+fn theme_candidates(theme_dir: &Path, name: &str, context: &str) -> Vec<(Option<u32>, PathBuf)> {
     let Ok(entries) = fs::read_dir(theme_dir) else {
         return Vec::new();
     };
@@ -179,8 +190,9 @@ fn theme_candidates(theme_dir: &Path, name: &str) -> Vec<(Option<u32>, PathBuf)>
     for entry in entries.filter_map(Result::ok) {
         let dir_name = entry.file_name();
         let dir_name = dir_name.to_string_lossy();
-        // "scalable", "48x48" or "128x128@2" (twice the pixels).
-        let size = if dir_name == "scalable" {
+        // "scalable", "symbolic" (single-colour and scalable), "48x48" or
+        // "128x128@2" (twice the pixels).
+        let size = if dir_name == "scalable" || dir_name == "symbolic" {
             None
         } else {
             let (base, factor) = match dir_name.split_once('@') {
@@ -197,7 +209,7 @@ fn theme_candidates(theme_dir: &Path, name: &str) -> Vec<(Option<u32>, PathBuf)>
             Some(side * factor)
         };
         for ext in ["png", "svg"] {
-            let path = entry.path().join("apps").join(format!("{name}.{ext}"));
+            let path = entry.path().join(context).join(format!("{name}.{ext}"));
             if path.is_file() {
                 candidates.push((if ext == "svg" { None } else { size }, path));
             }
