@@ -550,15 +550,8 @@ impl State {
 /// by the US layout rather than stopping the compositor.
 fn add_keyboard(seat: &mut Seat<State>, config: &KeyboardConfig) -> anyhow::Result<()> {
     let names = keymap::resolve(config);
-    let xkb = XkbConfig {
-        rules: "",
-        model: &names.model,
-        layout: &names.layout,
-        variant: &names.variant,
-        options: (!names.options.is_empty()).then(|| names.options.clone()),
-    };
     let (delay, rate) = (config.repeat_delay, config.repeat_rate);
-    match seat.add_keyboard(xkb, delay, rate) {
+    match seat.add_keyboard(xkb_config(&names), delay, rate) {
         Ok(_) => info!(?names, "keyboard layout set"),
         Err(err) => {
             warn!(?names, ?err, "invalid keyboard layout; using us");
@@ -571,6 +564,16 @@ fn add_keyboard(seat: &mut Seat<State>, config: &KeyboardConfig) -> anyhow::Resu
         }
     }
     Ok(())
+}
+
+pub fn xkb_config(names: &keymap::Names) -> XkbConfig<'_> {
+    XkbConfig {
+        rules: "",
+        model: &names.model,
+        layout: &names.layout,
+        variant: &names.variant,
+        options: (!names.options.is_empty()).then(|| names.options.clone()),
+    }
 }
 
 fn init_wayland_listener(

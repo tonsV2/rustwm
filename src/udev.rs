@@ -56,7 +56,7 @@ use smithay::{
 use tracing::{error, info, warn};
 
 use crate::{
-    config::{InputConfig, auto_scale},
+    config::{InputConfig, OutputConfig, auto_scale},
     cursor::Cursors,
     handlers::LOCKED_BACKGROUND,
     state::{Backend, State},
@@ -87,6 +87,8 @@ render_elements! {
 pub struct UdevData {
     pub session: LibSeatSession,
     libinput: Libinput,
+    /// Kept so input settings can be applied again when the config changes.
+    input_devices: Vec<smithay::reexports::input::Device>,
     pub renderer: GlesRenderer,
     drm: GbmOutputManager,
     screen: Option<Screen>,
@@ -201,6 +203,7 @@ pub fn init_backend(
         UdevData {
             session,
             libinput,
+            input_devices: Vec::new(),
             renderer,
             drm,
             screen: None,
@@ -243,8 +246,17 @@ fn insert_sources(
 
     handle
         .insert_source(libinput, |mut event, _, state| {
-            if let InputEvent::DeviceAdded { device } = &mut event {
-                configure_device(device, &state.config.input);
+            if let Backend::Udev(udev) = &mut state.backend {
+                match &mut event {
+                    InputEvent::DeviceAdded { device } => {
+                        configure_device(device, &state.config.input);
+                        udev.input_devices.push(device.clone());
+                    }
+                    InputEvent::DeviceRemoved { device } => {
+                        udev.input_devices.retain(|d| d != device);
+                    }
+                    _ => {}
+                }
             }
             state.process_input_event(event);
         })
@@ -373,12 +385,7 @@ fn add_screen(state: &mut State, info: connector::Info, crtc: crtc::Handle) {
     let mode = Mode::from(drm_mode);
     let name = format!("{}-{}", info.interface().as_str(), info.interface_id());
     let (phys_w, phys_h) = info.size().unwrap_or((0, 0));
-    let scale = state
-        .config
-        .output
-        .scale
-        .unwrap_or_else(|| auto_scale(mode.size.w, phys_w))
-        .clamp(1.0, 4.0);
+    let scale = output_scale(&state.config.output, mode, phys_w);
 
     let output = Output::new(
         name.clone(),
@@ -445,6 +452,44 @@ fn add_screen(state: &mut State, info: connector::Info, crtc: crtc::Handle) {
         pointer.set_location(center.into());
     }
     render(state);
+}
+
+fn output_scale(config: &OutputConfig, mode: Mode, width_mm: u32) -> f64 {
+    config
+        .scale
+        .unwrap_or_else(|| auto_scale(mode.size.w, width_mm))
+        .clamp(1.0, 4.0)
+}
+
+/// Applies the input settings to every connected device.
+pub fn reconfigure_input(state: &mut State) {
+    if let Backend::Udev(udev) = &mut state.backend {
+        for device in &mut udev.input_devices {
+            configure_device(device, &state.config.input);
+        }
+    }
+}
+
+/// Gives the monitor the configured scale, if it changed.
+pub fn rescale_output(state: &mut State) {
+    let Backend::Udev(udev) = &mut state.backend else {
+        return;
+    };
+    let Some(output) = udev.output().cloned() else {
+        return;
+    };
+    let Some(mode) = output.current_mode() else {
+        return;
+    };
+    let width_mm = output.physical_properties().size.w.max(0) as u32;
+    let scale = output_scale(&state.config.output, mode, width_mm);
+    if scale == output.current_scale().fractional_scale() {
+        return;
+    }
+    info!(output = output.name(), scale, "output scale changed");
+    output.change_current_state(None, None, Some(OutputScale::Fractional(scale)), None);
+    udev.cursors = Cursors::load(scale.ceil() as i32);
+    state.output_rescaled(&output);
 }
 
 fn remove_screen(state: &mut State) {

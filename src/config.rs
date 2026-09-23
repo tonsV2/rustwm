@@ -2,7 +2,8 @@
 //!
 //! Every setting is optional; a missing file or key uses the default. A file
 //! that fails to parse is reported and ignored rather than stopping the
-//! compositor.
+//! compositor. Saving the file applies it while rustwm runs (see
+//! [`crate::reload`]).
 
 use std::{env, fs, path::PathBuf};
 
@@ -243,28 +244,33 @@ impl PanelMode {
 
 impl Config {
     pub fn load() -> Self {
+        Self::read().unwrap_or_default()
+    }
+
+    /// The file's settings, or `None` when it cannot be read or parsed, so a half-finished edit keeps the settings in use.
+    pub fn read() -> Option<Self> {
         let Some(path) = path() else {
-            return Self::default();
+            return Some(Self::default());
         };
         let text = match fs::read_to_string(&path) {
             Ok(text) => text,
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
                 info!(path = %path.display(), "no config file; using defaults");
-                return Self::default();
+                return Some(Self::default());
             }
             Err(err) => {
-                warn!(path = %path.display(), %err, "cannot read config; using defaults");
-                return Self::default();
+                warn!(path = %path.display(), %err, "cannot read config");
+                return None;
             }
         };
         match Self::parse(&text) {
             Ok(config) => {
                 info!(path = %path.display(), ?config, "config loaded");
-                config
+                Some(config)
             }
             Err(err) => {
-                warn!(path = %path.display(), %err, "invalid config; using defaults");
-                Self::default()
+                warn!(path = %path.display(), %err, "invalid config");
+                None
             }
         }
     }
@@ -278,7 +284,7 @@ impl Config {
     }
 }
 
-fn path() -> Option<PathBuf> {
+pub fn path() -> Option<PathBuf> {
     let dir = env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
         .or_else(|| env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))?;
