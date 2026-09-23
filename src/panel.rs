@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use smithay::{
-    desktop::{LayerSurface, layer_map_for_output},
+    desktop::{LayerSurface, PopupManager, layer_map_for_output},
     output::Output,
     reexports::{
         calloop::{
@@ -67,7 +67,7 @@ impl State {
         if first_frame
             && self.panel.shown
             && self.panel.hide_timer.is_none()
-            && !self.pointer_over_panel()
+            && !self.panel_in_use()
         {
             self.hide_panel();
         }
@@ -103,7 +103,7 @@ impl State {
                     self.show_panel();
                 }
             }
-        } else if self.pointer_over_panel_at(pos) {
+        } else if self.panel_in_use_at(pos) {
             self.cancel_panel_hide();
         } else if self.panel.hide_timer.is_none() {
             let delay = Duration::from_millis(self.config.panel.hide_delay_ms);
@@ -111,7 +111,7 @@ impl State {
                 self.loop_handle
                     .insert_source(Timer::from_duration(delay), |_, _, state| {
                         state.panel.hide_timer = None;
-                        if !state.pointer_over_panel() {
+                        if !state.panel_in_use() {
                             state.hide_panel();
                         }
                         TimeoutAction::Drop
@@ -130,18 +130,26 @@ impl State {
         Some(Rectangle::new(geometry.loc + output_loc, geometry.size))
     }
 
-    fn pointer_over_panel(&self) -> bool {
+    fn panel_in_use(&self) -> bool {
         let pos = self
             .seat
             .get_pointer()
             .map(|p| p.current_location())
             .unwrap_or_default();
-        self.pointer_over_panel_at(pos)
+        self.panel_in_use_at(pos)
     }
 
-    fn pointer_over_panel_at(&self, pos: Point<f64, Logical>) -> bool {
-        self.panel_geometry()
-            .is_some_and(|geo| geo.to_f64().contains(pos))
+    /// The pointer is over the panel, or one of its menus (such as a tray icon's) is open.
+    fn panel_in_use_at(&self, pos: Point<f64, Logical>) -> bool {
+        let has_popup = self.panel.surface.as_ref().is_some_and(|(_, layer)| {
+            PopupManager::popups_for_surface(layer.wl_surface())
+                .next()
+                .is_some()
+        });
+        has_popup
+            || self
+                .panel_geometry()
+                .is_some_and(|geo| geo.to_f64().contains(pos))
     }
 
     fn show_panel(&mut self) {
