@@ -65,7 +65,8 @@ hide_delay_ms = 1000
 command = "rustwm-panel"
 
 [autostart]
-# Started once when rustwm is ready, each with `sh -c`, with the same environment as apps started from Fuzzel. They stop on their own when rustwm exits and its Wayland socket goes away. This one locks after 5 minutes without input, turns the monitor off after 10, and locks before suspend.
+# Started once when rustwm is ready, each with `sh -c`, with the same environment as apps started from Fuzzel. They stop on their own when rustwm exits and its Wayland socket goes away. swayidle locks after 5 minutes without input, turns the monitor off after 10, and locks before suspend. nm-applet puts NetworkManager in the panel's tray, for picking a wifi network.
 commands = [
     "swayidle -w timeout 300 'swaylock -f -c 000000' timeout 600 'wlopm --off \"*\"' resume 'wlopm --on \"*\"' before-sleep 'swaylock -f -c 000000'",
+    "nm-applet --indicator",
 ]

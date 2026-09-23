@@ -69,7 +69,7 @@ sudo dnf install fuzzel foot   # launcher, plus a simple terminal to test with
 sudo dnf install xwayland-satellite   # optional: runs X11-only apps
 sudo dnf install brightnessctl # brightness keys; wpctl (wireplumber) and pactl (pulseaudio-utils) for the volume keys are installed with GNOME
 sudo dnf install swaylock swayidle wlopm   # screen locking, idle timeout, monitor off
-sudo dnf install waybar   # the panel
+sudo dnf install waybar network-manager-applet   # the panel, and wifi in its tray
 sudo dnf install grim slurp xdg-desktop-portal-wlr   # screenshots and screen sharing
 ```
 
