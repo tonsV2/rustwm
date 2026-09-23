@@ -290,6 +290,14 @@ mod tests {
     }
 
     #[test]
+    fn sample_config_parses() {
+        let sample = include_str!("../resources/config.toml");
+        let config = Config::parse(sample).unwrap();
+        assert_eq!(config.commands.app(App::Lock), "swaylock -f -c 000000");
+        assert_eq!(config.commands.terminal, CommandsConfig::default().terminal);
+    }
+
+    #[test]
     fn typos_are_rejected() {
         assert!(Config::parse("[input]\nnatural_scrolling = true\n").is_err());
     }
