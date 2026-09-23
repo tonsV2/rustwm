@@ -1,6 +1,7 @@
 # rustwm settings. Copy to ~/.config/rustwm/config.toml and adjust.
 # Every setting is optional; delete a line to use its default.
-# Changes take effect when rustwm restarts.
+# Saving the file applies it, except the panel's command, position and mode and
+# [autostart], which apply when rustwm restarts.
 
 [output]
 # Output scale. Without this line, rustwm guesses from the monitor's pixel

@@ -171,7 +171,7 @@ A video player or browser playing video can keep the screen from locking and tur
 
 ## Configuration
 
-Settings live in `~/.config/rustwm/config.toml`. Copy [resources/config.toml](resources/config.toml) there as a starting point. Everything is optional, and changes take effect when rustwm restarts.
+Settings live in `~/.config/rustwm/config.toml`. Copy [resources/config.toml](resources/config.toml) there as a starting point. Everything is optional. Saving the file applies it right away: pointer and touchpad settings, the keyboard layout and repeat, the output scale, shortcuts and the indicator. A file with a mistake is reported in the log and the current settings stay. The panel's `command`, `position` and `mode`, and `[autostart]`, apply the next time rustwm starts.
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
@@ -283,6 +283,7 @@ rustwm puts `WAYLAND_DISPLAY` and `XDG_CURRENT_DESKTOP=rustwm` in the D-Bus acti
 | `src/commands.rs` | Runs the brightness, volume and Print key commands |
 | `src/capture/` | Screen capture protocols (wlr-screencopy, ext-image-copy-capture) for screenshots and screen sharing; drawn in `src/handlers/capture.rs` |
 | `src/osd.rs` | On-screen brightness and volume indicator |
+| `src/reload.rs` | Applies the config file again when it is saved |
 | `src/panel.rs` | Starts the panel and auto-hides it |
 | `src/winit.rs` | Nested backend and rendering |
 | `src/udev.rs` | Hardware backend: session, GPU, monitor, libinput, rendering |

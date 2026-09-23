@@ -600,6 +600,8 @@ Configuration should initially be minimal.
 
 Do not build a configuration GUI.
 
+The configuration file is applied again whenever it is saved, without restarting: input, keyboard and output scale settings are applied to the running session, commands and indicator settings are read when used, and a file that fails to parse keeps the settings in use. The panel's command, position and mode, and the autostart commands, apply at the next start.
+
 A future configuration file may look like:
 
 ```toml

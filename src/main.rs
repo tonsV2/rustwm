@@ -12,6 +12,7 @@ mod launcher;
 mod layout;
 mod osd;
 mod panel;
+mod reload;
 mod state;
 mod switcher;
 mod udev;
@@ -92,6 +93,7 @@ fn main() -> anyhow::Result<()> {
         commands::run(command, &state.child_env(), || {});
     }
     state.start_panel();
+    state.watch_config();
 
     event_loop
         .run(None, &mut state, State::after_dispatch)
