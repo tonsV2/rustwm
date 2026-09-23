@@ -234,7 +234,7 @@ impl State {
         });
         commands::run(
             self.config.commands.get(command),
-            &self.socket_name,
+            &self.child_env(),
             move || {
                 let (Some((sender, seq)), Some(device)) = (reader, device) else {
                     return;

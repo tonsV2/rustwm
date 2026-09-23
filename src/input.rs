@@ -142,7 +142,10 @@ impl State {
 
     fn run_action(&mut self, action: Action) {
         match action {
-            Action::Launch => self.launcher.toggle(&self.socket_name),
+            Action::Launch => {
+                let child_env = self.child_env();
+                self.launcher.toggle(&child_env);
+            }
             Action::Snap {
                 direction,
                 first_in_hold,
@@ -167,7 +170,7 @@ impl State {
             Action::Run(command) => self.run_command(command),
             Action::Spawn(app) => {
                 info!(?app, "starting from shortcut");
-                commands::run(self.config.commands.app(app), &self.socket_name, || {});
+                commands::run(self.config.commands.app(app), &self.child_env(), || {});
             }
             Action::Close => {
                 let focused = self.focus.current().and_then(|id| self.window(id));
@@ -347,6 +350,7 @@ fn classify(sym: Keysym) -> Key {
         Keysym::Up => Key::Arrow(Direction::Up),
         Keysym::Down => Key::Arrow(Direction::Down),
         Keysym::BackSpace => Key::Backspace,
+        Keysym::F4 => Key::F4,
         Keysym::Return | Keysym::KP_Enter => Key::Return,
         // Letters as lowercase, so Caps Lock makes no difference.
         sym if (Keysym::a.raw()..=Keysym::z.raw()).contains(&sym.raw()) => {

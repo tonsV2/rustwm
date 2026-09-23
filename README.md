@@ -22,9 +22,9 @@ Every application opens filling the screen. Snap windows to halves and quarters 
 | `Super+Left` then `Up` (Super held) | Snap to a quarter; any horizontal plus vertical pair works |
 | `Super+<direction the window is already in>` | Back to full screen |
 | `Super+Return` | Open a terminal: `xdg-terminal-exec`, else the first entry of `~/.config/xdg-terminals.list`, else foot |
-| `Super+e` | Open the file manager on your home folder |
+| `Super+f` | Open the file manager on your home folder |
 | `Super+b` | Open the default web browser |
-| `Super+q` | Close the focused window (the app may ask to save first) |
+| `Super+q` or `Alt+F4` | Close the focused window (the app may ask to save first) |
 | `Super+1` … `Super+9` | Focus the first … ninth window, in the order they were opened (dialogs not counted) |
 | `Super+l` | Lock the screen (`swaylock -f -c 000000`) |
 | `Super+Shift+s` | Screenshot of an area you drag out with `slurp`, saved to `~/Pictures/Screenshots` |
@@ -184,7 +184,7 @@ Settings live in `~/.config/rustwm/config.toml`. Copy [resources/config.toml](re
 | `commands.screenshot` | `mkdir -p ~/Pictures/Screenshots && grim ~/Pictures/Screenshots/Screenshot-$(date +%Y-%m-%d-%H%M%S).png` | Print key |
 | `commands.screenshot_area` | `area="$(slurp)" && … grim -g "$area" …` | Area screenshot for `Super+Shift+s` |
 | `commands.terminal` | `rustwm-terminal` | Terminal for `Super+Return` |
-| `commands.file_manager` | `xdg-open "$HOME"` | File manager for `Super+e` |
+| `commands.file_manager` | `xdg-open "$HOME"` | File manager for `Super+f` |
 | `commands.browser` | `gtk-launch "$(xdg-settings get default-web-browser)"` | Browser for `Super+b` |
 | `commands.lock` | `swaylock -f -c 000000` | Screen locker for `Super+l` |
 | `osd.enabled` | `true` | Show the brightness and volume level after a key press; turn off if you run your own indicator (swayosd, wob) |
@@ -194,6 +194,17 @@ Commands run with `sh -c`, so quoting, `&&` and `$HOME` work as in a terminal. A
 `resources/rustwm-volume` scales every channel of the default speaker by the same factor, so a left/right balance set in the sound settings survives the volume keys (`wpctl set-volume` would set all channels to one level). It stops one step above silence and mutes there instead, since at 0% the balance is lost. `rustwm-session` puts the directory holding it on `PATH`.
 
 Each keyboard field without a setting comes from its `XKB_DEFAULT_*` variable, or else from the system keyboard (`localectl set-x11-keymap dk`, also chosen during installation). A layout that does not exist is logged and replaced by `us`.
+
+### Default apps
+
+Apps started by rustwm get `XDG_CURRENT_DESKTOP=rustwm`. GNOME's default apps (Loupe for images, Papers for PDFs, Text Editor, ...) live in `gnome-mimeapps.list`, which GIO only reads under GNOME, so without it Files opens images in whichever app claims them first. Point rustwm at GNOME's list:
+
+```sh
+mkdir -p ~/.local/share/applications
+ln -s /usr/share/applications/gnome-mimeapps.list ~/.local/share/applications/rustwm-mimeapps.list
+```
+
+Choices you made yourself in `~/.config/mimeapps.list` (Open With → Set as default) still come first.
 
 GNOME Settings does not work here: it refuses to start outside GNOME, and its display, mouse and keyboard pages configure GNOME's compositor, not rustwm. Settings that apps read themselves (dark style, fonts, text size) are stored in dconf and still apply when you change them from GNOME.
 

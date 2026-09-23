@@ -85,7 +85,6 @@ fn main() -> anyhow::Result<()> {
     // once the event loop runs.
     state.xwayland = xwayland::Satellite::start(&state.socket_name);
     let x_display = state.xwayland.as_ref().map(|s| s.display.clone());
-    state.launcher.set_x_display(x_display.clone());
     launcher::export_to_dbus(&state.socket_name, x_display.as_deref(), nested);
 
     event_loop
