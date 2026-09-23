@@ -217,7 +217,7 @@ grim screen.png               # the whole screen
 grim -g "$(slurp)" area.png   # drag to select an area
 ```
 
-Print runs the `commands.screenshot` [command](#configuration). To select an area instead, set it to `'grim -g "$(slurp)" ~/Pictures/Screenshots/Screenshot-$(date +%Y-%m-%d-%H%M%S).png'`.
+Print saves the whole screen and `Super+Shift+s` a selected area to `~/Pictures/Screenshots`, through the `commands.screenshot` and `commands.screenshot_area` [commands](#configuration).
 
 Screen sharing in browsers, Meet, Slack, Zoom and OBS goes through the desktop portal (`xdg-desktop-portal`), which hands the ScreenCast and Screenshot requests to `xdg-desktop-portal-wlr` and streams the screen through PipeWire:
 
