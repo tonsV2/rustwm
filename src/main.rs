@@ -1,4 +1,5 @@
 mod apps;
+mod capture;
 mod commands;
 mod config;
 mod cursor;

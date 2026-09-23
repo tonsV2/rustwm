@@ -1,8 +1,9 @@
-//! Runs the outside commands bound to the brightness and volume keys.
+//! Runs the outside commands bound to the brightness, volume and Print
+//! keys.
 //!
-//! The compositor has no audio or power logic of its own. It starts the
-//! configured command (`brightnessctl`, `wpctl`, ...) and lets it do the
-//! work.
+//! The compositor has no audio, power or screenshot logic of its own. It
+//! starts the configured command (`brightnessctl`, `wpctl`, `grim`, ...)
+//! and lets it do the work.
 
 use std::{
     process::{Command, Stdio},

@@ -84,7 +84,8 @@ impl Default for KeyboardConfig {
     }
 }
 
-/// Shell commands for the brightness and volume keys, run with `sh -c`.
+/// Shell commands for the brightness, volume and Print keys, run with
+/// `sh -c`.
 /// An empty string leaves the key to the focused application.
 #[derive(Debug, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
@@ -95,6 +96,7 @@ pub struct CommandsConfig {
     pub volume_down: String,
     pub volume_mute: String,
     pub mic_mute: String,
+    pub screenshot: String,
     /// A new terminal window, Super+Return.
     pub terminal: String,
     /// The file manager, Super+f.
@@ -103,7 +105,16 @@ pub struct CommandsConfig {
     pub browser: String,
     /// The screen locker, Super+l.
     pub lock: String,
+    /// A screenshot of a selected area, Super+Shift+s.
+    pub screenshot_area: String,
 }
+
+/// Saves the whole screen as a PNG named after the time.
+const SCREENSHOT: &str = "mkdir -p ~/Pictures/Screenshots && \
+    grim ~/Pictures/Screenshots/Screenshot-$(date +%Y-%m-%d-%H%M%S).png";
+
+const SCREENSHOT_AREA: &str = "area=\"$(slurp)\" && mkdir -p ~/Pictures/Screenshots && \
+    grim -g \"$area\" ~/Pictures/Screenshots/Screenshot-$(date +%Y-%m-%d-%H%M%S).png";
 
 impl Default for CommandsConfig {
     fn default() -> Self {
@@ -114,10 +125,12 @@ impl Default for CommandsConfig {
             volume_down: "rustwm-volume down 5".into(),
             volume_mute: "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle".into(),
             mic_mute: "wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle".into(),
+            screenshot: SCREENSHOT.into(),
             terminal: "rustwm-terminal".into(),
             file_manager: "xdg-open \"$HOME\"".into(),
             browser: "gtk-launch \"$(xdg-settings get default-web-browser)\"".into(),
             lock: "swaylock -f -c 000000".into(),
+            screenshot_area: SCREENSHOT_AREA.into(),
         }
     }
 }
@@ -131,6 +144,7 @@ impl CommandsConfig {
             Command::VolumeDown => &self.volume_down,
             Command::VolumeMute => &self.volume_mute,
             Command::MicMute => &self.mic_mute,
+            Command::Screenshot => &self.screenshot,
         }
     }
 
@@ -141,6 +155,7 @@ impl CommandsConfig {
             App::FileManager => &self.file_manager,
             App::Browser => &self.browser,
             App::Lock => &self.lock,
+            App::ScreenshotArea => &self.screenshot_area,
         }
     }
 }
@@ -259,6 +274,7 @@ mod tests {
             "wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%+"
         );
         assert_eq!(config.commands.get(Command::MicMute), "");
+        assert_eq!(config.commands.get(Command::Screenshot), SCREENSHOT);
         assert_eq!(
             config.commands.get(Command::BrightnessUp),
             "brightnessctl set +5%"

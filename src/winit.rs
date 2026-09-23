@@ -228,5 +228,6 @@ fn render(state: &mut State) {
         state.lock_frame_shown();
     }
 
+    crate::capture::render_queued(state, &output);
     state.send_frame_callbacks(&output);
 }

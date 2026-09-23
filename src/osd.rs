@@ -69,11 +69,14 @@ pub enum Device {
 }
 
 impl Device {
-    fn of(command: Command) -> Self {
+    /// The device `command` changes; `None` for keys without a level, such
+    /// as Print.
+    fn of(command: Command) -> Option<Self> {
         match command {
-            Command::BrightnessUp | Command::BrightnessDown => Device::Screen,
-            Command::VolumeUp | Command::VolumeDown | Command::VolumeMute => Device::Speakers,
-            Command::MicMute => Device::Microphone,
+            Command::BrightnessUp | Command::BrightnessDown => Some(Device::Screen),
+            Command::VolumeUp | Command::VolumeDown | Command::VolumeMute => Some(Device::Speakers),
+            Command::MicMute => Some(Device::Microphone),
+            Command::Screenshot => None,
         }
     }
 
@@ -224,16 +227,18 @@ impl State {
     /// Runs the command bound to a brightness or volume key and, once it has
     /// finished, shows the new level.
     pub fn run_command(&mut self, command: Command) {
-        let reader = self.config.osd.enabled.then(|| {
+        let device = Device::of(command);
+        let reader = (self.config.osd.enabled && device.is_some()).then(|| {
             self.osd.next_seq += 1;
             (self.osd.sender.clone(), self.osd.next_seq)
         });
-        let device = Device::of(command);
         commands::run(
             self.config.commands.get(command),
             &self.child_env(),
             move || {
-                let Some((sender, seq)) = reader else { return };
+                let (Some((sender, seq)), Some(device)) = (reader, device) else {
+                    return;
+                };
                 if let Some(level) = device.read() {
                     // Fails only when the compositor is shutting down.
                     let _ = sender.send(Report { seq, level });
@@ -428,9 +433,10 @@ mod tests {
 
     #[test]
     fn commands_map_to_devices() {
-        assert_eq!(Device::of(Command::BrightnessDown), Device::Screen);
-        assert_eq!(Device::of(Command::VolumeMute), Device::Speakers);
-        assert_eq!(Device::of(Command::MicMute), Device::Microphone);
+        assert_eq!(Device::of(Command::BrightnessDown), Some(Device::Screen));
+        assert_eq!(Device::of(Command::VolumeMute), Some(Device::Speakers));
+        assert_eq!(Device::of(Command::MicMute), Some(Device::Microphone));
+        assert_eq!(Device::of(Command::Screenshot), None);
     }
 
     #[test]

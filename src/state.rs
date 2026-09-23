@@ -53,6 +53,7 @@ use smithay::{
 use tracing::{error, info, warn};
 
 use crate::{
+    capture::{image_copy::ImageCopyState, screencopy::ScreencopyState},
     config::{Config, KeyboardConfig},
     focus::{FocusHistory, WindowId},
     handlers::{OutputPowerState, ScreenLock},
@@ -111,6 +112,8 @@ pub struct State {
     #[allow(dead_code)]
     pub output_manager_state: OutputManagerState,
     pub xdg_activation_state: XdgActivationState,
+    pub screencopy_state: ScreencopyState,
+    pub image_copy_state: ImageCopyState,
     pub session_lock_state: SessionLockManagerState,
     pub idle_notifier_state: IdleNotifierState<State>,
     #[allow(dead_code)]
@@ -175,6 +178,8 @@ impl State {
         let fractional_scale_state = FractionalScaleManagerState::new::<Self>(&dh);
         let output_manager_state = OutputManagerState::new_with_xdg_output::<Self>(&dh);
         let xdg_activation_state = XdgActivationState::new::<Self>(&dh);
+        let screencopy_state = ScreencopyState::new::<Self>(&dh);
+        let image_copy_state = ImageCopyState::new::<Self>(&dh);
         let session_lock_state = SessionLockManagerState::new::<Self, _>(&dh, |_| true);
         let idle_notifier_state = IdleNotifierState::new(&dh, event_loop.handle());
         let idle_inhibit_state = IdleInhibitManagerState::new::<Self>(&dh);
@@ -207,6 +212,8 @@ impl State {
             fractional_scale_state,
             output_manager_state,
             xdg_activation_state,
+            screencopy_state,
+            image_copy_state,
             session_lock_state,
             idle_notifier_state,
             idle_inhibit_state,

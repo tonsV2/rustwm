@@ -27,13 +27,15 @@ Every application opens filling the screen. Snap windows to halves and quarters 
 | `Super+q` or `Alt+F4` | Close the focused window (the app may ask to save first) |
 | `Super+1` … `Super+9` | Focus the first … ninth window, in the order they were opened (dialogs not counted) |
 | `Super+l` | Lock the screen (`swaylock -f -c 000000`) |
+| `Super+Shift+s` | Screenshot of an area you drag out with `slurp`, saved to `~/Pictures/Screenshots` |
 | `Ctrl+Alt+Backspace` | Quit rustwm |
 | `Ctrl+Alt+F1`…`F12` | Switch virtual terminal (hardware backend only) |
 | Brightness up / down | `brightnessctl set +5%` / `5%-`; repeats while held |
 | Volume up / down | `rustwm-volume up 5` / `down 5`: 5% steps up to 100%, keeping the left/right balance; repeats while held |
 | Mute / microphone mute | Toggle mute: `wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle`, or `@DEFAULT_AUDIO_SOURCE@` for the microphone |
+| `Print` | Save a screenshot to `~/Pictures/Screenshots` with `grim` |
 
-The brightness and volume keys work with any modifiers held, and their commands can be changed in the [configuration](#configuration). After each press a small panel near the bottom of the screen shows the new level, read back with `wpctl get-volume` or `brightnessctl -m`, and whether it is muted.
+The brightness, volume and Print keys work with any modifiers held, and their commands can be changed in the [configuration](#configuration). After each brightness or volume press a small panel near the bottom of the screen shows the new level, read back with `wpctl get-volume` or `brightnessctl -m`, and whether it is muted.
 
 Dialogs (windows with a parent, such as file pickers) open centred at their own size. Snapping a dialog treats it as full screen first.
 
@@ -50,6 +52,7 @@ Done:
 - X11-only apps through [xwayland-satellite](https://github.com/Supreeeme/xwayland-satellite): rustwm starts it on a free display when it is installed, stops it on exit, and gives apps started from Fuzzel that display as `DISPLAY`
 - xdg-activation: an application can bring another forward, for example a terminal opening a link in the running browser. Only the focused application can hand out a request, right after an input event, and it expires after 10 seconds
 - Screen locking and idle: ext-session-lock (swaylock), ext-idle-notify and idle-inhibit (swayidle, video players keeping the screen on), and wlr-output-power-management (`wlopm` turns the monitor off). See [Locking the screen](#locking-the-screen)
+- [Screenshots and screen sharing](#screenshots-and-screen-sharing): wlr-screencopy and ext-image-copy-capture, into shared memory or dmabuf buffers, for `grim` and `xdg-desktop-portal-wlr`
 
 Not done yet:
 
@@ -65,6 +68,7 @@ sudo dnf install fuzzel foot   # launcher, plus a simple terminal to test with
 sudo dnf install xwayland-satellite   # optional: runs X11-only apps
 sudo dnf install brightnessctl # brightness keys; wpctl (wireplumber) and pactl (pulseaudio-utils) for the volume keys are installed with GNOME
 sudo dnf install swaylock swayidle wlopm   # screen locking, idle timeout, monitor off
+sudo dnf install grim slurp xdg-desktop-portal-wlr   # screenshots and screen sharing
 ```
 
 The hardware backend additionally needs:
@@ -134,6 +138,7 @@ Once it works from a console, you can add it to the GDM session list:
 ```sh
 sudo install -m 755 target/release/rustwm resources/rustwm-session resources/rustwm-secrets-relay resources/rustwm-volume resources/rustwm-terminal /usr/local/bin/
 sudo install -m 644 resources/rustwm.desktop /usr/share/wayland-sessions/rustwm.desktop
+sudo install -m 644 resources/rustwm-portals.conf /usr/share/xdg-desktop-portal/rustwm-portals.conf
 ```
 
 Log out and pick "rustwm" from the gear menu on the login screen.
@@ -156,6 +161,7 @@ While locked:
 - Only the lock screen is drawn; windows, Fuzzel and the Alt+Tab switcher are hidden, and all keyboard and mouse input goes to the lock screen.
 - The window keys are off, and so is `Ctrl+Alt+Backspace`, which would otherwise quit past the lock. `Ctrl+Alt+F1`…`F12` (VT switching) and the brightness and volume keys still work.
 - If swaylock crashes, the screen stays black and locked. From another console than rustwm's (a free text console, or GNOME's terminal if it runs alongside), run `WAYLAND_DISPLAY=wayland-1 setsid -f swaylock -f` (the `ready` line in `logs/rustwm.log` names the socket) to get a lock screen back, then switch back to rustwm and unlock.
+- Screen captures are refused: a screen share pauses on its last frame from before the lock, and screenshots (including Print) fail.
 - Unlocking returns focus to the window that had it.
 
 A video player or browser playing video can keep the screen from locking and turning off (idle-inhibit) while its window is shown.
@@ -175,6 +181,8 @@ Settings live in `~/.config/rustwm/config.toml`. Copy [resources/config.toml](re
 | `commands.brightness_up`, `brightness_down` | `brightnessctl set +5%`, `… 5%-` | Brightness keys |
 | `commands.volume_up`, `volume_down`, `volume_mute` | `rustwm-volume up 5`, `rustwm-volume down 5`, `wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle` | Volume keys |
 | `commands.mic_mute` | `wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle` | Microphone mute key |
+| `commands.screenshot` | `mkdir -p ~/Pictures/Screenshots && grim ~/Pictures/Screenshots/Screenshot-$(date +%Y-%m-%d-%H%M%S).png` | Print key |
+| `commands.screenshot_area` | `area="$(slurp)" && … grim -g "$area" …` | Area screenshot for `Super+Shift+s` |
 | `commands.terminal` | `rustwm-terminal` | Terminal for `Super+Return` |
 | `commands.file_manager` | `xdg-open "$HOME"` | File manager for `Super+f` |
 | `commands.browser` | `gtk-launch "$(xdg-settings get default-web-browser)"` | Browser for `Super+b` |
@@ -209,6 +217,34 @@ GNOME Settings does not work here: it refuses to start outside GNOME, and its di
 | `XKB_DEFAULT_LAYOUT`, `XKB_DEFAULT_VARIANT`, `XKB_DEFAULT_MODEL`, `XKB_DEFAULT_OPTIONS` | Keyboard layout when `config.toml` sets none, e.g. `XKB_DEFAULT_LAYOUT=dk` |
 | `XCURSOR_THEME`, `XCURSOR_SIZE` | Cursor theme and size on the hardware backend |
 
+## Screenshots and screen sharing
+
+rustwm lets outside tools read the screen through the wlr-screencopy and ext-image-copy-capture protocols. It has no capture interface of its own.
+
+Screenshots use [grim](https://gitlab.freedesktop.org/emersion/grim), and [slurp](https://github.com/emersion/slurp) to select an area:
+
+```sh
+grim screen.png               # the whole screen
+grim -g "$(slurp)" area.png   # drag to select an area
+```
+
+Print saves the whole screen and `Super+Shift+s` a selected area to `~/Pictures/Screenshots`, through the `commands.screenshot` and `commands.screenshot_area` [commands](#configuration).
+
+Screen sharing in browsers, Meet, Slack, Zoom and OBS goes through the desktop portal (`xdg-desktop-portal`), which hands the ScreenCast and Screenshot requests to `xdg-desktop-portal-wlr` and streams the screen through PipeWire:
+
+1. Install `xdg-desktop-portal-wlr` (see [Fedora dependencies](#fedora-dependencies)).
+2. Tell the portal to use it when `XDG_CURRENT_DESKTOP=rustwm`, with [resources/rustwm-portals.conf](resources/rustwm-portals.conf): system-wide in `/usr/share/xdg-desktop-portal/` (see [As a login session](#as-a-login-session)), or for yourself in `~/.config/xdg-desktop-portal/`. The other portals (file chooser and so on) stay with GTK's.
+3. With one monitor there is nothing to choose, so skip the chooser `xdg-desktop-portal-wlr` would otherwise show (slurp, or a Fuzzel menu) with `~/.config/xdg-desktop-portal-wlr/rustwm`:
+
+   ```ini
+   [screencast]
+   chooser_type=none
+   ```
+
+rustwm puts `WAYLAND_DISPLAY` and `XDG_CURRENT_DESKTOP=rustwm` in the D-Bus activation environment at startup (see [D-Bus bus and keyring](#d-bus-bus-and-keyring)), so the portals it starts connect to rustwm. On the shared user bus, a portal that was already running for another desktop keeps that desktop's settings until it restarts: `systemctl --user restart xdg-desktop-portal`.
+
+`xdg-desktop-portal-wlr` 0.8.4 (Fedora 44) only streams over ext-image-copy-capture; over wlr-screencopy it stops after the first frame (fixed upstream after 0.8.4). rustwm offers both. Nested, the shared stream pauses while the host hides the rustwm window, and it arrives upside down in apps that ignore the stream's transform, because the nested output is flipped.
+
 ## Known limitations
 
 - The hardware backend uses one monitor at a time, in its preferred mode.
@@ -217,6 +253,7 @@ GNOME Settings does not work here: it refuses to start outside GNOME, and its di
 - An application whose minimum size is larger than its slot draws past the slot's edge.
 - X11-only apps need `xwayland-satellite` installed; without it they do not run. Some Java apps show a blank window under it until `_JAVA_AWT_WM_NONREPARENTING=1` is set. JetBrains IDEs also have a Wayland mode: add `-Dawt.toolkit.name=WLToolkit` via Help → Edit Custom VM Options. They also run as a single instance per user, so close the IDE in any other session first.
 - No built-in XWayland, workspaces or window decorations (out of scope by design).
+- Screen sharing shares the whole screen; single windows cannot be chosen. Nested, the pointer is not in captures (the host draws it).
 
 ## Code layout
 
@@ -234,7 +271,8 @@ GNOME Settings does not work here: it refuses to start outside GNOME, and its di
 | `src/apps.rs` | Application names and icons from desktop files and icon themes |
 | `src/launcher.rs` | Spawns Fuzzel |
 | `src/xwayland.rs` | Starts xwayland-satellite for X11 apps |
-| `src/commands.rs` | Runs the brightness and volume key commands |
+| `src/commands.rs` | Runs the brightness, volume and Print key commands |
+| `src/capture/` | Screen capture protocols (wlr-screencopy, ext-image-copy-capture) for screenshots and screen sharing; drawn in `src/handlers/capture.rs` |
 | `src/osd.rs` | On-screen brightness and volume indicator |
 | `src/winit.rs` | Nested backend and rendering |
 | `src/udev.rs` | Hardware backend: session, GPU, monitor, libinput, rendering |

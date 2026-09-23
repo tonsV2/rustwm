@@ -26,13 +26,13 @@ pub enum Key {
     /// One of the XF86Switch_VT_* keysyms, which the default keymap
     /// produces for Ctrl+Alt+F1..F12.
     SwitchVt(i32),
-    /// A brightness or volume key, bound to an outside command.
+    /// A brightness, volume or Print key, bound to an outside command.
     Command(Command),
     Other,
 }
 
-/// Brightness and volume keys. The compositor has no audio or power logic
-/// of its own; each runs a configurable outside command.
+/// Brightness, volume and Print keys. The compositor has no audio, power
+/// or screenshot logic of its own; each runs a configurable outside command.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Command {
     BrightnessUp,
@@ -41,13 +41,18 @@ pub enum Command {
     VolumeDown,
     VolumeMute,
     MicMute,
+    Screenshot,
 }
 
 impl Command {
     /// Whether holding the key runs the command again at the key repeat
-    /// rate. Toggles do not repeat, or a held key would flip back and forth.
+    /// rate. Toggles do not repeat, or a held key would flip back and forth,
+    /// and neither does a screenshot.
     pub fn repeats(self) -> bool {
-        !matches!(self, Command::VolumeMute | Command::MicMute)
+        !matches!(
+            self,
+            Command::VolumeMute | Command::MicMute | Command::Screenshot
+        )
     }
 }
 
@@ -59,16 +64,18 @@ pub enum App {
     FileManager,
     Browser,
     Lock,
+    ScreenshotArea,
 }
 
 impl App {
-    /// The app Super plus `key` starts.
-    pub fn for_key(key: Key) -> Option<Self> {
-        match key {
-            Key::Return => Some(App::Terminal),
-            Key::Char('f') => Some(App::FileManager),
-            Key::Char('b') => Some(App::Browser),
-            Key::Char('l') => Some(App::Lock),
+    /// The app Super plus `key`, and Shift if `shift`, starts.
+    pub fn for_key(key: Key, shift: bool) -> Option<Self> {
+        match (key, shift) {
+            (Key::Return, false) => Some(App::Terminal),
+            (Key::Char('f'), false) => Some(App::FileManager),
+            (Key::Char('b'), false) => Some(App::Browser),
+            (Key::Char('l'), false) => Some(App::Lock),
+            (Key::Char('s'), true) => Some(App::ScreenshotArea),
             _ => None,
         }
     }
@@ -103,7 +110,7 @@ pub enum Action {
     CancelSwitch,
     /// Change to another virtual terminal (DRM backend only).
     SwitchVt(i32),
-    /// Run the outside command bound to a brightness or volume key.
+    /// Run the outside command bound to a brightness, volume or Print key.
     Run(Command),
     /// Start an application with a Super shortcut.
     Spawn(App),
@@ -213,6 +220,9 @@ impl Bindings {
             // mean nothing else.
             Key::Command(command) => Some(Action::Run(command)),
             key if mods.logo && !mods.alt && !mods.ctrl && !mods.shift => super_action(key),
+            key if mods.logo && mods.shift && !mods.alt && !mods.ctrl => {
+                App::for_key(key, true).map(Action::Spawn)
+            }
             _ => None,
         };
         self.consume(keycode, action)
@@ -248,7 +258,7 @@ impl Bindings {
 
 /// What Super plus `key`, with no other modifier, does.
 fn super_action(key: Key) -> Option<Action> {
-    if let Some(app) = App::for_key(key) {
+    if let Some(app) = App::for_key(key, false) {
         return Some(Action::Spawn(app));
     }
     match key {
@@ -262,11 +272,12 @@ fn super_action(key: Key) -> Option<Action> {
 /// text console is safe, since it has its own login, and lets the user
 /// recover from a broken lock screen. The brightness and volume keys only
 /// run their outside commands. Everything else, including
-/// Ctrl+Alt+Backspace, would get around the lock and goes to the lock
-/// screen instead.
+/// Ctrl+Alt+Backspace and Print (screen captures are refused while locked),
+/// would get around the lock and goes to the lock screen instead.
 fn locked_action(key: Key) -> Option<Action> {
     match key {
         Key::SwitchVt(vt) => Some(Action::SwitchVt(vt)),
+        Key::Command(Command::Screenshot) => None,
         Key::Command(command) => Some(Action::Run(command)),
         _ => None,
     }
@@ -286,6 +297,7 @@ mod tests {
     const F: u32 = 41;
     const B: u32 = 56;
     const Q: u32 = 24;
+    const S: u32 = 39;
     const THREE: u32 = 12;
     const RETURN: u32 = 36;
     const BACKSPACE: u32 = 22;
@@ -483,6 +495,7 @@ mod tests {
     }
 
     const VOLUME_UP: u32 = 123;
+    const PRINT: u32 = 107;
     const MUTE: u32 = 121;
 
     #[test]
@@ -537,6 +550,7 @@ mod tests {
         assert!(Command::VolumeDown.repeats());
         assert!(!Command::VolumeMute.repeats());
         assert!(!Command::MicMute.repeats());
+        assert!(!Command::Screenshot.repeats());
     }
 
     #[test]
@@ -572,6 +586,19 @@ mod tests {
             (Q, Key::Char('q'), Action::Close),
             (THREE, Key::Digit(3), Action::FocusNth(3)),
         ];
+        let super_shift = Mods {
+            shift: true,
+            ..logo()
+        };
+        assert_eq!(
+            b.key(S, Key::Char('s'), true, super_shift),
+            Outcome::intercept(Some(Action::Spawn(App::ScreenshotArea)))
+        );
+        b.key(S, Key::Char('s'), false, super_shift);
+        assert_eq!(
+            b.key(S, Key::Char('s'), true, logo()),
+            Outcome::forward(None)
+        );
         for (keycode, key, action) in cases {
             assert_eq!(
                 b.key(keycode, key, true, logo()),
@@ -668,6 +695,12 @@ mod tests {
         assert_eq!(
             b.key(VOLUME_UP, up, false, none()),
             Outcome::intercept(None)
+        );
+        // Captures are refused while locked, so Print goes to the lock
+        // screen rather than running grim.
+        assert_eq!(
+            b.key(PRINT, Key::Command(Command::Screenshot), true, none()),
+            Outcome::forward(None)
         );
     }
 

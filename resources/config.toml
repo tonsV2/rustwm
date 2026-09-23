@@ -27,9 +27,9 @@ repeat_delay = 200
 repeat_rate = 25
 
 [commands]
-# Shell commands for the brightness and volume keys, run with `sh -c`. An
-# empty string ("") passes the key on to the focused application instead.
-# The up and down keys repeat while held; the mute keys do not.
+# Shell commands for the brightness, volume and Print keys, run with
+# `sh -c`. An empty string ("") passes the key on to the focused application
+# instead. The up and down keys repeat while held; the others do not.
 brightness_up = "brightnessctl set +5%"
 brightness_down = "brightnessctl set 5%-"
 # rustwm-volume (next to rustwm-session) keeps the left/right balance;
@@ -38,6 +38,9 @@ volume_up = "rustwm-volume up 5"
 volume_down = "rustwm-volume down 5"
 volume_mute = "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"
 mic_mute = "wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle"
+# Print saves the whole screen, Super+Shift+s a selected area.
+screenshot = "mkdir -p ~/Pictures/Screenshots && grim ~/Pictures/Screenshots/Screenshot-$(date +%Y-%m-%d-%H%M%S).png"
+screenshot_area = 'area="$(slurp)" && mkdir -p ~/Pictures/Screenshots && grim -g "$area" ~/Pictures/Screenshots/Screenshot-$(date +%Y-%m-%d-%H%M%S).png'
 # Super shortcuts. An empty string leaves the key to the focused app.
 # rustwm-terminal (next to rustwm-session) picks xdg-terminal-exec, the first
 # entry of ~/.config/xdg-terminals.list, or foot.

@@ -82,7 +82,7 @@ impl State {
                     Key::Command(command) if state.config.commands.get(command).is_empty() => {
                         Key::Other
                     }
-                    key if App::for_key(key)
+                    key if App::for_key(key, mods.shift)
                         .is_some_and(|app| state.config.commands.app(app).is_empty()) =>
                     {
                         Key::Other
@@ -368,6 +368,7 @@ fn classify(sym: Keysym) -> Key {
         Keysym::XF86_AudioLowerVolume => Key::Command(Command::VolumeDown),
         Keysym::XF86_AudioMute => Key::Command(Command::VolumeMute),
         Keysym::XF86_AudioMicMute => Key::Command(Command::MicMute),
+        Keysym::Print => Key::Command(Command::Screenshot),
         sym if (Keysym::XF86_Switch_VT_1.raw()..=Keysym::XF86_Switch_VT_12.raw())
             .contains(&sym.raw()) =>
         {
