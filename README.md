@@ -97,19 +97,26 @@ Closing the nested window stops the compositor.
 rustwm picks its backend automatically: inside a desktop session (`WAYLAND_DISPLAY` or `DISPLAY` set) it runs nested, otherwise it takes over the screen.
 
 1. Switch to a free text console with `Ctrl+Alt+F3` and log in.
-2. Run `./start.sh` from the checkout. It builds a release binary and starts it on its own D-Bus bus, logging to `logs/rustwm.log` (the previous run's log is kept as `logs/rustwm.log.old`).
+2. Run `./start.sh` from the checkout. It builds a release binary and starts it through `resources/rustwm-session` (see below), logging to `logs/rustwm.log` (the previous run's log is kept as `logs/rustwm.log.old`).
 3. `Ctrl+Alt+Backspace` quits and returns to the console. `Ctrl+Alt+F2` (or whichever VT GNOME is on) switches back to your desktop while rustwm keeps running.
 
 Start a first application with a Super tap (Fuzzel). If something goes wrong, see `logs/rustwm.log`.
 
-`dbus-run-session` matters while you are also logged in to GNOME. Many apps (GTK apps, Ghostty) run as a single instance: on launch they look for a running copy on the D-Bus session bus and hand the request over. Without a bus of its own, rustwm shares GNOME's, and the window opens in GNOME instead. `scripts/nested.sh` does the same for the nested backend.
+#### D-Bus bus and keyring
+
+`resources/rustwm-session` decides which D-Bus session bus rustwm runs on. `start.sh`, `scripts/nested.sh` and the login session all go through it.
+
+- **Next to another graphical session** (logged in to GNOME on another VT, or nested inside it): rustwm gets a private bus from `dbus-run-session`. Many apps (GTK apps, Ghostty) run as a single instance: on launch they look for a running copy on the D-Bus session bus and hand the request over. On GNOME's bus the window would open in GNOME instead. The keyring GNOME unlocked at login only answers on GNOME's bus, so `rustwm-session` also starts `resources/rustwm-secrets-relay`, which owns `org.freedesktop.secrets` on the private bus and passes every call through to GNOME's keyring daemon. Apps that store passwords (browsers, IDEs, credential helpers) find it unlocked, with no prompt. The relay needs Python with GObject introspection (`python3-gobject-base`, installed with GNOME).
+- **As the only graphical session** (logged in from GDM, or from a console while nobody is logged in to GNOME): rustwm uses the shared user bus, where PAM unlocked the keyring at a GDM login, and points the D-Bus and systemd activation environment (`WAYLAND_DISPLAY`, `XDG_CURRENT_DESKTOP`) at itself. After a console login the keyring is still locked, and the first app that needs it shows one unlock prompt.
+
+Starting a second `gnome-keyring-daemon` on the private bus does not help: `--start` finds the running daemon through its per-user control socket in `$XDG_RUNTIME_DIR/keyring/`, initialises that one and exits, and the running daemon stays on GNOME's bus only. `--replace` would take the keyring away from GNOME.
 
 ### As a login session
 
 Once it works from a console, you can add it to the GDM session list:
 
 ```sh
-sudo install -m 755 target/release/rustwm /usr/local/bin/rustwm
+sudo install -m 755 target/release/rustwm resources/rustwm-session resources/rustwm-secrets-relay /usr/local/bin/
 sudo install -m 644 resources/rustwm.desktop /usr/share/wayland-sessions/rustwm.desktop
 ```
 

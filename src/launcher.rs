@@ -81,34 +81,40 @@ fn is_on_path(command: &str) -> bool {
 /// Single-instance apps (GTK apps, Ghostty, ...) first look for a running
 /// copy on the D-Bus session bus and hand the request to it. On the bus
 /// shared with a GNOME session, that copy lives in GNOME, so the window
-/// opens there. Running rustwm under `dbus-run-session` gives it a bus of
-/// its own; this then points that bus's activation environment at our
-/// Wayland socket.
+/// opens there. `rustwm-session` therefore gives rustwm a bus of its own
+/// when another graphical session runs; this then points that bus's
+/// activation environment at our Wayland socket.
 ///
-/// The shared user bus is left alone: changing its activation environment
-/// would send GNOME's apps here instead.
-pub fn export_to_dbus(wayland_display: &OsStr) {
+/// As the only graphical session, `rustwm-session` keeps the shared user bus
+/// (where PAM unlocked the keyring) and sets `RUSTWM_SHARED_BUS=1`. Then the
+/// shared bus and the systemd user manager get our environment too. Without
+/// that marker the shared bus is left alone: changing its activation
+/// environment would send GNOME's apps here instead. A nested compositor
+/// never touches it.
+pub fn export_to_dbus(wayland_display: &OsStr, nested: bool) {
     let bus = env::var("DBUS_SESSION_BUS_ADDRESS").unwrap_or_default();
     let shared_bus = env::var("XDG_RUNTIME_DIR")
         .map(|dir| format!("unix:path={dir}/bus"))
         .unwrap_or_default();
+    let on_shared_bus = bus.is_empty() || bus == shared_bus;
+    let shared_bus_ok = !nested && env::var_os("RUSTWM_SHARED_BUS").is_some_and(|v| v == "1");
 
-    if bus.is_empty() || bus == shared_bus {
+    if on_shared_bus && !shared_bus_ok {
         warn!(
             "running on the shared D-Bus session bus; single-instance apps that are \
              already running in another session will open their windows there. \
-             Start rustwm with `dbus-run-session rustwm` to avoid this"
+             Start rustwm with `rustwm-session` to avoid this"
         );
         return;
     }
 
     let mut arg = std::ffi::OsString::from("WAYLAND_DISPLAY=");
     arg.push(wayland_display);
-    match Command::new("dbus-update-activation-environment")
-        .arg(arg)
-        .arg("XDG_CURRENT_DESKTOP=rustwm")
-        .status()
-    {
+    let mut command = Command::new("dbus-update-activation-environment");
+    if on_shared_bus {
+        command.arg("--systemd");
+    }
+    match command.arg(arg).arg("XDG_CURRENT_DESKTOP=rustwm").status() {
         Ok(status) if status.success() => info!("D-Bus activation environment updated"),
         Ok(status) => warn!(%status, "failed to update D-Bus activation environment"),
         Err(err) => warn!(%err, "failed to run dbus-update-activation-environment"),

@@ -41,7 +41,8 @@ fn main() -> anyhow::Result<()> {
     let display: Display<State> = Display::new().context("failed to create Wayland display")?;
 
     let config = config::Config::load();
-    let mut state = if nested() {
+    let nested = nested();
+    let mut state = if nested {
         info!("running nested inside the current session");
         let (winit, winit_loop, dmabuf_state) = winit::init_backend(&display.handle())?;
         let mut state = State::new(
@@ -74,7 +75,7 @@ fn main() -> anyhow::Result<()> {
         "ready; run clients with WAYLAND_DISPLAY={}",
         state.socket_name.to_string_lossy()
     );
-    launcher::export_to_dbus(&state.socket_name);
+    launcher::export_to_dbus(&state.socket_name, nested);
 
     event_loop
         .run(None, &mut state, State::after_dispatch)
