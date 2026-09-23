@@ -217,11 +217,12 @@ impl Bindings {
 /// text console is safe, since it has its own login, and lets the user
 /// recover from a broken lock screen. The brightness and volume keys only
 /// run their outside commands. Everything else, including
-/// Ctrl+Alt+Backspace, would get around the lock and goes to the lock
-/// screen instead.
+/// Ctrl+Alt+Backspace and Print (screen captures are refused while locked),
+/// would get around the lock and goes to the lock screen instead.
 fn locked_action(key: Key) -> Option<Action> {
     match key {
         Key::SwitchVt(vt) => Some(Action::SwitchVt(vt)),
+        Key::Command(Command::Screenshot) => None,
         Key::Command(command) => Some(Action::Run(command)),
         _ => None,
     }
@@ -431,6 +432,7 @@ mod tests {
     }
 
     const VOLUME_UP: u32 = 123;
+    const PRINT: u32 = 107;
     const MUTE: u32 = 121;
 
     #[test]
@@ -558,6 +560,12 @@ mod tests {
         assert_eq!(
             b.key(VOLUME_UP, up, false, none()),
             Outcome::intercept(None)
+        );
+        // Captures are refused while locked, so Print goes to the lock
+        // screen rather than running grim.
+        assert_eq!(
+            b.key(PRINT, Key::Command(Command::Screenshot), true, none()),
+            Outcome::forward(None)
         );
     }
 

@@ -154,6 +154,7 @@ While locked:
 - Only the lock screen is drawn; windows, Fuzzel and the Alt+Tab switcher are hidden, and all keyboard and mouse input goes to the lock screen.
 - The window keys are off, and so is `Ctrl+Alt+Backspace`, which would otherwise quit past the lock. `Ctrl+Alt+F1`…`F12` (VT switching) and the brightness and volume keys still work.
 - If swaylock crashes, the screen stays black and locked. Switch to a text console with `Ctrl+Alt+F3`, log in and run `WAYLAND_DISPLAY=wayland-1 swaylock` (the `ready` line in `logs/rustwm.log` names the socket) to get a lock screen back, then switch back and unlock.
+- Screen captures are refused: a screen share pauses on its last frame from before the lock, and screenshots (including Print) fail.
 - Unlocking returns focus to the window that had it.
 
 A video player or browser playing video can keep the screen from locking and turning off (idle-inhibit) while its window is shown.

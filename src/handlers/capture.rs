@@ -71,6 +71,13 @@ impl CaptureHandler for State {
             ensure!(wait_for_damage, "another virtual terminal has the screen");
             return Ok(None);
         }
+        if self.is_locked() {
+            // Nothing of the session may leave while it is locked: a
+            // stream pauses on its last frame from before the lock, and a
+            // screenshot fails.
+            ensure!(wait_for_damage, "the screen is locked");
+            return Ok(None);
+        }
 
         // Elements are placed relative to the output; the region's corner
         // becomes the buffer's.
@@ -173,8 +180,8 @@ impl State {
                 scale,
             ));
         }
-        let switcher = self.switcher_elements(output);
-        elements.extend(switcher.into_iter().map(OutputElements::Switcher));
+        let overlay = self.overlay_elements(output);
+        elements.extend(overlay.into_iter().map(OutputElements::Switcher));
         match space_render_elements(self.backend.renderer(), [&self.space], output, 1.0) {
             Ok(space) => elements.extend(space.into_iter().map(Into::into)),
             Err(err) => warn!(?err, "failed to collect window elements for capture"),
