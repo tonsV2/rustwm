@@ -287,7 +287,7 @@ impl State {
                 origin.to_f64(),
                 buffer,
                 None,
-                None,
+                Some(image_src((panel.width, panel.height).into(), scale)),
                 Some((panel.width, panel.height).into()),
                 Kind::Unspecified,
             )
@@ -421,6 +421,15 @@ pub(crate) struct Image {
     pub(crate) height: i32,
     /// Premultiplied, in memory order B, G, R, A.
     pub(crate) pixels: Vec<u8>,
+}
+
+/// The source rectangle for an image drawn at `scale` and shown at `size`:
+/// the whole image. Without it, Smithay takes the logical size as the source
+/// in buffer pixels, which crops the right and bottom of an image drawn at a
+/// scale above 1.
+pub(crate) fn image_src(size: Size<i32, Logical>, scale: f64) -> Rectangle<f64, Logical> {
+    let pixels = |length: i32| (length as f64 * scale).round();
+    Rectangle::from_size((pixels(size.w), pixels(size.h)).into())
 }
 
 /// Draws the panel (background, highlight and text) and, separately, the
@@ -776,6 +785,18 @@ mod tests {
         let thumb = fit(area, (100, 50).into()).unwrap();
         assert_eq!(thumb.size, Size::from((100.0, 50.0)));
         assert_eq!(fit(area, (0, 50).into()), None);
+    }
+
+    #[test]
+    fn image_src_covers_the_whole_image() {
+        let panel = Panel::new(3, 0, (1920, 1080));
+        let view = view(3, 0);
+        let (below, _) = draw(None, &view, &panel, &[None, None, None], 1.25);
+        let src = image_src((panel.width, panel.height).into(), 1.25);
+        assert_eq!(
+            (src.size.w as i32, src.size.h as i32),
+            (below.width, below.height)
+        );
     }
 
     #[test]

@@ -38,7 +38,9 @@ use crate::{
     apps, commands,
     keyboard::Command,
     state::State,
-    switcher::{BACKGROUND, Canvas, HIGHLIGHT, Image, RADIUS, SwitcherElement, TEXT_COLOR},
+    switcher::{
+        BACKGROUND, Canvas, HIGHLIGHT, Image, RADIUS, SwitcherElement, TEXT_COLOR, image_src,
+    },
 };
 
 /// How long the indicator stays after the last level read.
@@ -298,7 +300,7 @@ impl State {
             origin.to_f64(),
             buffer,
             None,
-            None,
+            Some(image_src((WIDTH, HEIGHT).into(), scale)),
             Some((WIDTH, HEIGHT).into()),
             Kind::Unspecified,
         )
