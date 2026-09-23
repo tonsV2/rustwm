@@ -12,8 +12,9 @@ mod xdg_shell;
 
 use smithay::{
     backend::{allocator::dmabuf::Dmabuf, renderer::ImportDma},
-    delegate_data_device, delegate_dmabuf, delegate_fractional_scale, delegate_output,
-    delegate_primary_selection, delegate_seat, delegate_viewporter, delegate_xdg_decoration,
+    delegate_cursor_shape, delegate_data_device, delegate_dmabuf, delegate_fractional_scale,
+    delegate_output, delegate_primary_selection, delegate_seat, delegate_viewporter,
+    delegate_xdg_decoration,
     input::{Seat, SeatHandler, SeatState, pointer::CursorImageStatus},
     reexports::{
         wayland_protocols::xdg::decoration::zv1::server::zxdg_toplevel_decoration_v1::Mode as DecorationMode,
@@ -35,6 +36,7 @@ use smithay::{
             },
         },
         shell::xdg::{ToplevelSurface, decoration::XdgDecorationHandler},
+        tablet_manager::TabletSeatHandler,
     },
 };
 use tracing::info;
@@ -93,6 +95,9 @@ impl OutputHandler for State {}
 delegate_output!(State);
 
 delegate_viewporter!(State);
+
+impl TabletSeatHandler for State {}
+delegate_cursor_shape!(State);
 
 /// Tells each surface the output scale, so clients that support fractional
 /// scaling draw at exactly that resolution instead of a blurry whole

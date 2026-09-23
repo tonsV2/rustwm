@@ -45,7 +45,7 @@ Done:
 
 - Nested backend (runs as a window inside your current session)
 - Hardware backend (DRM/KMS with libseat, libinput and GBM): one GPU and one monitor, the first connected one; VT switching; a drawn cursor (XCURSOR_THEME, or a built-in arrow); tap-to-click enabled on touchpads
-- xdg-shell windows and popups, wlr-layer-shell (needed by Fuzzel), clipboard and primary selection, linux-dmabuf, viewporter, server-side decoration negotiation (the compositor draws no decorations)
+- xdg-shell windows and popups, wlr-layer-shell (needed by Fuzzel), clipboard and primary selection, linux-dmabuf, viewporter, fractional scale, cursor shape (the compositor draws the cursors apps ask for by name, at one size), server-side decoration negotiation (the compositor draws no decorations)
 - Full-screen initial placement, dialogs floating centred, half and quarter layouts
 - Most-recently-used Alt+Tab with live window thumbnails, application icons and names
 - Super tap launches Fuzzel; Super used with another key or a click does not
@@ -286,4 +286,4 @@ rustwm puts `WAYLAND_DISPLAY` and `XDG_CURRENT_DESKTOP=rustwm` in the D-Bus acti
 | `src/panel.rs` | Starts the panel and auto-hides it |
 | `src/winit.rs` | Nested backend and rendering |
 | `src/udev.rs` | Hardware backend: session, GPU, monitor, libinput, rendering |
-| `src/cursor.rs` | Default cursor image for the hardware backend |
+| `src/cursor.rs` | Cursor images from the theme for the hardware backend |

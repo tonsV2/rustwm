@@ -1,10 +1,10 @@
-//! The default pointer image, drawn by the DRM backend when no client has
-//! set its own cursor surface.
+//! The pointer images the DRM backend draws: the arrow when no client has set its own cursor surface, and every shape a client asks for by name through the cursor-shape protocol.
 
-use std::{env, fs};
+use std::{collections::HashMap, env, fs};
 
 use smithay::{
     backend::{allocator::Fourcc, renderer::element::memory::MemoryRenderBuffer},
+    input::pointer::CursorIcon,
     utils::{Logical, Point, Transform},
 };
 use tracing::warn;
@@ -15,33 +15,62 @@ pub struct Cursor {
     pub hotspot: Point<i32, Logical>,
 }
 
-impl Cursor {
-    /// Loads the "default" cursor from the XCURSOR_THEME theme, falling back
-    /// to a plain arrow drawn in code when no theme is installed.
-    ///
-    /// `buffer_scale` is how many image pixels make up one logical pixel; a
-    /// scale of 2 loads an image twice the size, which then appears at the
-    /// normal size.
+/// The XCURSOR_THEME theme's images, loaded the first time each shape is shown.
+pub struct Cursors {
+    theme: CursorTheme,
+    size: u32,
+    buffer_scale: i32,
+    loaded: HashMap<CursorIcon, Cursor>,
+}
+
+impl Cursors {
+    /// `buffer_scale` is how many image pixels make up one logical pixel; a scale of 2 loads an image twice the size, which then appears at the normal size.
     pub fn load(buffer_scale: i32) -> Self {
         let theme = env::var("XCURSOR_THEME").unwrap_or_else(|_| "default".into());
         let size = env::var("XCURSOR_SIZE")
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap_or(24u32);
-
-        match load_theme_image(&theme, size, buffer_scale.max(1)) {
-            Some(cursor) => cursor,
-            None => {
-                warn!(theme, "cursor theme not found; using built-in cursor");
-                fallback()
-            }
+        Self {
+            theme: CursorTheme::load(&theme),
+            size,
+            buffer_scale: buffer_scale.max(1),
+            loaded: HashMap::new(),
         }
+    }
+
+    /// The image for `icon`, trying its alternative names and then the arrow, and a plain arrow drawn in code when the theme has neither.
+    pub fn get(&mut self, icon: CursorIcon) -> &Cursor {
+        if !self.loaded.contains_key(&icon) {
+            let names = std::iter::once(icon.name()).chain(icon.alt_names().iter().copied());
+            let cursor = names
+                .chain(["default", "left_ptr"])
+                .find_map(|name| self.load_image(name))
+                .unwrap_or_else(|| {
+                    warn!(
+                        name = icon.name(),
+                        "cursor not found in theme; using built-in cursor"
+                    );
+                    fallback()
+                });
+            self.loaded.insert(icon, cursor);
+        }
+        &self.loaded[&icon]
+    }
+
+    fn load_image(&self, name: &str) -> Option<Cursor> {
+        load_theme_image(&self.theme, name, self.size, self.buffer_scale)
     }
 }
 
-fn load_theme_image(theme: &str, size: u32, buffer_scale: i32) -> Option<Cursor> {
+fn load_theme_image(
+    theme: &CursorTheme,
+    name: &str,
+    size: u32,
+    buffer_scale: i32,
+) -> Option<Cursor> {
     let size = size * buffer_scale as u32;
-    let path = CursorTheme::load(theme).load_icon("default")?;
+    let path = theme.load_icon(name)?;
     let data = fs::read(path).ok()?;
     let images = parse_xcursor(&data)?;
     let image = images

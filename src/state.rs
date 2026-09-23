@@ -33,6 +33,7 @@ use smithay::{
     utils::{Logical, Point, SERIAL_COUNTER},
     wayland::{
         compositor::{CompositorClientState, CompositorState},
+        cursor_shape::CursorShapeManagerState,
         dmabuf::DmabufState,
         fractional_scale::FractionalScaleManagerState,
         idle_inhibit::IdleInhibitManagerState,
@@ -111,6 +112,8 @@ pub struct State {
     #[allow(dead_code)]
     pub fractional_scale_state: FractionalScaleManagerState,
     #[allow(dead_code)]
+    pub cursor_shape_state: CursorShapeManagerState,
+    #[allow(dead_code)]
     pub output_manager_state: OutputManagerState,
     pub xdg_activation_state: XdgActivationState,
     pub screencopy_state: ScreencopyState,
@@ -178,6 +181,7 @@ impl State {
         let shm_state = ShmState::new::<Self>(&dh, vec![]);
         let viewporter_state = ViewporterState::new::<Self>(&dh);
         let fractional_scale_state = FractionalScaleManagerState::new::<Self>(&dh);
+        let cursor_shape_state = CursorShapeManagerState::new::<Self>(&dh);
         let output_manager_state = OutputManagerState::new_with_xdg_output::<Self>(&dh);
         let xdg_activation_state = XdgActivationState::new::<Self>(&dh);
         let screencopy_state = ScreencopyState::new::<Self>(&dh);
@@ -212,6 +216,7 @@ impl State {
             dmabuf_state,
             viewporter_state,
             fractional_scale_state,
+            cursor_shape_state,
             output_manager_state,
             xdg_activation_state,
             screencopy_state,
