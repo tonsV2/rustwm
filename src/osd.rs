@@ -6,7 +6,7 @@
 //! finished, the thread that waited for it reads the level back with
 //! `wpctl` or `brightnessctl` and hands it to the event loop through a
 //! channel, so a slow read never holds up drawing. A custom command in
-//! `[commands]` still shows the right level as long as it changes the
+//! `[shortcuts]` still shows the right level as long as it changes the
 //! default device.
 
 use std::{
@@ -233,7 +233,7 @@ impl State {
             (self.osd.sender.clone(), self.osd.next_seq)
         });
         commands::run(
-            self.config.commands.get(command),
+            self.config.shortcuts.get(command),
             &self.child_env(),
             move || {
                 let (Some((sender, seq)), Some(device)) = (reader, device) else {
