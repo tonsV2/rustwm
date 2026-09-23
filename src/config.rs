@@ -83,7 +83,8 @@ impl Default for KeyboardConfig {
     }
 }
 
-/// Shell commands for the brightness and volume keys, run with `sh -c`.
+/// Shell commands for the brightness, volume and Print keys, run with
+/// `sh -c`.
 /// An empty string leaves the key to the focused application.
 #[derive(Debug, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
@@ -94,7 +95,12 @@ pub struct CommandsConfig {
     pub volume_down: String,
     pub volume_mute: String,
     pub mic_mute: String,
+    pub screenshot: String,
 }
+
+/// Saves the whole screen as a PNG named after the time.
+const SCREENSHOT: &str = "mkdir -p ~/Pictures/Screenshots && \
+    grim ~/Pictures/Screenshots/Screenshot-$(date +%Y-%m-%d-%H%M%S).png";
 
 impl Default for CommandsConfig {
     fn default() -> Self {
@@ -105,6 +111,7 @@ impl Default for CommandsConfig {
             volume_down: "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-".into(),
             volume_mute: "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle".into(),
             mic_mute: "wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle".into(),
+            screenshot: SCREENSHOT.into(),
         }
     }
 }
@@ -118,6 +125,7 @@ impl CommandsConfig {
             Command::VolumeDown => &self.volume_down,
             Command::VolumeMute => &self.volume_mute,
             Command::MicMute => &self.mic_mute,
+            Command::Screenshot => &self.screenshot,
         }
     }
 }
@@ -222,6 +230,7 @@ mod tests {
             "wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%+"
         );
         assert_eq!(config.commands.get(Command::MicMute), "");
+        assert_eq!(config.commands.get(Command::Screenshot), SCREENSHOT);
         assert_eq!(
             config.commands.get(Command::BrightnessUp),
             "brightnessctl set +5%"

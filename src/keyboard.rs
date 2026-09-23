@@ -20,13 +20,13 @@ pub enum Key {
     /// One of the XF86Switch_VT_* keysyms, which the default keymap
     /// produces for Ctrl+Alt+F1..F12.
     SwitchVt(i32),
-    /// A brightness or volume key, bound to an outside command.
+    /// A brightness, volume or Print key, bound to an outside command.
     Command(Command),
     Other,
 }
 
-/// Brightness and volume keys. The compositor has no audio or power logic
-/// of its own; each runs a configurable outside command.
+/// Brightness, volume and Print keys. The compositor has no audio, power
+/// or screenshot logic of its own; each runs a configurable outside command.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Command {
     BrightnessUp,
@@ -35,13 +35,18 @@ pub enum Command {
     VolumeDown,
     VolumeMute,
     MicMute,
+    Screenshot,
 }
 
 impl Command {
     /// Whether holding the key runs the command again at the key repeat
-    /// rate. Toggles do not repeat, or a held key would flip back and forth.
+    /// rate. Toggles do not repeat, or a held key would flip back and forth,
+    /// and neither does a screenshot.
     pub fn repeats(self) -> bool {
-        !matches!(self, Command::VolumeMute | Command::MicMute)
+        !matches!(
+            self,
+            Command::VolumeMute | Command::MicMute | Command::Screenshot
+        )
     }
 }
 
@@ -74,7 +79,7 @@ pub enum Action {
     CancelSwitch,
     /// Change to another virtual terminal (DRM backend only).
     SwitchVt(i32),
-    /// Run the outside command bound to a brightness or volume key.
+    /// Run the outside command bound to a brightness, volume or Print key.
     Run(Command),
     /// Stop the compositor. On real hardware this is the way out when
     /// something goes wrong.
@@ -450,6 +455,7 @@ mod tests {
         assert!(Command::VolumeDown.repeats());
         assert!(!Command::VolumeMute.repeats());
         assert!(!Command::MicMute.repeats());
+        assert!(!Command::Screenshot.repeats());
     }
 
     #[test]

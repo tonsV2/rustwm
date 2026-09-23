@@ -27,12 +27,15 @@ repeat_delay = 200
 repeat_rate = 25
 
 [commands]
-# Shell commands for the brightness and volume keys, run with `sh -c`. An
-# empty string ("") passes the key on to the focused application instead.
-# The up and down keys repeat while held; the mute keys do not.
+# Shell commands for the brightness, volume and Print keys, run with
+# `sh -c`. An empty string ("") passes the key on to the focused application
+# instead. The up and down keys repeat while held; the others do not.
 brightness_up = "brightnessctl set +5%"
 brightness_down = "brightnessctl set 5%-"
 volume_up = "wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%+"
 volume_down = "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-"
 volume_mute = "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"
 mic_mute = "wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle"
+# Print saves the screen; for a selected area use
+# 'grim -g "$(slurp)" ~/Pictures/Screenshots/Screenshot-$(date +%Y-%m-%d-%H%M%S).png'
+screenshot = "mkdir -p ~/Pictures/Screenshots && grim ~/Pictures/Screenshots/Screenshot-$(date +%Y-%m-%d-%H%M%S).png"

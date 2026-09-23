@@ -1008,6 +1008,8 @@ In particular, do not spontaneously implement:
 
 The one exception to power and audio controls: the brightness and volume keys (`XF86MonBrightnessUp`/`Down`, `XF86AudioRaiseVolume`/`LowerVolume`/`Mute`, `XF86AudioMicMute`) are bound to configurable outside commands, by default `brightnessctl` and `wpctl`. The compositor only runs the command; it contains no brightness or audio logic and shows no on-screen indicator.
 
+Screen capture is supported so that outside tools work: the compositor implements the wlr-screencopy and ext-image-copy-capture protocols, which `grim` uses for screenshots and `xdg-desktop-portal-wlr` for screen sharing. The Print key runs a configurable command, by default `grim`. There is no capture interface in the compositor itself.
+
 The purpose of the project is to have an extremely small and predictable Wayland environment.
 
 ---

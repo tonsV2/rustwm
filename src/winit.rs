@@ -183,5 +183,6 @@ fn render(state: &mut State) {
     // Winit only redraws on request, so keep the loop going at vsync.
     winit.backend.window().request_redraw();
 
+    crate::capture::render_queued(state, &output);
     state.send_frame_callbacks(&output);
 }

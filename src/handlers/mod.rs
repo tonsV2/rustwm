@@ -1,6 +1,7 @@
 //! Smithay protocol handlers. Each `delegate_*!` macro wires a Wayland
 //! protocol to the matching handler trait on `State`.
 
+mod capture;
 mod compositor;
 mod layer_shell;
 mod xdg_activation;

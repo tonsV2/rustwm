@@ -43,6 +43,7 @@ use smithay::{
 use tracing::{error, info, warn};
 
 use crate::{
+    capture::{image_copy::ImageCopyState, screencopy::ScreencopyState},
     config::{Config, KeyboardConfig},
     focus::{FocusHistory, WindowId},
     keyboard::Bindings,
@@ -98,6 +99,8 @@ pub struct State {
     #[allow(dead_code)]
     pub output_manager_state: OutputManagerState,
     pub xdg_activation_state: XdgActivationState,
+    pub screencopy_state: ScreencopyState,
+    pub image_copy_state: ImageCopyState,
     pub seat_state: SeatState<State>,
     pub data_device_state: DataDeviceState,
     pub primary_selection_state: PrimarySelectionState,
@@ -149,6 +152,8 @@ impl State {
         let fractional_scale_state = FractionalScaleManagerState::new::<Self>(&dh);
         let output_manager_state = OutputManagerState::new_with_xdg_output::<Self>(&dh);
         let xdg_activation_state = XdgActivationState::new::<Self>(&dh);
+        let screencopy_state = ScreencopyState::new::<Self>(&dh);
+        let image_copy_state = ImageCopyState::new::<Self>(&dh);
         let data_device_state = DataDeviceState::new::<Self>(&dh);
         let primary_selection_state = PrimarySelectionState::new::<Self>(&dh);
 
@@ -176,6 +181,8 @@ impl State {
             fractional_scale_state,
             output_manager_state,
             xdg_activation_state,
+            screencopy_state,
+            image_copy_state,
             seat_state,
             data_device_state,
             primary_selection_state,

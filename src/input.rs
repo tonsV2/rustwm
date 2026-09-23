@@ -317,6 +317,7 @@ fn classify(sym: Keysym) -> Key {
         Keysym::XF86_AudioLowerVolume => Key::Command(Command::VolumeDown),
         Keysym::XF86_AudioMute => Key::Command(Command::VolumeMute),
         Keysym::XF86_AudioMicMute => Key::Command(Command::MicMute),
+        Keysym::Print => Key::Command(Command::Screenshot),
         sym if (Keysym::XF86_Switch_VT_1.raw()..=Keysym::XF86_Switch_VT_12.raw())
             .contains(&sym.raw()) =>
         {

@@ -47,7 +47,7 @@ use smithay::{
         rustix::fs::OFlags,
         wayland_server::{DisplayHandle, backend::GlobalId},
     },
-    utils::{DeviceFd, IsAlive, Scale, Transform},
+    utils::{DeviceFd, IsAlive, Logical, Point, Scale, Transform},
     wayland::{
         compositor::with_states,
         dmabuf::{DmabufFeedbackBuilder, DmabufState},
@@ -73,7 +73,7 @@ type GbmOutput =
 
 /// Formats tried for the screen's framebuffer, best first.
 const COLOR_FORMATS: [Fourcc; 2] = [Fourcc::Argb8888, Fourcc::Xrgb8888];
-const BACKGROUND: [f32; 4] = [0.1, 0.1, 0.1, 1.0];
+pub const BACKGROUND: [f32; 4] = [0.1, 0.1, 0.1, 1.0];
 
 render_elements! {
     pub OutputElements<=GlesRenderer>;
@@ -89,9 +89,9 @@ pub struct UdevData {
     pub renderer: GlesRenderer,
     drm: GbmOutputManager,
     screen: Option<Screen>,
-    cursor: Cursor,
+    pub cursor: Cursor,
     /// False while another VT has the session; the GPU must not be touched.
-    active: bool,
+    pub active: bool,
     /// A render is already queued, either waiting for vblank or on a timer.
     render_pending: bool,
 }
@@ -508,50 +508,14 @@ pub fn render(state: &mut State) {
     let mut elements: Vec<OutputElements> = Vec::new();
 
     // The cursor comes first: elements are ordered front to back.
-    if let CursorImageStatus::Surface(surface) = cursor_status
-        && !surface.alive()
-    {
-        *cursor_status = CursorImageStatus::default_named();
-    }
     let scale = Scale::from(screen.output.current_scale().fractional_scale());
-    match cursor_status {
-        CursorImageStatus::Hidden => {}
-        CursorImageStatus::Surface(surface) => {
-            let hotspot = with_states(surface, |states| {
-                states
-                    .data_map
-                    .get::<CursorImageSurfaceData>()
-                    .and_then(|data| data.lock().ok().map(|attrs| attrs.hotspot))
-                    .unwrap_or_default()
-            });
-            let location = (pointer_location - hotspot.to_f64())
-                .to_physical(scale)
-                .to_i32_round();
-            elements.extend(render_elements_from_surface_tree(
-                &mut udev.renderer,
-                surface,
-                location,
-                scale,
-                1.0,
-                Kind::Cursor,
-            ));
-        }
-        CursorImageStatus::Named(_) => {
-            let location = (pointer_location - udev.cursor.hotspot.to_f64()).to_physical(scale);
-            match MemoryRenderBufferRenderElement::from_buffer(
-                &mut udev.renderer,
-                location,
-                &udev.cursor.buffer,
-                None,
-                None,
-                None,
-                Kind::Cursor,
-            ) {
-                Ok(element) => elements.push(element.into()),
-                Err(err) => warn!(?err, "failed to draw cursor"),
-            }
-        }
-    }
+    elements.extend(cursor_elements(
+        &mut udev.renderer,
+        &udev.cursor,
+        cursor_status,
+        pointer_location,
+        scale,
+    ));
 
     elements.extend(switcher.into_iter().map(OutputElements::Switcher));
 
@@ -592,7 +556,65 @@ pub fn render(state: &mut State) {
     }
 
     let output = screen.output.clone();
+    crate::capture::render_queued(state, &output);
     state.send_frame_callbacks(&output);
+}
+
+/// The pointer at `pointer_location`, for the screen and for screen
+/// captures. A cursor surface whose client went away falls back to the
+/// default arrow.
+pub fn cursor_elements(
+    renderer: &mut GlesRenderer,
+    cursor: &Cursor,
+    cursor_status: &mut CursorImageStatus,
+    pointer_location: Point<f64, Logical>,
+    scale: Scale<f64>,
+) -> Vec<OutputElements> {
+    if let CursorImageStatus::Surface(surface) = cursor_status
+        && !surface.alive()
+    {
+        *cursor_status = CursorImageStatus::default_named();
+    }
+    let mut elements = Vec::new();
+    match cursor_status {
+        CursorImageStatus::Hidden => {}
+        CursorImageStatus::Surface(surface) => {
+            let hotspot = with_states(surface, |states| {
+                states
+                    .data_map
+                    .get::<CursorImageSurfaceData>()
+                    .and_then(|data| data.lock().ok().map(|attrs| attrs.hotspot))
+                    .unwrap_or_default()
+            });
+            let location = (pointer_location - hotspot.to_f64())
+                .to_physical(scale)
+                .to_i32_round();
+            elements.extend(render_elements_from_surface_tree(
+                renderer,
+                surface,
+                location,
+                scale,
+                1.0,
+                Kind::Cursor,
+            ));
+        }
+        CursorImageStatus::Named(_) => {
+            let location = (pointer_location - cursor.hotspot.to_f64()).to_physical(scale);
+            match MemoryRenderBufferRenderElement::from_buffer(
+                renderer,
+                location,
+                &cursor.buffer,
+                None,
+                None,
+                None,
+                Kind::Cursor,
+            ) {
+                Ok(element) => elements.push(element.into()),
+                Err(err) => warn!(?err, "failed to draw cursor"),
+            }
+        }
+    }
+    elements
 }
 
 /// Applies the input settings to a newly connected mouse, touchpad or
