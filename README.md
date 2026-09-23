@@ -27,7 +27,7 @@ Every application opens filling the screen. Snap windows to halves and quarters 
 | Volume up / down | `wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%+` / `5%-`; repeats while held |
 | Mute / microphone mute | Toggle mute: `wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle`, or `@DEFAULT_AUDIO_SOURCE@` for the microphone |
 
-The brightness and volume keys work with any modifiers held, and their commands can be changed in the [configuration](#configuration).
+The brightness and volume keys work with any modifiers held, and their commands can be changed in the [configuration](#configuration). After each press a small panel near the bottom of the screen shows the new level, read back with `wpctl get-volume` or `brightnessctl -m`, and whether it is muted.
 
 Dialogs (windows with a parent, such as file pickers) open centred at their own size. Snapping a dialog treats it as full screen first.
 
@@ -169,6 +169,7 @@ Settings live in `~/.config/rustwm/config.toml`. Copy [resources/config.toml](re
 | `commands.brightness_up`, `brightness_down` | `brightnessctl set +5%`, `… 5%-` | Brightness keys |
 | `commands.volume_up`, `volume_down`, `volume_mute` | `wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%+`, `… 5%-`, `wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle` | Volume keys |
 | `commands.mic_mute` | `wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle` | Microphone mute key |
+| `osd.enabled` | `true` | Show the brightness and volume level after a key press; turn off if you run your own indicator (swayosd, wob) |
 
 Commands run with `sh -c`, so quoting, `&&` and `$HOME` work as in a terminal. An empty command (`""`) passes the key on to the focused application.
 
@@ -211,6 +212,7 @@ GNOME Settings does not work here: it refuses to start outside GNOME, and its di
 | `src/launcher.rs` | Spawns Fuzzel |
 | `src/xwayland.rs` | Starts xwayland-satellite for X11 apps |
 | `src/commands.rs` | Runs the brightness and volume key commands |
+| `src/osd.rs` | On-screen brightness and volume indicator |
 | `src/winit.rs` | Nested backend and rendering |
 | `src/udev.rs` | Hardware backend: session, GPU, monitor, libinput, rendering |
 | `src/cursor.rs` | Default cursor image for the hardware backend |

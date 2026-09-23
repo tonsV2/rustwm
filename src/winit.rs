@@ -168,7 +168,7 @@ fn render(state: &mut State) {
     let overlay = if hidden {
         Vec::new()
     } else {
-        state.switcher_elements(&output)
+        state.overlay_elements(&output)
     };
     let Backend::Winit(winit) = &mut state.backend else {
         return;

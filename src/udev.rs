@@ -500,7 +500,7 @@ pub fn render(state: &mut State) {
         return;
     }
     let switcher = match &output {
-        Some(output) if !locked => state.switcher_elements(output),
+        Some(output) if !locked => state.overlay_elements(output),
         _ => Vec::new(),
     };
     let lock_surface = output

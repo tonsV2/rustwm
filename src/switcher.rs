@@ -59,12 +59,12 @@ const ICON_SIZE: i32 = 48;
 const ICON_OVERHANG: i32 = 8;
 const NAME_SIZE: f32 = 13.0;
 const TITLE_SIZE: f32 = 15.0;
-const RADIUS: f32 = 16.0;
+pub(crate) const RADIUS: f32 = 16.0;
 
 // Colours as straight (not premultiplied) RGBA.
-const BACKGROUND: [f32; 4] = [0.12, 0.12, 0.13, 0.94];
-const HIGHLIGHT: [f32; 4] = [1.0, 1.0, 1.0, 0.14];
-const TEXT_COLOR: [f32; 4] = [0.95, 0.95, 0.95, 1.0];
+pub(crate) const BACKGROUND: [f32; 4] = [0.12, 0.12, 0.13, 0.94];
+pub(crate) const HIGHLIGHT: [f32; 4] = [1.0, 1.0, 1.0, 0.14];
+pub(crate) const TEXT_COLOR: [f32; 4] = [0.95, 0.95, 0.95, 1.0];
 const NAME_COLOR: [f32; 4] = [0.95, 0.95, 0.95, 0.75];
 const PLACEHOLDER: [f32; 4] = [0.35, 0.37, 0.42, 1.0];
 
@@ -287,7 +287,7 @@ impl State {
                 origin.to_f64(),
                 buffer,
                 None,
-                None,
+                Some(image_src((panel.width, panel.height).into(), scale)),
                 Some((panel.width, panel.height).into()),
                 Kind::Unspecified,
             )
@@ -416,11 +416,20 @@ fn fit(area: Rectangle<i32, Logical>, size: Size<i32, Logical>) -> Option<Rectan
 }
 
 /// An ARGB8888 image in physical pixels.
-struct Image {
-    width: i32,
-    height: i32,
+pub(crate) struct Image {
+    pub(crate) width: i32,
+    pub(crate) height: i32,
     /// Premultiplied, in memory order B, G, R, A.
-    pixels: Vec<u8>,
+    pub(crate) pixels: Vec<u8>,
+}
+
+/// The source rectangle for an image drawn at `scale` and shown at `size`:
+/// the whole image. Without it, Smithay takes the logical size as the source
+/// in buffer pixels, which crops the right and bottom of an image drawn at a
+/// scale above 1.
+pub(crate) fn image_src(size: Size<i32, Logical>, scale: f64) -> Rectangle<f64, Logical> {
+    let pixels = |length: i32| (length as f64 * scale).round();
+    Rectangle::from_size((pixels(size.w), pixels(size.h)).into())
 }
 
 /// Draws the panel (background, highlight and text) and, separately, the
@@ -526,14 +535,14 @@ struct TextStyle {
     color: [f32; 4],
 }
 
-struct Canvas {
+pub(crate) struct Canvas {
     width: i32,
     height: i32,
     pixels: Vec<u8>,
 }
 
 impl Canvas {
-    fn new(width: i32, height: i32) -> Self {
+    pub(crate) fn new(width: i32, height: i32) -> Self {
         Self {
             width,
             height,
@@ -541,7 +550,7 @@ impl Canvas {
         }
     }
 
-    fn into_image(self) -> Image {
+    pub(crate) fn into_image(self) -> Image {
         Image {
             width: self.width,
             height: self.height,
@@ -574,7 +583,12 @@ impl Canvas {
 
     /// Fills a rectangle (x, y, width, height) with rounded, anti-aliased
     /// corners.
-    fn rounded_rect(&mut self, (x, y, w, h): (f32, f32, f32, f32), radius: f32, color: [f32; 4]) {
+    pub(crate) fn rounded_rect(
+        &mut self,
+        (x, y, w, h): (f32, f32, f32, f32),
+        radius: f32,
+        color: [f32; 4],
+    ) {
         let radius = radius.min(w / 2.0).min(h / 2.0);
         for py in y.floor() as i32..(y + h).ceil() as i32 {
             for px in x.floor() as i32..(x + w).ceil() as i32 {
@@ -593,7 +607,7 @@ impl Canvas {
     }
 
     /// Draws `pixmap` (premultiplied RGBA) with its top left at (x, y).
-    fn pixmap(&mut self, pixmap: &Pixmap, x: i32, y: i32) {
+    pub(crate) fn pixmap(&mut self, pixmap: &Pixmap, x: i32, y: i32) {
         let width = pixmap.width() as i32;
         for (i, pixel) in pixmap.pixels().iter().enumerate() {
             let px = x + i as i32 % width;
@@ -771,6 +785,18 @@ mod tests {
         let thumb = fit(area, (100, 50).into()).unwrap();
         assert_eq!(thumb.size, Size::from((100.0, 50.0)));
         assert_eq!(fit(area, (0, 50).into()), None);
+    }
+
+    #[test]
+    fn image_src_covers_the_whole_image() {
+        let panel = Panel::new(3, 0, (1920, 1080));
+        let view = view(3, 0);
+        let (below, _) = draw(None, &view, &panel, &[None, None, None], 1.25);
+        let src = image_src((panel.width, panel.height).into(), 1.25);
+        assert_eq!(
+            (src.size.w as i32, src.size.h as i32),
+            (below.width, below.height)
+        );
     }
 
     #[test]

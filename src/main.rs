@@ -9,6 +9,7 @@ mod keyboard;
 mod keymap;
 mod launcher;
 mod layout;
+mod osd;
 mod state;
 mod switcher;
 mod udev;
