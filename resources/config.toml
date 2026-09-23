@@ -21,7 +21,7 @@ tap_to_click = true
 # The up and down keys repeat while held; the mute keys do not.
 brightness_up = "brightnessctl set +5%"
 brightness_down = "brightnessctl set 5%-"
-volume_up = "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%+"
+volume_up = "wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%+"
 volume_down = "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-"
 volume_mute = "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"
 mic_mute = "wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle"
