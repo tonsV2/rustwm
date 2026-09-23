@@ -102,8 +102,8 @@ impl Default for CommandsConfig {
         Self {
             brightness_up: "brightnessctl set +5%".into(),
             brightness_down: "brightnessctl set 5%-".into(),
-            volume_up: "wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%+".into(),
-            volume_down: "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-".into(),
+            volume_up: "rustwm-volume up 5".into(),
+            volume_down: "rustwm-volume down 5".into(),
             volume_mute: "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle".into(),
             mic_mute: "wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle".into(),
         }

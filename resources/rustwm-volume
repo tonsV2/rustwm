@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# Raises or lowers the default speaker's volume by STEP percent while keeping
+# the balance between its channels, like GNOME's volume keys. `wpctl
+# set-volume` sets every channel to the same level instead, which loses a
+# left/right balance set in the sound settings.
+#
+# Usage: rustwm-volume up|down [STEP]   (STEP in percent, default 5)
+#
+# Raising stops at 100% and unmutes. Lowering stops one step above silence
+# and then mutes, because at 0% the balance could not be recovered from the
+# levels.
+set -euo pipefail
+
+direction=${1:-}
+step=${2:-5}
+if [[ "$direction" != up && "$direction" != down ]] || ! [[ "$step" =~ ^[0-9]+$ ]]; then
+    echo "usage: rustwm-volume up|down [STEP]" >&2
+    exit 2
+fi
+
+# "Volume: front-left: 52428 /  80% / -5.81 dB,   front-right: 13107 / ..."
+# gives the raw channel volumes, where 65536 is 100%.
+mapfile -t channels < <(pactl get-sink-volume @DEFAULT_SINK@ |
+    grep -o '[0-9]\+ / *[0-9]\+%' | cut -d' ' -f1)
+if ((${#channels[@]} == 0)); then
+    echo "rustwm-volume: cannot read the default sink's volume" >&2
+    exit 1
+fi
+
+read -r -a volumes < <(awk -v direction="$direction" -v step="$step" '
+    BEGIN {
+        norm = 65536
+        n = split(ARGV[1], v, " ")
+        ARGV[1] = ""
+        loudest = 0
+        for (i = 1; i <= n; i++) if (v[i] > loudest) loudest = v[i]
+        delta = step * norm / 100
+        if (direction == "up") {
+            target = loudest + delta
+            if (target > norm) target = norm
+            # Never lower a volume someone raised past 100% on purpose.
+            if (target < loudest) target = loudest
+        } else {
+            target = loudest - delta
+            if (target < delta) target = loudest < delta ? loudest : delta
+        }
+        for (i = 1; i <= n; i++) {
+            level = loudest > 0 ? v[i] * target / loudest : target
+            printf "%d ", level + 0.5
+        }
+        print ""
+    }' "${channels[*]}")
+
+pactl set-sink-volume @DEFAULT_SINK@ "${volumes[@]}"
+if [[ "$direction" == up ]]; then
+    pactl set-sink-mute @DEFAULT_SINK@ 0
+elif [[ "${channels[*]}" == "${volumes[*]}" ]]; then
+    # Already at the lowest step: mute instead of losing the balance.
+    pactl set-sink-mute @DEFAULT_SINK@ 1
+fi
