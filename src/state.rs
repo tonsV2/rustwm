@@ -14,7 +14,8 @@ use smithay::{
     output::Output,
     reexports::{
         calloop::{
-            EventLoop, Interest, LoopHandle, LoopSignal, Mode, PostAction, generic::Generic,
+            EventLoop, Interest, LoopHandle, LoopSignal, Mode, PostAction, RegistrationToken,
+            generic::Generic,
         },
         wayland_server::{
             Display, DisplayHandle,
@@ -44,7 +45,7 @@ use tracing::{error, info, warn};
 use crate::{
     config::Config,
     focus::{FocusHistory, WindowId},
-    keyboard::Bindings,
+    keyboard::{Bindings, REPEAT_DELAY_MS, REPEAT_RATE},
     launcher::Launcher,
     layout::{Layout, Rect},
     switcher::Switcher,
@@ -114,6 +115,9 @@ pub struct State {
     next_window_id: u64,
     pub focus: FocusHistory,
     pub bindings: Bindings,
+    /// The held brightness or volume key and the timer repeating its
+    /// command. Clients repeat keys themselves, but these never reach one.
+    pub key_repeat: Option<(u32, RegistrationToken)>,
     pub launcher: Launcher,
     pub switcher: Switcher,
     pub config: Config,
@@ -147,7 +151,7 @@ impl State {
         let mut seat_state = SeatState::new();
         let mut seat = seat_state.new_wl_seat(&dh, "seat0");
         // An empty XkbConfig lets libxkbcommon read the XKB_DEFAULT_* variables.
-        seat.add_keyboard(XkbConfig::default(), 200, 25)
+        seat.add_keyboard(XkbConfig::default(), REPEAT_DELAY_MS, REPEAT_RATE)
             .context("failed to set up keyboard (check XKB_DEFAULT_* variables)")?;
         seat.add_pointer();
 
@@ -181,6 +185,7 @@ impl State {
             next_window_id: 0,
             focus: FocusHistory::default(),
             bindings: Bindings::default(),
+            key_repeat: None,
             launcher: Launcher::new(),
             switcher: Switcher::default(),
             config,

@@ -256,6 +256,8 @@ fn insert_sources(
                     udev.active = false;
                     udev.libinput.suspend();
                     udev.drm.pause();
+                    // The held key's release will not arrive.
+                    state.stop_key_repeat();
                 }
                 SessionEvent::ActivateSession => {
                     info!("session resumed");
