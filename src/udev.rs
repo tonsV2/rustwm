@@ -57,7 +57,7 @@ use tracing::{error, info, warn};
 
 use crate::{
     config::{InputConfig, auto_scale},
-    cursor::Cursor,
+    cursor::Cursors,
     handlers::LOCKED_BACKGROUND,
     state::{Backend, State},
     switcher::SwitcherElement,
@@ -90,7 +90,7 @@ pub struct UdevData {
     pub renderer: GlesRenderer,
     drm: GbmOutputManager,
     screen: Option<Screen>,
-    pub cursor: Cursor,
+    pub cursors: Cursors,
     /// False while another VT has the session; the GPU must not be touched.
     pub active: bool,
     /// A render is already queued, either waiting for vblank or on a timer.
@@ -204,7 +204,7 @@ pub fn init_backend(
             renderer,
             drm,
             screen: None,
-            cursor: Cursor::load(1),
+            cursors: Cursors::load(1),
             active: true,
             render_pending: false,
             lock_frame_queued: false,
@@ -398,7 +398,7 @@ fn add_screen(state: &mut State, info: connector::Info, crtc: crtc::Handle) {
     );
     // Cursor images come in whole-number sizes; drawing a larger one scaled
     // down keeps it sharp.
-    udev.cursor = Cursor::load(scale.ceil() as i32);
+    udev.cursors = Cursors::load(scale.ceil() as i32);
     output.set_preferred(mode);
 
     let drm_output = match udev.drm.initialize_output::<_, OutputElements>(
@@ -535,7 +535,7 @@ pub fn render(state: &mut State) {
     let scale = Scale::from(screen.output.current_scale().fractional_scale());
     elements.extend(cursor_elements(
         &mut udev.renderer,
-        &udev.cursor,
+        &mut udev.cursors,
         cursor_status,
         pointer_location,
         scale,
@@ -614,7 +614,7 @@ pub fn render(state: &mut State) {
 /// default arrow.
 pub fn cursor_elements(
     renderer: &mut GlesRenderer,
-    cursor: &Cursor,
+    cursors: &mut Cursors,
     cursor_status: &mut CursorImageStatus,
     pointer_location: Point<f64, Logical>,
     scale: Scale<f64>,
@@ -647,7 +647,8 @@ pub fn cursor_elements(
                 Kind::Cursor,
             ));
         }
-        CursorImageStatus::Named(_) => {
+        CursorImageStatus::Named(icon) => {
+            let cursor = cursors.get(*icon);
             let location = (pointer_location - cursor.hotspot.to_f64()).to_physical(scale);
             match MemoryRenderBufferRenderElement::from_buffer(
                 renderer,

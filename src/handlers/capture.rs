@@ -174,7 +174,7 @@ impl State {
             let scale = Scale::from(output.current_scale().fractional_scale());
             elements.extend(udev::cursor_elements(
                 &mut udev.renderer,
-                &udev.cursor,
+                &mut udev.cursors,
                 &mut self.cursor_status,
                 location,
                 scale,
