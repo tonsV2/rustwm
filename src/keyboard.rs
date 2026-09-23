@@ -17,7 +17,7 @@ pub enum Key {
     Escape,
     Arrow(Direction),
     Backspace,
-    /// The L key, for Super+L.
+    /// The l key, for Super+l.
     L,
     /// One of the XF86Switch_VT_* keysyms, which the default keymap
     /// produces for Ctrl+Alt+F1..F12.
@@ -78,7 +78,7 @@ pub enum Action {
     SwitchVt(i32),
     /// Run the outside command bound to a brightness or volume key.
     Run(Command),
-    /// Run the screen locker (Super+L).
+    /// Run the screen locker (Super+l).
     Lock,
     /// Stop the compositor. On real hardware this is the way out when
     /// something goes wrong.

@@ -38,7 +38,7 @@ volume_up = "rustwm-volume up 5"
 volume_down = "rustwm-volume down 5"
 volume_mute = "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"
 mic_mute = "wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle"
-# Super+L. `-f` returns once the screen is locked, `-c` sets the colour.
+# Super+l. `-f` returns once the screen is locked, `-c` sets the colour.
 lock = "swaylock -f -c 000000"
 
 [osd]

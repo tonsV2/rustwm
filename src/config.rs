@@ -95,7 +95,7 @@ pub struct CommandsConfig {
     pub volume_down: String,
     pub volume_mute: String,
     pub mic_mute: String,
-    /// The screen locker, run by Super+L.
+    /// The screen locker, run by Super+l.
     pub lock: String,
 }
 
