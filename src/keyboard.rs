@@ -17,6 +17,7 @@ pub enum Key {
     Escape,
     Arrow(Direction),
     Backspace,
+    F4,
     Return,
     /// A letter key, lowercase: `'l'` for Super+l.
     Char(char),
@@ -65,7 +66,7 @@ impl App {
     pub fn for_key(key: Key) -> Option<Self> {
         match key {
             Key::Return => Some(App::Terminal),
-            Key::Char('e') => Some(App::FileManager),
+            Key::Char('f') => Some(App::FileManager),
             Key::Char('b') => Some(App::Browser),
             Key::Char('l') => Some(App::Lock),
             _ => None,
@@ -203,6 +204,7 @@ impl Bindings {
                 forward: matches!(direction, Direction::Right | Direction::Down),
             }),
             Key::Escape if self.switching => Some(Action::CancelSwitch),
+            Key::F4 if mods.alt && !mods.ctrl && !mods.logo && !mods.shift => Some(Action::Close),
             Key::Backspace if mods.ctrl && mods.alt && !mods.logo && !mods.shift => {
                 Some(Action::Quit)
             }
@@ -281,13 +283,14 @@ mod tests {
     const UP: u32 = 111;
     const A: u32 = 38;
     const L: u32 = 46;
-    const E: u32 = 26;
+    const F: u32 = 41;
     const B: u32 = 56;
     const Q: u32 = 24;
     const THREE: u32 = 12;
     const RETURN: u32 = 36;
     const BACKSPACE: u32 = 22;
     const F2: u32 = 68;
+    const F4: u32 = 70;
     const ESCAPE: u32 = 9;
 
     fn logo() -> Mods {
@@ -564,7 +567,7 @@ mod tests {
         let mut b = Bindings::default();
         let cases = [
             (RETURN, Key::Return, Action::Spawn(App::Terminal)),
-            (E, Key::Char('e'), Action::Spawn(App::FileManager)),
+            (F, Key::Char('f'), Action::Spawn(App::FileManager)),
             (B, Key::Char('b'), Action::Spawn(App::Browser)),
             (Q, Key::Char('q'), Action::Close),
             (THREE, Key::Digit(3), Action::FocusNth(3)),
@@ -578,6 +581,17 @@ mod tests {
             // Without Super they are typing.
             assert_eq!(b.key(keycode, key, true, none()), Outcome::forward(None));
         }
+    }
+
+    #[test]
+    fn alt_f4_closes() {
+        let mut b = Bindings::default();
+        assert_eq!(
+            b.key(F4, Key::F4, true, alt()),
+            Outcome::intercept(Some(Action::Close))
+        );
+        assert_eq!(b.key(F4, Key::F4, false, alt()), Outcome::intercept(None));
+        assert_eq!(b.key(F4, Key::F4, true, none()), Outcome::forward(None));
     }
 
     #[test]

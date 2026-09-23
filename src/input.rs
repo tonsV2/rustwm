@@ -347,6 +347,7 @@ fn classify(sym: Keysym) -> Key {
         Keysym::Up => Key::Arrow(Direction::Up),
         Keysym::Down => Key::Arrow(Direction::Down),
         Keysym::BackSpace => Key::Backspace,
+        Keysym::F4 => Key::F4,
         Keysym::Return | Keysym::KP_Enter => Key::Return,
         // Letters as lowercase, so Caps Lock makes no difference.
         sym if (Keysym::a.raw()..=Keysym::z.raw()).contains(&sym.raw()) => {
