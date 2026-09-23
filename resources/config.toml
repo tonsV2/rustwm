@@ -26,10 +26,8 @@ tap_to_click = true
 repeat_delay = 200
 repeat_rate = 25
 
-[commands]
-# Shell commands for the brightness, volume and Print keys, run with
-# `sh -c`. An empty string ("") passes the key on to the focused application
-# instead. The up and down keys repeat while held; the others do not.
+[shortcuts]
+# What each shortcut runs, as a shell command (`sh -c`). An empty string ("") passes the key on to the focused application instead. The brightness and volume up and down keys repeat while held; the others do not.
 brightness_up = "brightnessctl set +5%"
 brightness_down = "brightnessctl set 5%-"
 # rustwm-volume (next to rustwm-session) keeps the left/right balance;

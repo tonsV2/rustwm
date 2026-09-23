@@ -178,15 +178,15 @@ Settings live in `~/.config/rustwm/config.toml`. Copy [resources/config.toml](re
 | `input.tap_to_click` | `true` | Tap the touchpad to click |
 | `keyboard.layout`, `variant`, `model`, `options` | the system keyboard (`localectl`) | XKB keymap, e.g. `layout = "us,dk"`, `options = "grp:alt_shift_toggle"` |
 | `keyboard.repeat_delay`, `repeat_rate` | `200`, `25` | Milliseconds before a held key repeats, and repeats per second |
-| `commands.brightness_up`, `brightness_down` | `brightnessctl set +5%`, `… 5%-` | Brightness keys |
-| `commands.volume_up`, `volume_down`, `volume_mute` | `rustwm-volume up 5`, `rustwm-volume down 5`, `wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle` | Volume keys |
-| `commands.mic_mute` | `wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle` | Microphone mute key |
-| `commands.screenshot` | `mkdir -p ~/Pictures/Screenshots && grim ~/Pictures/Screenshots/Screenshot-$(date +%Y-%m-%d-%H%M%S).png` | Print key |
-| `commands.screenshot_area` | `area="$(slurp)" && … grim -g "$area" …` | Area screenshot for `Super+Shift+s` |
-| `commands.terminal` | `rustwm-terminal` | Terminal for `Super+Return` |
-| `commands.file_manager` | `xdg-open "$HOME"` | File manager for `Super+f` |
-| `commands.browser` | `gtk-launch "$(xdg-settings get default-web-browser)"` | Browser for `Super+b` |
-| `commands.lock` | `swaylock -f -c 000000` | Screen locker for `Super+l` |
+| `shortcuts.brightness_up`, `brightness_down` | `brightnessctl set +5%`, `… 5%-` | Brightness keys |
+| `shortcuts.volume_up`, `volume_down`, `volume_mute` | `rustwm-volume up 5`, `rustwm-volume down 5`, `wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle` | Volume keys |
+| `shortcuts.mic_mute` | `wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle` | Microphone mute key |
+| `shortcuts.screenshot` | `mkdir -p ~/Pictures/Screenshots && grim ~/Pictures/Screenshots/Screenshot-$(date +%Y-%m-%d-%H%M%S).png` | Print key |
+| `shortcuts.screenshot_area` | `area="$(slurp)" && … grim -g "$area" …` | Area screenshot for `Super+Shift+s` |
+| `shortcuts.terminal` | `rustwm-terminal` | Terminal for `Super+Return` |
+| `shortcuts.file_manager` | `xdg-open "$HOME"` | File manager for `Super+f` |
+| `shortcuts.browser` | `gtk-launch "$(xdg-settings get default-web-browser)"` | Browser for `Super+b` |
+| `shortcuts.lock` | `swaylock -f -c 000000` | Screen locker for `Super+l` |
 | `osd.enabled` | `true` | Show the brightness and volume level after a key press; turn off if you run your own indicator (swayosd, wob) |
 
 Commands run with `sh -c`, so quoting, `&&` and `$HOME` work as in a terminal. An empty command (`""`) passes the key on to the focused application.
@@ -228,7 +228,7 @@ grim screen.png               # the whole screen
 grim -g "$(slurp)" area.png   # drag to select an area
 ```
 
-Print saves the whole screen and `Super+Shift+s` a selected area to `~/Pictures/Screenshots`, through the `commands.screenshot` and `commands.screenshot_area` [commands](#configuration).
+Print saves the whole screen and `Super+Shift+s` a selected area to `~/Pictures/Screenshots`, through the `shortcuts.screenshot` and `shortcuts.screenshot_area` [settings](#configuration).
 
 Screen sharing in browsers, Meet, Slack, Zoom and OBS goes through the desktop portal (`xdg-desktop-portal`), which hands the ScreenCast and Screenshot requests to `xdg-desktop-portal-wlr` and streams the screen through PipeWire:
 
