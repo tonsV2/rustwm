@@ -82,7 +82,7 @@ impl State {
                     Key::Command(command) if state.config.commands.get(command).is_empty() => {
                         Key::Other
                     }
-                    key if App::for_key(key)
+                    key if App::for_key(key, mods.shift)
                         .is_some_and(|app| state.config.commands.app(app).is_empty()) =>
                     {
                         Key::Other

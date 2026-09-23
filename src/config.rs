@@ -105,11 +105,16 @@ pub struct CommandsConfig {
     pub browser: String,
     /// The screen locker, Super+l.
     pub lock: String,
+    /// A screenshot of a selected area, Super+Shift+s.
+    pub screenshot_area: String,
 }
 
 /// Saves the whole screen as a PNG named after the time.
 const SCREENSHOT: &str = "mkdir -p ~/Pictures/Screenshots && \
     grim ~/Pictures/Screenshots/Screenshot-$(date +%Y-%m-%d-%H%M%S).png";
+
+const SCREENSHOT_AREA: &str = "area=\"$(slurp)\" && mkdir -p ~/Pictures/Screenshots && \
+    grim -g \"$area\" ~/Pictures/Screenshots/Screenshot-$(date +%Y-%m-%d-%H%M%S).png";
 
 impl Default for CommandsConfig {
     fn default() -> Self {
@@ -125,6 +130,7 @@ impl Default for CommandsConfig {
             file_manager: "xdg-open \"$HOME\"".into(),
             browser: "gtk-launch \"$(xdg-settings get default-web-browser)\"".into(),
             lock: "swaylock -f -c 000000".into(),
+            screenshot_area: SCREENSHOT_AREA.into(),
         }
     }
 }
@@ -149,6 +155,7 @@ impl CommandsConfig {
             App::FileManager => &self.file_manager,
             App::Browser => &self.browser,
             App::Lock => &self.lock,
+            App::ScreenshotArea => &self.screenshot_area,
         }
     }
 }

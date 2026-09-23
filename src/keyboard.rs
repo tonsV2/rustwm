@@ -63,16 +63,18 @@ pub enum App {
     FileManager,
     Browser,
     Lock,
+    ScreenshotArea,
 }
 
 impl App {
-    /// The app Super plus `key` starts.
-    pub fn for_key(key: Key) -> Option<Self> {
-        match key {
-            Key::Return => Some(App::Terminal),
-            Key::Char('e') => Some(App::FileManager),
-            Key::Char('b') => Some(App::Browser),
-            Key::Char('l') => Some(App::Lock),
+    /// The app Super plus `key`, and Shift if `shift`, starts.
+    pub fn for_key(key: Key, shift: bool) -> Option<Self> {
+        match (key, shift) {
+            (Key::Return, false) => Some(App::Terminal),
+            (Key::Char('e'), false) => Some(App::FileManager),
+            (Key::Char('b'), false) => Some(App::Browser),
+            (Key::Char('l'), false) => Some(App::Lock),
+            (Key::Char('s'), true) => Some(App::ScreenshotArea),
             _ => None,
         }
     }
@@ -216,6 +218,9 @@ impl Bindings {
             // mean nothing else.
             Key::Command(command) => Some(Action::Run(command)),
             key if mods.logo && !mods.alt && !mods.ctrl && !mods.shift => super_action(key),
+            key if mods.logo && mods.shift && !mods.alt && !mods.ctrl => {
+                App::for_key(key, true).map(Action::Spawn)
+            }
             _ => None,
         };
         self.consume(keycode, action)
@@ -251,7 +256,7 @@ impl Bindings {
 
 /// What Super plus `key`, with no other modifier, does.
 fn super_action(key: Key) -> Option<Action> {
-    if let Some(app) = App::for_key(key) {
+    if let Some(app) = App::for_key(key, false) {
         return Some(Action::Spawn(app));
     }
     match key {
@@ -290,6 +295,7 @@ mod tests {
     const E: u32 = 26;
     const B: u32 = 56;
     const Q: u32 = 24;
+    const S: u32 = 39;
     const THREE: u32 = 12;
     const RETURN: u32 = 36;
     const BACKSPACE: u32 = 22;
@@ -577,6 +583,19 @@ mod tests {
             (Q, Key::Char('q'), Action::Close),
             (THREE, Key::Digit(3), Action::FocusNth(3)),
         ];
+        let super_shift = Mods {
+            shift: true,
+            ..logo()
+        };
+        assert_eq!(
+            b.key(S, Key::Char('s'), true, super_shift),
+            Outcome::intercept(Some(Action::Spawn(App::ScreenshotArea)))
+        );
+        b.key(S, Key::Char('s'), false, super_shift);
+        assert_eq!(
+            b.key(S, Key::Char('s'), true, logo()),
+            Outcome::forward(None)
+        );
         for (keycode, key, action) in cases {
             assert_eq!(
                 b.key(keycode, key, true, logo()),

@@ -27,6 +27,7 @@ Every application opens filling the screen. Snap windows to halves and quarters 
 | `Super+q` | Close the focused window (the app may ask to save first) |
 | `Super+1` … `Super+9` | Focus the first … ninth window, in the order they were opened (dialogs not counted) |
 | `Super+l` | Lock the screen (`swaylock -f -c 000000`) |
+| `Super+Shift+s` | Screenshot of an area you drag out with `slurp`, saved to `~/Pictures/Screenshots` |
 | `Ctrl+Alt+Backspace` | Quit rustwm |
 | `Ctrl+Alt+F1`…`F12` | Switch virtual terminal (hardware backend only) |
 | Brightness up / down | `brightnessctl set +5%` / `5%-`; repeats while held |
@@ -181,6 +182,7 @@ Settings live in `~/.config/rustwm/config.toml`. Copy [resources/config.toml](re
 | `commands.volume_up`, `volume_down`, `volume_mute` | `rustwm-volume up 5`, `rustwm-volume down 5`, `wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle` | Volume keys |
 | `commands.mic_mute` | `wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle` | Microphone mute key |
 | `commands.screenshot` | `mkdir -p ~/Pictures/Screenshots && grim ~/Pictures/Screenshots/Screenshot-$(date +%Y-%m-%d-%H%M%S).png` | Print key |
+| `commands.screenshot_area` | `area="$(slurp)" && … grim -g "$area" …` | Area screenshot for `Super+Shift+s` |
 | `commands.terminal` | `rustwm-terminal` | Terminal for `Super+Return` |
 | `commands.file_manager` | `xdg-open "$HOME"` | File manager for `Super+e` |
 | `commands.browser` | `gtk-launch "$(xdg-settings get default-web-browser)"` | Browser for `Super+b` |
