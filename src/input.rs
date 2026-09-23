@@ -18,7 +18,6 @@ use smithay::{
 };
 
 use crate::{
-    commands,
     focus::WindowId,
     keyboard::{Action, Command, Key, Mods},
     layout::{Direction, Layout},
@@ -110,7 +109,7 @@ impl State {
         let interval = Duration::from_millis(1000 / self.config.keyboard.repeat_rate as u64);
         let timer = Timer::from_duration(delay);
         let inserted = self.loop_handle.insert_source(timer, move |_, _, state| {
-            commands::run(state.config.commands.get(command), &state.socket_name);
+            state.run_command(command);
             TimeoutAction::ToDuration(interval)
         });
         match inserted {
@@ -150,9 +149,7 @@ impl State {
                     udev.change_vt(vt);
                 }
             }
-            Action::Run(command) => {
-                commands::run(self.config.commands.get(command), &self.socket_name)
-            }
+            Action::Run(command) => self.run_command(command),
             Action::Quit => {
                 info!("quit requested");
                 self.loop_signal.stop();
