@@ -11,6 +11,7 @@ mod keymap;
 mod launcher;
 mod layout;
 mod osd;
+mod panel;
 mod state;
 mod switcher;
 mod udev;
@@ -90,6 +91,7 @@ fn main() -> anyhow::Result<()> {
         info!(command, "autostart");
         commands::run(command, &state.child_env(), || {});
     }
+    state.start_panel();
 
     event_loop
         .run(None, &mut state, State::after_dispatch)

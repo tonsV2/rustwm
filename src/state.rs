@@ -63,6 +63,7 @@ use crate::{
     launcher::Launcher,
     layout::{Layout, Rect},
     osd::Osd,
+    panel::Panel,
     switcher::Switcher,
     udev::UdevData,
     window::ManagedWindow,
@@ -147,6 +148,7 @@ pub struct State {
     pub switcher: Switcher,
     /// The brightness and volume indicator.
     pub osd: Osd,
+    pub panel: Panel,
     pub config: Config,
     /// A layer surface (the launcher) that has taken keyboard focus. While
     /// set, it keeps focus over windows.
@@ -234,6 +236,7 @@ impl State {
             xwayland: None,
             switcher: Switcher::default(),
             osd,
+            panel: Panel::default(),
             config,
             layer_focus: None,
             screen_lock: ScreenLock::default(),

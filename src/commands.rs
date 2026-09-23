@@ -20,10 +20,21 @@ const NOT_FOUND: i32 = 127;
 /// Runs `command` through `sh -c`, without waiting for it to finish.
 /// `then` runs on the waiting thread once the command has succeeded.
 pub fn run(command: &str, child_env: &ChildEnv, then: impl FnOnce() + Send + 'static) {
+    run_with(command, child_env, &[], then);
+}
+
+/// Like [`run`], with extra environment variables.
+pub fn run_with(
+    command: &str,
+    child_env: &ChildEnv,
+    envs: &[(&str, &str)],
+    then: impl FnOnce() + Send + 'static,
+) {
     debug!(command, "running command");
     let mut sh = Command::new("sh");
     sh.arg("-c").arg(command).stdin(Stdio::null());
     child_env.apply(&mut sh);
+    sh.envs(envs.iter().copied());
     let result = sh.spawn();
     let mut child = match result {
         Ok(child) => child,

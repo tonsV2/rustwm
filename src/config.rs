@@ -20,6 +20,7 @@ pub struct Config {
     pub shortcuts: ShortcutsConfig,
     pub osd: OsdConfig,
     pub autostart: AutostartConfig,
+    pub panel: PanelConfig,
 }
 
 #[derive(Debug, Default, Deserialize, PartialEq)]
@@ -180,6 +181,66 @@ pub struct AutostartConfig {
     pub commands: Vec<String>,
 }
 
+/// The status bar: an outside layer-shell program, Waybar by default.
+#[derive(Debug, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct PanelConfig {
+    /// Started once rustwm is ready, with `RUSTWM_PANEL_POSITION` and `RUSTWM_PANEL_MODE` set. Empty means no panel.
+    pub command: String,
+    pub position: PanelPosition,
+    pub mode: PanelMode,
+    /// The layer-shell namespace the bar gives its surface, so rustwm knows which surface to auto-hide.
+    pub namespace: String,
+    /// In auto-hide mode, how long the panel stays after the pointer leaves it, in milliseconds.
+    pub hide_delay_ms: u64,
+}
+
+impl Default for PanelConfig {
+    fn default() -> Self {
+        Self {
+            command: "rustwm-panel".into(),
+            position: PanelPosition::Top,
+            mode: PanelMode::AutoHide,
+            namespace: "waybar".into(),
+            hide_delay_ms: 1000,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum PanelPosition {
+    Top,
+    Bottom,
+}
+
+impl PanelPosition {
+    pub fn name(self) -> &'static str {
+        match self {
+            PanelPosition::Top => "top",
+            PanelPosition::Bottom => "bottom",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum PanelMode {
+    /// Off screen until the pointer touches the panel's screen edge; windows keep the whole screen.
+    AutoHide,
+    /// Always on screen, with windows laid out beside it.
+    Always,
+}
+
+impl PanelMode {
+    pub fn name(self) -> &'static str {
+        match self {
+            PanelMode::AutoHide => "auto-hide",
+            PanelMode::Always => "always",
+        }
+    }
+}
+
 impl Config {
     pub fn load() -> Self {
         let Some(path) = path() else {
@@ -328,6 +389,24 @@ mod tests {
             Config::parse("[autostart]\ncommands = [\"mako\", \"swayidle -w\"]\n").unwrap();
         assert_eq!(config.autostart.commands, ["mako", "swayidle -w"]);
         assert!(Config::default().autostart.commands.is_empty());
+    }
+
+    #[test]
+    fn panel_parses() {
+        let config = Config::parse(
+            "[panel]\nposition = \"bottom\"\nmode = \"always\"\nhide_delay_ms = 2500\n",
+        )
+        .unwrap();
+        assert_eq!(config.panel.hide_delay_ms, 2500);
+        assert_eq!(config.panel.position, PanelPosition::Bottom);
+        assert_eq!(config.panel.mode, PanelMode::Always);
+        assert_eq!(config.panel.command, "rustwm-panel");
+        let defaults = Config::default().panel;
+        assert_eq!(
+            (defaults.position, defaults.mode),
+            (PanelPosition::Top, PanelMode::AutoHide)
+        );
+        assert!(Config::parse("[panel]\nmode = \"sometimes\"\n").is_err());
     }
 
     #[test]

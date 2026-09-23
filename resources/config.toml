@@ -53,6 +53,16 @@ lock = "swaylock -f -c 000000"
 # the screen. Turn off if you run your own indicator, such as swayosd.
 enabled = true
 
+[panel]
+# "top" or "bottom".
+position = "top"
+# "auto-hide" keeps the panel off screen until the pointer touches its edge; "always" keeps it shown and lays windows out beside it.
+mode = "auto-hide"
+# In auto-hide mode, how long the panel stays after the pointer leaves it, in milliseconds.
+hide_delay_ms = 1000
+# rustwm-panel runs Waybar with the config in resources/waybar (copy it to ~/.config/rustwm/waybar to change it). "" for no panel.
+command = "rustwm-panel"
+
 [autostart]
 # Started once when rustwm is ready, each with `sh -c`, with the same environment as apps started from Fuzzel. They stop on their own when rustwm exits and its Wayland socket goes away. This one locks after 5 minutes without input, turns the monitor off after 10, and locks before suspend.
 commands = [

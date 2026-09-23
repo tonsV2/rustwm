@@ -247,6 +247,7 @@ impl State {
         let Some(pointer) = self.seat.get_pointer() else {
             return;
         };
+        self.panel_pointer_moved(pos);
         let under = self.surface_under(pos);
         pointer.motion(
             self,

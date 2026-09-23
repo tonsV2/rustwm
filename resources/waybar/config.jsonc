@@ -1,0 +1,37 @@
+// Waybar config for rustwm, started by rustwm-panel, which fills in @POSITION@, @LAYER@ and @EXCLUSIVE@ from [panel] in rustwm's config.toml. Copy this directory to ~/.config/rustwm/waybar to change it.
+{
+    "position": "@POSITION@",
+    "layer": "@LAYER@",
+    "exclusive": @EXCLUSIVE@,
+    "height": 32,
+    "spacing": 4,
+    "modules-left": ["clock"],
+    "modules-center": [],
+    "modules-right": ["tray", "pulseaudio", "backlight", "network", "battery"],
+    "clock": {
+        "format": "{:%a %d %b  %H:%M}",
+        "tooltip-format": "<tt>{calendar}</tt>"
+    },
+    "tray": {
+        "spacing": 8
+    },
+    "pulseaudio": {
+        "format": "Volume {volume}%",
+        "format-muted": "Muted",
+        "on-click": "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"
+    },
+    "backlight": {
+        "format": "Brightness {percent}%"
+    },
+    "network": {
+        "format-wifi": "{essid}",
+        "format-ethernet": "Wired",
+        "format-disconnected": "Offline",
+        "tooltip-format": "{ifname} {ipaddr}"
+    },
+    "battery": {
+        "format": "Battery {capacity}%",
+        "format-charging": "Charging {capacity}%",
+        "states": { "warning": 20, "critical": 10 }
+    }
+}

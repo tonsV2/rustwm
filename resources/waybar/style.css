@@ -1,0 +1,33 @@
+/* Colours match rustwm's Alt+Tab switcher and volume indicator. */
+* {
+    font-family: sans-serif;
+    font-size: 13px;
+    min-height: 0;
+}
+
+window#waybar {
+    background: rgba(30, 30, 30, 0.92);
+    color: #f2f2f2;
+}
+
+#clock,
+#tray,
+#pulseaudio,
+#backlight,
+#network,
+#battery {
+    padding: 0 10px;
+}
+
+#pulseaudio.muted,
+#network.disconnected {
+    color: rgba(242, 242, 242, 0.5);
+}
+
+#battery.warning:not(.charging) {
+    color: #f6c177;
+}
+
+#battery.critical:not(.charging) {
+    color: #eb6f92;
+}

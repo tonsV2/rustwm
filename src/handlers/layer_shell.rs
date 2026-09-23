@@ -47,14 +47,20 @@ impl WlrLayerShellHandler for State {
             "layer surface created"
         );
 
-        let mut map = layer_map_for_output(&output);
-        if let Err(err) = map.map_layer(&LayerSurface::new(surface, namespace)) {
+        let is_panel = self.is_panel(&namespace);
+        let layer = LayerSurface::new(surface, namespace);
+        if let Err(err) = layer_map_for_output(&output).map_layer(&layer) {
             warn!(?err, "failed to map layer surface");
+            return;
+        }
+        if is_panel {
+            self.panel_created(output, layer);
         }
     }
 
     fn layer_destroyed(&mut self, surface: WlrLayerSurface) {
         let wl_surface = surface.wl_surface().clone();
+        self.panel_destroyed(&wl_surface);
         if let Some((output, layer)) = self.layer_for_surface(&wl_surface) {
             info!(namespace = layer.namespace(), "layer surface destroyed");
             layer_map_for_output(&output).unmap_layer(&layer);
@@ -98,6 +104,7 @@ pub fn handle_commit(state: &mut State, surface: &WlSurface) {
     // A launcher on the top or overlay layer that wants the keyboard gets it
     // as soon as it is visible, and keeps it until it goes away.
     let mapped = with_renderer_surface_state(surface, |s| s.buffer().is_some()).unwrap_or(false);
+    state.panel_committed(surface, mapped);
     let wants_focus = mapped
         && layer.can_receive_keyboard_focus()
         && matches!(layer.layer(), Layer::Top | Layer::Overlay);

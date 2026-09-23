@@ -986,7 +986,7 @@ Do not add functionality outside this specification unless explicitly requested.
 
 In particular, do not spontaneously implement:
 
-* panels
+* panels inside the compositor (an outside layer-shell bar is supported, see below)
 * notifications
 * wallpaper
 * system tray
@@ -1011,6 +1011,8 @@ The one exception to power and audio controls: the brightness and volume keys (`
 Screen locking is also an exception, since it is security rather than desktop functionality. The compositor implements `ext-session-lock-v1`, `ext-idle-notify-v1`, `zwp_idle_inhibit_manager_v1` and `wlr-output-power-management-unstable-v1`, so that outside programs (`swaylock`, `swayidle`, `wlopm`) can lock the session, lock after inactivity or before suspend, and turn the monitor off. The compositor draws no lock screen of its own and has no idle timeouts; while locked it shows only the locker's surface, or a solid colour, and sends it all input.
 
 Screen capture is supported so that outside tools work: the compositor implements the wlr-screencopy and ext-image-copy-capture protocols, which `grim` uses for screenshots and `xdg-desktop-portal-wlr` for screen sharing. The Print key runs a configurable command, by default `grim`. There is no capture interface in the compositor itself.
+
+A panel is an outside layer-shell program, Waybar by default, started by the compositor with a shipped config. The compositor draws nothing for it. Its only panel logic is position and visibility from the configuration: always shown with windows laid out beside it, or auto-hidden, where the bar's surface is unmapped until the pointer touches its screen edge and unmapped again shortly after the pointer leaves it.
 
 The purpose of the project is to have an extremely small and predictable Wayland environment.
 

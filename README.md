@@ -51,6 +51,7 @@ Done:
 - Super tap launches Fuzzel; Super used with another key or a click does not
 - X11-only apps through [xwayland-satellite](https://github.com/Supreeeme/xwayland-satellite): rustwm starts it on a free display when it is installed, stops it on exit, and gives apps started from Fuzzel that display as `DISPLAY`
 - xdg-activation: an application can bring another forward, for example a terminal opening a link in the running browser. Only the focused application can hand out a request, right after an input event, and it expires after 10 seconds
+- A panel (Waybar) with the time, tray, volume, brightness, network and battery, at the top or bottom, auto-hidden until the pointer touches that edge or always shown
 - Screen locking and idle: ext-session-lock (swaylock), ext-idle-notify and idle-inhibit (swayidle, video players keeping the screen on), and wlr-output-power-management (`wlopm` turns the monitor off). See [Locking the screen](#locking-the-screen)
 - [Screenshots and screen sharing](#screenshots-and-screen-sharing): wlr-screencopy and ext-image-copy-capture, into shared memory or dmabuf buffers, for `grim` and `xdg-desktop-portal-wlr`
 
@@ -68,6 +69,7 @@ sudo dnf install fuzzel foot   # launcher, plus a simple terminal to test with
 sudo dnf install xwayland-satellite   # optional: runs X11-only apps
 sudo dnf install brightnessctl # brightness keys; wpctl (wireplumber) and pactl (pulseaudio-utils) for the volume keys are installed with GNOME
 sudo dnf install swaylock swayidle wlopm   # screen locking, idle timeout, monitor off
+sudo dnf install waybar   # the panel
 sudo dnf install grim slurp xdg-desktop-portal-wlr   # screenshots and screen sharing
 ```
 
@@ -136,7 +138,8 @@ Starting a second `gnome-keyring-daemon` on the private bus does not help: `--st
 Once it works from a console, you can add it to the GDM session list:
 
 ```sh
-sudo install -m 755 target/release/rustwm resources/rustwm-session resources/rustwm-secrets-relay resources/rustwm-volume resources/rustwm-terminal /usr/local/bin/
+sudo install -m 755 target/release/rustwm resources/rustwm-session resources/rustwm-secrets-relay resources/rustwm-volume resources/rustwm-terminal resources/rustwm-panel /usr/local/bin/
+sudo install -D -m 644 -t /usr/local/share/rustwm/waybar resources/waybar/config.jsonc resources/waybar/style.css
 sudo install -m 644 resources/rustwm.desktop /usr/share/wayland-sessions/rustwm.desktop
 sudo install -m 644 resources/rustwm-portals.conf /usr/share/xdg-desktop-portal/rustwm-portals.conf
 ```
@@ -189,6 +192,11 @@ Settings live in `~/.config/rustwm/config.toml`. Copy [resources/config.toml](re
 | `shortcuts.lock` | `swaylock -f -c 000000` | Screen locker for `Super+l` |
 | `osd.enabled` | `true` | Show the brightness and volume level after a key press; turn off if you run your own indicator (swayosd, wob) |
 | `autostart.commands` | none | Commands started once rustwm is ready, such as swayidle or a notification daemon (`mako`); they stop when rustwm exits |
+| `panel.position` | `"top"` | `"top"` or `"bottom"` |
+| `panel.mode` | `"auto-hide"` | `"auto-hide"`: hidden until the pointer touches the panel's screen edge, over windows. `"always"`: always shown, windows laid out beside it |
+| `panel.command` | `rustwm-panel` | The bar to start; `""` for no panel. `rustwm-panel` runs Waybar with the config in `resources/waybar/`, or `~/.config/rustwm/waybar/` if you copy it there |
+| `panel.hide_delay_ms` | `1000` | In auto-hide mode, how long the panel stays after the pointer leaves it, in milliseconds |
+| `panel.namespace` | `"waybar"` | The layer-shell namespace of the bar's surface, for auto-hide with another bar |
 
 Commands run with `sh -c`, so quoting, `&&` and `$HOME` work as in a terminal. An empty command (`""`) passes the key on to the focused application.
 
@@ -275,6 +283,7 @@ rustwm puts `WAYLAND_DISPLAY` and `XDG_CURRENT_DESKTOP=rustwm` in the D-Bus acti
 | `src/commands.rs` | Runs the brightness, volume and Print key commands |
 | `src/capture/` | Screen capture protocols (wlr-screencopy, ext-image-copy-capture) for screenshots and screen sharing; drawn in `src/handlers/capture.rs` |
 | `src/osd.rs` | On-screen brightness and volume indicator |
+| `src/panel.rs` | Starts the panel and auto-hides it |
 | `src/winit.rs` | Nested backend and rendering |
 | `src/udev.rs` | Hardware backend: session, GPU, monitor, libinput, rendering |
 | `src/cursor.rs` | Default cursor image for the hardware backend |
