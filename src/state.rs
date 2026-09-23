@@ -51,6 +51,7 @@ use crate::{
     udev::UdevData,
     window::ManagedWindow,
     winit::WinitData,
+    xwayland::Satellite,
 };
 
 /// Where the compositor draws and gets input from.
@@ -115,6 +116,8 @@ pub struct State {
     pub focus: FocusHistory,
     pub bindings: Bindings,
     pub launcher: Launcher,
+    /// Runs X11 apps; `None` when xwayland-satellite is not installed.
+    pub xwayland: Option<Satellite>,
     pub switcher: Switcher,
     pub config: Config,
     /// A layer surface (the launcher) that has taken keyboard focus. While
@@ -182,6 +185,7 @@ impl State {
             focus: FocusHistory::default(),
             bindings: Bindings::default(),
             launcher: Launcher::new(),
+            xwayland: None,
             switcher: Switcher::default(),
             config,
             layer_focus: None,
