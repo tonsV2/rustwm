@@ -21,6 +21,7 @@ Every application opens filling the screen. Snap windows to halves and quarters 
 | `Super+Left` / `Right` / `Up` / `Down` | Snap the focused window to that half |
 | `Super+Left` then `Up` (Super held) | Snap to a quarter; any horizontal plus vertical pair works |
 | `Super+<direction the window is already in>` | Back to full screen |
+| `Super+L` | Lock the screen (`swaylock -f -c 000000`) |
 | `Ctrl+Alt+Backspace` | Quit rustwm |
 | `Ctrl+Alt+F1`…`F12` | Switch virtual terminal (hardware backend only) |
 | Brightness up / down | `brightnessctl set +5%` / `5%-`; repeats while held |
@@ -169,6 +170,7 @@ Settings live in `~/.config/rustwm/config.toml`. Copy [resources/config.toml](re
 | `commands.brightness_up`, `brightness_down` | `brightnessctl set +5%`, `… 5%-` | Brightness keys |
 | `commands.volume_up`, `volume_down`, `volume_mute` | `rustwm-volume up 5`, `rustwm-volume down 5`, `wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle` | Volume keys |
 | `commands.mic_mute` | `wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle` | Microphone mute key |
+| `commands.lock` | `swaylock -f -c 000000` | Screen locker for `Super+L` |
 | `osd.enabled` | `true` | Show the brightness and volume level after a key press; turn off if you run your own indicator (swayosd, wob) |
 
 Commands run with `sh -c`, so quoting, `&&` and `$HOME` work as in a terminal. An empty command (`""`) passes the key on to the focused application.

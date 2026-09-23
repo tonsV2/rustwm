@@ -95,6 +95,8 @@ pub struct CommandsConfig {
     pub volume_down: String,
     pub volume_mute: String,
     pub mic_mute: String,
+    /// The screen locker, run by Super+L.
+    pub lock: String,
 }
 
 impl Default for CommandsConfig {
@@ -106,6 +108,7 @@ impl Default for CommandsConfig {
             volume_down: "rustwm-volume down 5".into(),
             volume_mute: "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle".into(),
             mic_mute: "wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle".into(),
+            lock: "swaylock -f -c 000000".into(),
         }
     }
 }

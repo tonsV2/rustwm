@@ -17,6 +17,8 @@ pub enum Key {
     Escape,
     Arrow(Direction),
     Backspace,
+    /// The L key, for Super+L.
+    L,
     /// One of the XF86Switch_VT_* keysyms, which the default keymap
     /// produces for Ctrl+Alt+F1..F12.
     SwitchVt(i32),
@@ -76,6 +78,8 @@ pub enum Action {
     SwitchVt(i32),
     /// Run the outside command bound to a brightness or volume key.
     Run(Command),
+    /// Run the screen locker (Super+L).
+    Lock,
     /// Stop the compositor. On real hardware this is the way out when
     /// something goes wrong.
     Quit,
@@ -161,6 +165,7 @@ impl Bindings {
                     first_in_hold,
                 })
             }
+            Key::L if mods.logo && !mods.alt && !mods.ctrl && !mods.shift => Some(Action::Lock),
             Key::Tab if mods.alt && !mods.logo && !mods.ctrl => Some(Action::Switch {
                 forward: !mods.shift,
             }),
@@ -232,6 +237,7 @@ mod tests {
     const LEFT: u32 = 113;
     const UP: u32 = 111;
     const A: u32 = 38;
+    const L: u32 = 46;
     const BACKSPACE: u32 = 22;
     const F2: u32 = 68;
     const ESCAPE: u32 = 9;
@@ -506,6 +512,29 @@ mod tests {
     }
 
     #[test]
+    fn super_l_locks() {
+        let mut b = Bindings::default();
+        b.key(SUPER, Key::Super, true, logo());
+        assert_eq!(
+            b.key(L, Key::L, true, logo()),
+            Outcome::intercept(Some(Action::Lock))
+        );
+        assert_eq!(b.key(L, Key::L, false, logo()), Outcome::intercept(None));
+        // Super was used as a modifier, so releasing it does not launch.
+        assert_eq!(
+            b.key(SUPER, Key::Super, false, none()),
+            Outcome::forward(None)
+        );
+        // A plain L, or with other modifiers, is typing.
+        assert_eq!(b.key(L, Key::L, true, none()), Outcome::forward(None));
+        let super_shift = Mods {
+            shift: true,
+            ..logo()
+        };
+        assert_eq!(b.key(L, Key::L, true, super_shift), Outcome::forward(None));
+    }
+
+    #[test]
     fn locked_forwards_window_management_keys() {
         let mut b = Bindings {
             locked: true,
@@ -519,6 +548,7 @@ mod tests {
             (ESCAPE, Key::Escape, alt()),
             (BACKSPACE, Key::Backspace, ctrl_alt()),
             (A, Key::Other, none()),
+            (L, Key::L, logo()),
         ];
         for (keycode, key, mods) in presses {
             assert_eq!(b.key(keycode, key, true, mods), Outcome::forward(None));

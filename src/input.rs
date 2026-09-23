@@ -18,6 +18,7 @@ use smithay::{
 };
 
 use crate::{
+    commands,
     focus::WindowId,
     keyboard::{Action, Command, Key, Mods},
     layout::{Direction, Layout},
@@ -81,6 +82,7 @@ impl State {
                     Key::Command(command) if state.config.commands.get(command).is_empty() => {
                         Key::Other
                     }
+                    Key::L if state.config.commands.lock.is_empty() => Key::Other,
                     key => key,
                 };
                 let mods = Mods {
@@ -159,6 +161,10 @@ impl State {
                 }
             }
             Action::Run(command) => self.run_command(command),
+            Action::Lock => {
+                info!("locking the screen");
+                commands::run(&self.config.commands.lock, &self.socket_name, || {});
+            }
             Action::Quit => {
                 info!("quit requested");
                 self.loop_signal.stop();
@@ -318,6 +324,7 @@ fn classify(sym: Keysym) -> Key {
         Keysym::Up => Key::Arrow(Direction::Up),
         Keysym::Down => Key::Arrow(Direction::Down),
         Keysym::BackSpace => Key::Backspace,
+        Keysym::l | Keysym::L => Key::L,
         Keysym::XF86_MonBrightnessUp => Key::Command(Command::BrightnessUp),
         Keysym::XF86_MonBrightnessDown => Key::Command(Command::BrightnessDown),
         Keysym::XF86_AudioRaiseVolume => Key::Command(Command::VolumeUp),
