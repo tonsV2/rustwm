@@ -2,6 +2,8 @@
 //! used first, drawn in the middle of the screen while Alt is held. Each
 //! thumbnail has the application's icon in its lower right corner and the
 //! application's name under it; the highlighted window's title is shown
+//! below the row. A window group is one screen-shaped thumbnail with its
+//! members in their tiles, the members' app names under it and their titles
 //! below the row.
 //!
 //! Stepping only moves the highlight; the highlighted window is raised and
@@ -28,7 +30,10 @@ use smithay::{
         },
     },
     output::Output,
-    reexports::calloop::timer::{TimeoutAction, Timer},
+    reexports::{
+        calloop::timer::{TimeoutAction, Timer},
+        wayland_server::protocol::wl_surface::WlSurface,
+    },
     utils::{Logical, Point, Rectangle, Size, Transform},
     wayland::{compositor::with_states, shell::xdg::XdgToplevelSurfaceData},
 };
@@ -67,6 +72,8 @@ pub(crate) const HIGHLIGHT: [f32; 4] = [1.0, 1.0, 1.0, 0.14];
 pub(crate) const TEXT_COLOR: [f32; 4] = [0.95, 0.95, 0.95, 1.0];
 const NAME_COLOR: [f32; 4] = [0.95, 0.95, 0.95, 0.75];
 const PLACEHOLDER: [f32; 4] = [0.35, 0.37, 0.42, 1.0];
+/// Behind a group's members, where the screen shows through between them.
+const GROUP_BACKGROUND: [f32; 4] = [0.0, 0.0, 0.0, 0.6];
 
 render_elements! {
     /// Everything the switcher draws.
@@ -75,12 +82,16 @@ render_elements! {
     Thumbnail=CropRenderElement<RescaleRenderElement<WaylandSurfaceRenderElement<GlesRenderer>>>,
 }
 
-/// One window in the switcher.
+/// One window or group in the switcher.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Entry {
-    pub id: WindowId,
-    pub app: AppInfo,
-    /// The window title, which tells windows of the same application apart.
+    /// The window, or a group's members from front to back.
+    pub windows: Vec<WindowId>,
+    /// The window's application; `None` for a group, which has no icon.
+    pub app: Option<AppInfo>,
+    /// The application's name, or a group's application names.
+    pub name: String,
+    /// The window title, which tells windows of the same application apart, or a group's titles.
     pub title: String,
 }
 
@@ -155,14 +166,14 @@ impl Switcher {
             let icon_px = (ICON_SIZE as f64 * s).round() as u32;
             // Load the icons first; the font is borrowed while drawing.
             for entry in &view.entries[panel.first..panel.first + panel.count] {
-                if let Some(icon) = &entry.app.icon {
+                if let Some(icon) = entry.app.as_ref().and_then(|app| app.icon.as_ref()) {
                     self.icon(icon, icon_px);
                 }
             }
             let icons: Vec<Option<&Pixmap>> = view.entries[panel.first..panel.first + panel.count]
                 .iter()
                 .map(|entry| {
-                    let icon = entry.app.icon.as_ref()?;
+                    let icon = entry.app.as_ref()?.icon.as_ref()?;
                     self.icons.get(&(icon.clone(), icon_px))?.as_ref()
                 })
                 .collect();
@@ -192,7 +203,8 @@ impl State {
     /// Moves the Alt+Tab highlight, starting a switch if none is running.
     pub fn step_switch(&mut self, forward: bool) {
         let starting = !self.focus.is_switching();
-        if self.focus.step(forward).is_none() {
+        let groups = &self.groups;
+        if self.focus.step(forward, |id| groups.group_of(id)).is_none() {
             return;
         }
         if !starting {
@@ -216,42 +228,55 @@ impl State {
         }
     }
 
-    /// The windows to show while switching.
+    /// The windows and groups to show while switching.
     fn switcher_view(&mut self) -> Option<View> {
         let (ids, selected) = self.focus.switch_list()?;
-        let details: Vec<(WindowId, String, String)> = ids
-            .iter()
-            .filter_map(|&id| {
-                let surface = self.window(id)?.wl_surface()?;
-                let (app_id, title) = with_states(surface, |states| {
-                    states
-                        .data_map
-                        .get::<XdgToplevelSurfaceData>()
-                        .and_then(|data| data.lock().ok())
-                        .map(|data| {
-                            (
-                                data.app_id.clone().unwrap_or_default(),
-                                data.title.clone().unwrap_or_default(),
-                            )
-                        })
-                        .unwrap_or_default()
-                });
-                Some((id, app_id, title))
-            })
-            .collect();
-        // Every id in the history has a window, so indices still match.
-        if details.len() != ids.len() {
-            return None;
+        let ids = ids.to_vec();
+        let mut entries = Vec::with_capacity(ids.len());
+        for id in ids {
+            let windows = match self.groups.group_of(id) {
+                Some(group) => {
+                    let members = self.groups.members(group);
+                    self.focus
+                        .order()
+                        .iter()
+                        .copied()
+                        .filter(|member| members.contains(member))
+                        .collect()
+                }
+                None => vec![id],
+            };
+            let mut apps = Vec::new();
+            let mut titles = Vec::new();
+            for &window in &windows {
+                let surface = self.window(window)?.wl_surface()?;
+                let (app_id, title) = app_id_and_title(surface);
+                apps.push(self.switcher.app(&app_id));
+                titles.push(title);
+            }
+            let entry = if let [app] = apps.as_slice() {
+                Entry {
+                    windows,
+                    name: app.name.clone(),
+                    app: Some(app.clone()),
+                    title: titles.concat(),
+                }
+            } else {
+                let mut names: Vec<String> = Vec::new();
+                for app in apps {
+                    if !names.contains(&app.name) {
+                        names.push(app.name);
+                    }
+                }
+                Entry {
+                    windows,
+                    app: None,
+                    name: names.join(", "),
+                    title: titles.join(" · "),
+                }
+            };
+            entries.push(entry);
         }
-
-        let entries = details
-            .into_iter()
-            .map(|(id, app_id, title)| Entry {
-                id,
-                app: self.switcher.app(&app_id),
-                title,
-            })
-            .collect();
         Some(View { entries, selected })
     }
 
@@ -270,6 +295,7 @@ impl State {
         let screen = (geometry.size.w, geometry.size.h);
         let scale = output.current_scale().fractional_scale();
         let panel = Panel::new(view.entries.len(), view.selected, screen);
+        let output_loc = geometry.loc;
         // Whole physical pixels, so the images are not blurred.
         let origin = Point::<i32, Logical>::from((
             (screen.0 - panel.width) / 2,
@@ -303,42 +329,86 @@ impl State {
 
         let mut elements = vec![SwitcherElement::Image(above)];
         for slot in 0..panel.count {
-            let id = view.entries[panel.first + slot].id;
-            let Some(window) = self.windows.iter().find(|w| w.id == id) else {
-                continue;
+            let entry = &view.entries[panel.first + slot];
+            // A window fills its thumbnail; a group's members sit where they are on the screen, drawn to scale.
+            let (area, factor) = match entry.windows.as_slice() {
+                [id] => {
+                    let Some(window) = self.windows.iter().find(|w| w.id == *id) else {
+                        continue;
+                    };
+                    // The window's own area, without client-side shadows.
+                    let size = window.window.geometry().size;
+                    let Some(thumb) = fit(panel.thumb_box(slot), size) else {
+                        continue;
+                    };
+                    (thumb, thumb.size.w / size.w as f64)
+                }
+                _ => {
+                    let Some(thumb) = panel.screen_box(slot) else {
+                        continue;
+                    };
+                    (thumb, thumb.size.w / screen.0 as f64)
+                }
             };
-            let Some(surface) = window.wl_surface() else {
-                continue;
-            };
-            // The window's own area, without client-side shadows.
-            let window_geo = window.window.geometry();
-            let Some(thumb) = fit(panel.thumb_box(slot), window_geo.size) else {
-                continue;
-            };
-            let factor = thumb.size.w / window_geo.size.w as f64;
-            let thumb_origin = (origin.to_f64() + thumb.loc.to_physical(scale)).to_i32_round();
-            let surface_location =
-                thumb_origin - window_geo.loc.to_f64().to_physical(scale).to_i32_round();
-            let crop = Rectangle::new(thumb_origin, thumb.size.to_physical(scale).to_i32_round());
-
-            let surface_elements: Vec<WaylandSurfaceRenderElement<GlesRenderer>> =
-                render_elements_from_surface_tree(
-                    renderer,
-                    surface,
-                    surface_location,
-                    scale,
-                    1.0,
-                    Kind::Unspecified,
-                );
-            elements.extend(surface_elements.into_iter().filter_map(|element| {
-                let element = RescaleRenderElement::from_element(element, thumb_origin, factor);
-                CropRenderElement::from_element(element, scale, crop)
-                    .map(SwitcherElement::Thumbnail)
-            }));
+            let crop = Rectangle::new(
+                (origin.to_f64() + area.loc.to_physical(scale)).to_i32_round(),
+                area.size.to_physical(scale).to_i32_round(),
+            );
+            for id in &entry.windows {
+                let Some(window) = self.windows.iter().find(|w| w.id == *id) else {
+                    continue;
+                };
+                let Some(surface) = window.wl_surface() else {
+                    continue;
+                };
+                let window_geo = window.window.geometry();
+                let offset = match entry.windows.len() {
+                    1 => Point::default(),
+                    _ => match self.space.element_location(&window.window) {
+                        Some(loc) => (loc - output_loc).to_f64().upscale(factor),
+                        None => continue,
+                    },
+                };
+                let thumb_origin =
+                    (origin.to_f64() + (area.loc + offset).to_physical(scale)).to_i32_round();
+                let surface_location =
+                    thumb_origin - window_geo.loc.to_f64().to_physical(scale).to_i32_round();
+                let surface_elements: Vec<WaylandSurfaceRenderElement<GlesRenderer>> =
+                    render_elements_from_surface_tree(
+                        renderer,
+                        surface,
+                        surface_location,
+                        scale,
+                        1.0,
+                        Kind::Unspecified,
+                    );
+                elements.extend(surface_elements.into_iter().filter_map(|element| {
+                    let element = RescaleRenderElement::from_element(element, thumb_origin, factor);
+                    CropRenderElement::from_element(element, scale, crop)
+                        .map(SwitcherElement::Thumbnail)
+                }));
+            }
         }
         elements.push(SwitcherElement::Image(below));
         elements
     }
+}
+
+/// A toplevel's app id and title, empty when it has not set them.
+fn app_id_and_title(surface: &WlSurface) -> (String, String) {
+    with_states(surface, |states| {
+        states
+            .data_map
+            .get::<XdgToplevelSurfaceData>()
+            .and_then(|data| data.lock().ok())
+            .map(|data| {
+                (
+                    data.app_id.clone().unwrap_or_default(),
+                    data.title.clone().unwrap_or_default(),
+                )
+            })
+            .unwrap_or_default()
+    })
 }
 
 /// Where the switcher's parts go, in logical pixels relative to its top
@@ -353,6 +423,8 @@ struct Panel {
     /// How many windows are shown.
     count: usize,
     selected: usize,
+    /// The screen's logical size, the shape of a group's thumbnail.
+    screen: (i32, i32),
 }
 
 impl Panel {
@@ -368,6 +440,7 @@ impl Panel {
             first,
             count,
             selected,
+            screen,
         }
     }
 
@@ -384,6 +457,11 @@ impl Panel {
             tile.loc + Point::from((TILE_PADDING, TILE_PADDING)),
             (THUMB_WIDTH, THUMB_HEIGHT).into(),
         )
+    }
+
+    /// Where a group's thumbnail, the screen scaled down, goes.
+    fn screen_box(&self, slot: usize) -> Option<Rectangle<f64, Logical>> {
+        fit(self.thumb_box(slot), self.screen.into())
     }
 
     fn icon(&self, slot: usize) -> Rectangle<i32, Logical> {
@@ -470,12 +548,25 @@ fn draw(
         }
 
         let icon = rect(panel.icon(slot));
-        match icons.get(slot).copied().flatten() {
-            Some(pixmap) => above.pixmap(pixmap, icon.0.round() as i32, icon.1.round() as i32),
-            None => {
+        match (&entry.app, icons.get(slot).copied().flatten()) {
+            (None, _) => {
+                if let Some(screen) = panel.screen_box(slot) {
+                    let screen = (
+                        screen.loc.x as f32 * s,
+                        screen.loc.y as f32 * s,
+                        screen.size.w as f32 * s,
+                        screen.size.h as f32 * s,
+                    );
+                    below.rounded_rect(screen, 4.0 * s, GROUP_BACKGROUND);
+                }
+            }
+            (Some(_), Some(pixmap)) => {
+                above.pixmap(pixmap, icon.0.round() as i32, icon.1.round() as i32)
+            }
+            (Some(app), None) => {
                 above.rounded_rect(icon, 8.0 * s, PLACEHOLDER);
                 if let Some(font) = font {
-                    let letter: String = entry.app.name.chars().take(1).collect();
+                    let letter: String = app.name.chars().take(1).collect();
                     let style = TextStyle {
                         size: ICON_SIZE as f32 * 0.5 * s,
                         color: TEXT_COLOR,
@@ -503,7 +594,7 @@ fn draw(
         let name_middle = thumb.1 + thumb.3 + (ICON_OVERHANG as f32 + NAME_HEIGHT as f32) * s / 2.0;
         below.centred_text(
             font,
-            &entry.app.name,
+            &entry.name,
             style,
             tile.0 + tile.2 / 2.0,
             tile.2 - 2.0 * TILE_PADDING as f32 * s,
@@ -719,11 +810,12 @@ mod tests {
         View {
             entries: (0..n)
                 .map(|i| Entry {
-                    id: WindowId(i as u64),
-                    app: AppInfo {
+                    windows: vec![WindowId(i as u64)],
+                    app: Some(AppInfo {
                         name: "App".into(),
                         icon: None,
-                    },
+                    }),
+                    name: "App".into(),
                     title: format!("Window {i}"),
                 })
                 .collect(),
@@ -849,5 +941,35 @@ mod tests {
         assert!(placeholder[0] > placeholder[2]);
         // Nothing else is drawn above the thumbnails.
         assert_eq!(pixel(&above, above.width / 2, 2)[3], 0);
+    }
+
+    #[test]
+    fn a_group_gets_a_screen_shaped_backdrop_and_no_icon() {
+        let panel = Panel::new(2, 1, (1600, 1000));
+        let plain = view(2, 1);
+        let mut view = plain.clone();
+        view.entries[0] = Entry {
+            windows: vec![WindowId(7), WindowId(8)],
+            app: None,
+            name: "Ghostty".into(),
+            title: "htop · k9s".into(),
+        };
+        let (below, above) = draw(None, &view, &panel, &[None, None], 1.0);
+
+        let screen = panel.screen_box(0).unwrap();
+        assert_eq!(screen.size.w / screen.size.h, 1.6);
+        let middle = screen.loc + screen.size.downscale(2.0).to_point();
+        let (plain_below, _) = draw(None, &plain, &panel, &[None, None], 1.0);
+        let at = |image: &Image| pixel(image, middle.x as i32, middle.y as i32)[0];
+        assert!(at(&below) < at(&plain_below));
+        let icon = panel.icon(0);
+        assert_eq!(
+            pixel(
+                &above,
+                icon.loc.x + ICON_SIZE / 2,
+                icon.loc.y + ICON_SIZE / 2
+            )[3],
+            0
+        );
     }
 }

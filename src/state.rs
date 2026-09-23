@@ -57,6 +57,7 @@ use crate::{
     capture::{image_copy::ImageCopyState, screencopy::ScreencopyState},
     config::{Config, KeyboardConfig},
     focus::{FocusHistory, WindowId},
+    group::Groups,
     handlers::{OutputPowerState, ScreenLock},
     keyboard::Bindings,
     keymap,
@@ -141,6 +142,9 @@ pub struct State {
     pub windows: Vec<ManagedWindow>,
     next_window_id: u64,
     pub focus: FocusHistory,
+    pub groups: Groups,
+    /// The focused window and its layout when the current Super hold started, so a group member zoomed to full screen can go back to that tile.
+    pub snap_hold: Option<(WindowId, Layout)>,
     pub bindings: Bindings,
     /// The held brightness or volume key and the timer repeating its
     /// command. Clients repeat keys themselves, but these never reach one.
@@ -235,6 +239,8 @@ impl State {
             windows: Vec::new(),
             next_window_id: 0,
             focus: FocusHistory::default(),
+            groups: Groups::default(),
+            snap_hold: None,
             bindings: Bindings::default(),
             key_repeat: None,
             launcher: Launcher::new(),
@@ -411,6 +417,7 @@ impl State {
 
         match &current_window {
             Some(window) if window.mapped => {
+                self.raise_group_of(window.id);
                 self.space.raise_element(&window.window, true);
             }
             _ => {

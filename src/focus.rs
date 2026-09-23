@@ -16,8 +16,10 @@ pub struct FocusHistory {
 /// An Alt+Tab session in progress, from the first Tab until Alt is released.
 #[derive(Debug)]
 struct Switch {
-    /// The MRU order when the session started. It is frozen so that repeated
-    /// Tab presses walk deeper instead of bouncing between two windows.
+    /// The MRU order when the session started, with each group of windows
+    /// standing in as its most recently used member. It is frozen so that
+    /// repeated Tab presses walk deeper instead of bouncing between two
+    /// entries.
     snapshot: Vec<WindowId>,
     index: usize,
 }
@@ -31,12 +33,18 @@ impl FocusHistory {
         self.order.first().copied()
     }
 
+    /// All windows, most recently focused first.
+    pub fn order(&self) -> &[WindowId] {
+        &self.order
+    }
+
     pub fn is_switching(&self) -> bool {
         self.switch.is_some()
     }
 
-    /// The windows of the Alt+Tab session in progress, most recent first,
-    /// and the index of the highlighted one.
+    /// The entries of the Alt+Tab session in progress, most recent first,
+    /// and the index of the highlighted one. A group is its most recently
+    /// used member.
     pub fn switch_list(&self) -> Option<(&[WindowId], usize)> {
         self.switch
             .as_ref()
@@ -55,17 +63,23 @@ impl FocusHistory {
 
     /// Moves the Alt+Tab highlight one entry forwards (towards less recently
     /// used windows) or backwards, starting a session if none is running,
-    /// and returns the highlighted window.
+    /// and returns the highlighted window. Windows for which `group_of`
+    /// gives the same group share one entry.
     ///
     /// Returns `None` when there is nothing to switch to.
-    pub fn step(&mut self, forward: bool) -> Option<WindowId> {
-        if self.order.len() < 2 {
-            return None;
+    pub fn step<G: PartialEq>(
+        &mut self,
+        forward: bool,
+        group_of: impl Fn(WindowId) -> Option<G>,
+    ) -> Option<WindowId> {
+        if self.switch.is_none() {
+            let snapshot = entries(&self.order, group_of);
+            if snapshot.len() < 2 {
+                return None;
+            }
+            self.switch = Some(Switch { snapshot, index: 0 });
         }
-        let switch = self.switch.get_or_insert_with(|| Switch {
-            snapshot: self.order.clone(),
-            index: 0,
-        });
+        let switch = self.switch.as_mut()?;
         let len = switch.snapshot.len();
         switch.index = if forward {
             (switch.index + 1) % len
@@ -114,6 +128,26 @@ impl FocusHistory {
     }
 }
 
+/// `order` with only the first, most recently used, member of each group.
+fn entries<G: PartialEq>(
+    order: &[WindowId],
+    group_of: impl Fn(WindowId) -> Option<G>,
+) -> Vec<WindowId> {
+    let mut seen = Vec::new();
+    order
+        .iter()
+        .copied()
+        .filter(|&id| match group_of(id) {
+            Some(group) if seen.contains(&group) => false,
+            Some(group) => {
+                seen.push(group);
+                true
+            }
+            None => true,
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -125,6 +159,10 @@ mod tests {
             h.promote(WindowId(id));
         }
         h
+    }
+
+    fn ungrouped(_: WindowId) -> Option<u64> {
+        None
     }
 
     fn order(h: &FocusHistory) -> Vec<u64> {
@@ -146,7 +184,7 @@ mod tests {
     #[test]
     fn single_window_does_nothing() {
         let mut h = history(&[1]);
-        assert_eq!(h.step(true), None);
+        assert_eq!(h.step(true, ungrouped), None);
         assert!(!h.is_switching());
     }
 
@@ -154,11 +192,11 @@ mod tests {
     fn quick_alt_tab_toggles_between_two_most_recent() {
         let mut h = history(&[1, 2, 3]);
 
-        assert_eq!(h.step(true), Some(WindowId(2)));
+        assert_eq!(h.step(true, ungrouped), Some(WindowId(2)));
         h.finish_switch();
         assert_eq!(order(&h), [2, 1, 3]);
 
-        assert_eq!(h.step(true), Some(WindowId(1)));
+        assert_eq!(h.step(true, ungrouped), Some(WindowId(1)));
         h.finish_switch();
         assert_eq!(order(&h), [1, 2, 3]);
     }
@@ -166,19 +204,19 @@ mod tests {
     #[test]
     fn holding_alt_steps_deeper_and_wraps() {
         let mut h = history(&[1, 2, 3]);
-        assert_eq!(h.step(true), Some(WindowId(2)));
-        assert_eq!(h.step(true), Some(WindowId(3)));
+        assert_eq!(h.step(true, ungrouped), Some(WindowId(2)));
+        assert_eq!(h.step(true, ungrouped), Some(WindowId(3)));
         // Order is frozen while switching.
         assert_eq!(order(&h), [1, 2, 3]);
-        assert_eq!(h.step(true), Some(WindowId(1)));
-        assert_eq!(h.step(true), Some(WindowId(2)));
+        assert_eq!(h.step(true, ungrouped), Some(WindowId(1)));
+        assert_eq!(h.step(true, ungrouped), Some(WindowId(2)));
     }
 
     #[test]
     fn release_commits_selection() {
         let mut h = history(&[1, 2, 3]);
-        h.step(true);
-        h.step(true);
+        h.step(true, ungrouped);
+        h.step(true, ungrouped);
         // Focus stays put until the switch finishes.
         assert_eq!(h.current(), Some(WindowId(1)));
         assert_eq!(
@@ -210,8 +248,8 @@ mod tests {
     #[test]
     fn removing_during_switch_keeps_selection_valid() {
         let mut h = history(&[1, 2, 3, 4]);
-        h.step(true);
-        h.step(true);
+        h.step(true, ungrouped);
+        h.step(true, ungrouped);
         assert_eq!(selected(&h), Some(3));
 
         // Removing an earlier entry keeps the same window selected.
@@ -231,15 +269,15 @@ mod tests {
     #[test]
     fn shift_tab_steps_backwards_and_wraps() {
         let mut h = history(&[1, 2, 3]);
-        assert_eq!(h.step(false), Some(WindowId(3)));
-        assert_eq!(h.step(false), Some(WindowId(2)));
-        assert_eq!(h.step(true), Some(WindowId(3)));
+        assert_eq!(h.step(false, ungrouped), Some(WindowId(3)));
+        assert_eq!(h.step(false, ungrouped), Some(WindowId(2)));
+        assert_eq!(h.step(true, ungrouped), Some(WindowId(3)));
     }
 
     #[test]
     fn cancel_keeps_order() {
         let mut h = history(&[1, 2, 3]);
-        h.step(true);
+        h.step(true, ungrouped);
         h.cancel_switch();
         assert!(!h.is_switching());
         h.finish_switch();
@@ -249,9 +287,32 @@ mod tests {
     #[test]
     fn promote_cancels_switch() {
         let mut h = history(&[1, 2, 3]);
-        h.step(true);
+        h.step(true, ungrouped);
         h.promote(WindowId(3));
         assert!(!h.is_switching());
         assert_eq!(order(&h), [3, 1, 2]);
+    }
+
+    #[test]
+    fn a_group_is_one_entry_at_its_most_recent_member() {
+        // Windows 2 and 4 are one group, 3 and 5 another.
+        let group_of = |id: WindowId| match id.0 {
+            2 | 4 => Some('a'),
+            3 | 5 => Some('b'),
+            _ => None,
+        };
+        let mut h = history(&[1, 2, 3, 4, 5, 6]);
+        assert_eq!(h.step(true, group_of), Some(WindowId(2)));
+        assert_eq!(h.switch_list().unwrap().0, [1, 2, 3, 6].map(WindowId));
+        assert_eq!(h.step(true, group_of), Some(WindowId(3)));
+        h.finish_switch();
+        assert_eq!(order(&h), [3, 1, 2, 4, 5, 6]);
+    }
+
+    #[test]
+    fn a_single_group_does_nothing() {
+        let mut h = history(&[1, 2]);
+        assert_eq!(h.step(true, |_| Some(())), None);
+        assert!(!h.is_switching());
     }
 }

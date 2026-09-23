@@ -77,7 +77,12 @@ impl State {
             serial,
             time,
             |state, mods, handle| {
-                let key = match classify(handle.modified_sym()) {
+                let sym = if keycode.raw() == ABOVE_TAB {
+                    Key::AboveTab
+                } else {
+                    classify(handle.modified_sym())
+                };
+                let key = match sym {
                     // An empty command leaves the key to the client.
                     Key::Command(command) if state.config.shortcuts.get(command).is_empty() => {
                         Key::Other
@@ -96,6 +101,10 @@ impl State {
                     shift: mods.shift,
                 };
                 state.bindings.switching = state.focus.is_switching();
+                state.bindings.grouped = state
+                    .focus
+                    .current()
+                    .is_some_and(|id| state.groups.group_of(id).is_some());
                 state.bindings.locked = state.is_locked();
                 let outcome = state.bindings.key(keycode.raw(), key, pressed, mods);
                 action = outcome.action;
@@ -191,6 +200,9 @@ impl State {
                     self.focus_window(id);
                 }
             }
+            Action::Group => self.group_visible(),
+            Action::Ungroup => self.ungroup_focused(),
+            Action::CycleGroup { forward } => self.cycle_group(forward),
             Action::Quit => {
                 info!("quit requested");
                 self.loop_signal.stop();
@@ -198,14 +210,34 @@ impl State {
         }
     }
 
+    /// Snaps the focused window. A group member snapped to full screen is zoomed: the first Super+arrow of a later hold puts it back in the tile it had when the zooming hold began.
     fn snap_focused(&mut self, direction: Direction, first_in_hold: bool) {
         let Some(window) = self.focus.current().and_then(|id| self.window(id)) else {
             return;
         };
-        let id = window.id;
+        let (id, zoomed_from) = (window.id, window.unzoomed);
         // Floating dialogs snap as if they were fullscreen.
         let current = window.layout.unwrap_or(Layout::Fullscreen);
-        self.set_layout(id, current.after_direction(direction, first_in_hold));
+        let grouped = self.groups.group_of(id).is_some();
+        if first_in_hold {
+            self.snap_hold = Some((id, current));
+        }
+        let next = match zoomed_from {
+            Some(tile) if grouped && first_in_hold && current == Layout::Fullscreen => tile,
+            _ => current.after_direction(direction, first_in_hold),
+        };
+        let unzoomed = if grouped && next == Layout::Fullscreen {
+            self.snap_hold
+                .filter(|&(held, layout)| held == id && layout != Layout::Fullscreen)
+                .map(|(_, layout)| layout)
+                .or(zoomed_from)
+        } else {
+            None
+        };
+        if let Some(window) = self.windows.iter_mut().find(|w| w.id == id) {
+            window.unzoomed = unzoomed;
+        }
+        self.set_layout(id, next);
     }
 
     /// Relative motion from a real mouse or touchpad (DRM backend).
@@ -339,6 +371,9 @@ impl State {
             .map(|w| w.id)
     }
 }
+
+/// The xkb keycode of the key above Tab (evdev KEY_GRAVE), found by position since layouts put different symbols on it.
+const ABOVE_TAB: u32 = 49;
 
 fn classify(sym: Keysym) -> Key {
     match sym {

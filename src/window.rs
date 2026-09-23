@@ -24,6 +24,8 @@ pub struct ManagedWindow {
     pub output: Output,
     /// Whether the client has attached a buffer, so the window is shown.
     pub mapped: bool,
+    /// The tile a group member was zoomed to full screen from, which the next Super+arrow puts it back in.
+    pub unzoomed: Option<Layout>,
 }
 
 impl ManagedWindow {

@@ -133,6 +133,21 @@ impl Layout {
         }
     }
 
+    /// The quarters of the screen this layout covers, one bit each: top left, top right, bottom left, bottom right.
+    fn quarters(self) -> u8 {
+        let (horizontal, vertical) = self.spans();
+        let columns = match horizontal {
+            Span::Full => 0b11,
+            Span::First => 0b01,
+            Span::Second => 0b10,
+        };
+        match vertical {
+            Span::Full => columns | columns << 2,
+            Span::First => columns,
+            Span::Second => columns << 2,
+        }
+    }
+
     /// The xdg-toplevel edges this layout touches, used for "tiled" states
     /// so clients drop shadows and rounded corners on those sides.
     pub fn tiled_edges(self) -> TiledEdges {
@@ -153,6 +168,26 @@ pub struct TiledEdges {
     pub right: bool,
     pub top: bool,
     pub bottom: bool,
+}
+
+/// Picks the snapped windows that can be seen, given the layouts of a stack of windows from the top down (`None` for floating dialogs, which are passed over): those above the topmost full-screen window that are not hidden behind snapped windows above them. Returns their indices, top first.
+pub fn visible_tiles(stack: &[Option<Layout>]) -> Vec<usize> {
+    let mut covered = 0;
+    let mut visible = Vec::new();
+    for (index, layout) in stack.iter().enumerate() {
+        match layout {
+            None => {}
+            Some(Layout::Fullscreen) => break,
+            Some(layout) => {
+                let quarters = layout.quarters();
+                if quarters & !covered != 0 {
+                    visible.push(index);
+                }
+                covered |= quarters;
+            }
+        }
+    }
+    visible
 }
 
 /// Returns `(start, length)` of `span` along an axis of `length` at `start`.
@@ -306,6 +341,38 @@ mod tests {
         assert_eq!(
             Layout::TopLeft.after_direction(Up, false),
             Layout::Fullscreen
+        );
+    }
+
+    #[test]
+    fn visible_tiles_stop_at_full_screen_and_skip_hidden_ones() {
+        use Layout::*;
+        // Four quarters over a full-screen window.
+        let stack = [
+            Some(TopLeft),
+            Some(TopRight),
+            Some(BottomLeft),
+            Some(BottomRight),
+            Some(Fullscreen),
+            Some(Left),
+        ];
+        assert_eq!(visible_tiles(&stack), [0, 1, 2, 3]);
+
+        // A left half behind two left quarters is hidden, a dialog is passed over.
+        let stack = [
+            Some(TopLeft),
+            None,
+            Some(BottomLeft),
+            Some(Left),
+            Some(Right),
+        ];
+        assert_eq!(visible_tiles(&stack), [0, 2, 4]);
+
+        // A half partly covered by a quarter still shows.
+        assert_eq!(visible_tiles(&[Some(TopLeft), Some(Left)]), [0, 1]);
+        assert_eq!(
+            visible_tiles(&[Some(Fullscreen), Some(Left)]),
+            [] as [usize; 0]
         );
     }
 

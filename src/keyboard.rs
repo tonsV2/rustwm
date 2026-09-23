@@ -14,6 +14,8 @@ pub enum Key {
     Alt,
     /// Tab, or Shift+Tab (ISO_Left_Tab).
     Tab,
+    /// The key above Tab, whatever the layout puts on it (` on US keyboards).
+    AboveTab,
     Escape,
     Arrow(Direction),
     Backspace,
@@ -119,6 +121,14 @@ pub enum Action {
     /// Focus the nth window in the order they were opened, from 1 (Super+1
     /// to Super+9).
     FocusNth(usize),
+    /// Group the snapped windows on screen (Super+g).
+    Group,
+    /// Take the focused window out of its group (Super+Shift+g).
+    Ungroup,
+    /// Focus the next (or previous) window of the focused window's group.
+    CycleGroup {
+        forward: bool,
+    },
     /// Stop the compositor. On real hardware this is the way out when
     /// something goes wrong.
     Quit,
@@ -162,6 +172,10 @@ pub struct Bindings {
     /// each key, since a switch can also end outside the bindings, for
     /// example when a click focuses a window.
     pub switching: bool,
+    /// Whether the focused window is in a group. The caller sets this
+    /// before each key; Alt plus the key above Tab reaches the client
+    /// otherwise.
+    pub grouped: bool,
     /// Whether the screen is locked. The caller sets this before each key.
     /// While locked, every key goes to the lock screen except the ones in
     /// [`locked_action`].
@@ -207,6 +221,11 @@ impl Bindings {
             Key::Tab if mods.alt && !mods.logo && !mods.ctrl => Some(Action::Switch {
                 forward: !mods.shift,
             }),
+            Key::AboveTab if mods.alt && !mods.logo && !mods.ctrl && self.grouped => {
+                Some(Action::CycleGroup {
+                    forward: !mods.shift,
+                })
+            }
             Key::Arrow(direction) if self.switching => Some(Action::Switch {
                 forward: matches!(direction, Direction::Right | Direction::Down),
             }),
@@ -220,6 +239,9 @@ impl Bindings {
             // mean nothing else.
             Key::Command(command) => Some(Action::Run(command)),
             key if mods.logo && !mods.alt && !mods.ctrl && !mods.shift => super_action(key),
+            Key::Char('g') if mods.logo && mods.shift && !mods.alt && !mods.ctrl => {
+                Some(Action::Ungroup)
+            }
             key if mods.logo && mods.shift && !mods.alt && !mods.ctrl => {
                 App::for_key(key, true).map(Action::Spawn)
             }
@@ -263,6 +285,7 @@ fn super_action(key: Key) -> Option<Action> {
     }
     match key {
         Key::Char('q') => Some(Action::Close),
+        Key::Char('g') => Some(Action::Group),
         Key::Digit(n) => Some(Action::FocusNth(n as usize)),
         _ => None,
     }
@@ -299,6 +322,8 @@ mod tests {
     const Q: u32 = 24;
     const S: u32 = 39;
     const THREE: u32 = 12;
+    const G: u32 = 42;
+    const GRAVE: u32 = 49;
     const RETURN: u32 = 36;
     const BACKSPACE: u32 = 22;
     const F2: u32 = 68;
@@ -585,6 +610,7 @@ mod tests {
             (B, Key::Char('b'), Action::Spawn(App::Browser)),
             (Q, Key::Char('q'), Action::Close),
             (THREE, Key::Digit(3), Action::FocusNth(3)),
+            (G, Key::Char('g'), Action::Group),
         ];
         let super_shift = Mods {
             shift: true,
@@ -608,6 +634,55 @@ mod tests {
             // Without Super they are typing.
             assert_eq!(b.key(keycode, key, true, none()), Outcome::forward(None));
         }
+    }
+
+    #[test]
+    fn super_shift_g_ungroups() {
+        let mut b = Bindings::default();
+        let super_shift = Mods {
+            shift: true,
+            ..logo()
+        };
+        assert_eq!(
+            b.key(G, Key::Char('g'), true, super_shift),
+            Outcome::intercept(Some(Action::Ungroup))
+        );
+        assert_eq!(
+            b.key(G, Key::Char('g'), false, super_shift),
+            Outcome::intercept(None)
+        );
+    }
+
+    #[test]
+    fn alt_above_tab_cycles_only_in_a_group() {
+        let mut b = Bindings::default();
+        assert_eq!(
+            b.key(GRAVE, Key::AboveTab, true, alt()),
+            Outcome::forward(None)
+        );
+        b.key(GRAVE, Key::AboveTab, false, alt());
+        b.grouped = true;
+        assert_eq!(
+            b.key(GRAVE, Key::AboveTab, true, alt()),
+            Outcome::intercept(Some(Action::CycleGroup { forward: true }))
+        );
+        assert_eq!(
+            b.key(GRAVE, Key::AboveTab, false, alt()),
+            Outcome::intercept(None)
+        );
+        let alt_shift = Mods {
+            shift: true,
+            ..alt()
+        };
+        assert_eq!(
+            b.key(GRAVE, Key::AboveTab, true, alt_shift).action,
+            Some(Action::CycleGroup { forward: false })
+        );
+        // Without Alt it is typing.
+        assert_eq!(
+            b.key(GRAVE, Key::AboveTab, true, none()),
+            Outcome::forward(None)
+        );
     }
 
     #[test]
@@ -649,6 +724,7 @@ mod tests {
     fn locked_forwards_window_management_keys() {
         let mut b = Bindings {
             locked: true,
+            grouped: true,
             ..Bindings::default()
         };
         let left = Key::Arrow(Direction::Left);
@@ -661,6 +737,8 @@ mod tests {
             (A, Key::Other, none()),
             (L, Key::Char('l'), logo()),
             (Q, Key::Char('q'), logo()),
+            (G, Key::Char('g'), logo()),
+            (GRAVE, Key::AboveTab, alt()),
             (THREE, Key::Digit(3), logo()),
         ];
         for (keycode, key, mods) in presses {
