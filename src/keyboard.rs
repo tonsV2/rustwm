@@ -17,6 +17,11 @@ pub enum Key {
     Escape,
     Arrow(Direction),
     Backspace,
+    Return,
+    /// A letter key, lowercase: `'l'` for Super+l.
+    Char(char),
+    /// A digit key on the top row, 1 to 9.
+    Digit(u8),
     /// One of the XF86Switch_VT_* keysyms, which the default keymap
     /// produces for Ctrl+Alt+F1..F12.
     SwitchVt(i32),
@@ -42,6 +47,29 @@ impl Command {
     /// rate. Toggles do not repeat, or a held key would flip back and forth.
     pub fn repeats(self) -> bool {
         !matches!(self, Command::VolumeMute | Command::MicMute)
+    }
+}
+
+/// Applications started with a Super shortcut, each through a configurable
+/// command.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum App {
+    Terminal,
+    FileManager,
+    Browser,
+    Lock,
+}
+
+impl App {
+    /// The app Super plus `key` starts.
+    pub fn for_key(key: Key) -> Option<Self> {
+        match key {
+            Key::Return => Some(App::Terminal),
+            Key::Char('e') => Some(App::FileManager),
+            Key::Char('b') => Some(App::Browser),
+            Key::Char('l') => Some(App::Lock),
+            _ => None,
+        }
     }
 }
 
@@ -76,6 +104,13 @@ pub enum Action {
     SwitchVt(i32),
     /// Run the outside command bound to a brightness or volume key.
     Run(Command),
+    /// Start an application with a Super shortcut.
+    Spawn(App),
+    /// Ask the focused window to close (Super+q).
+    Close,
+    /// Focus the nth window in the order they were opened, from 1 (Super+1
+    /// to Super+9).
+    FocusNth(usize),
     /// Stop the compositor. On real hardware this is the way out when
     /// something goes wrong.
     Quit,
@@ -175,6 +210,7 @@ impl Bindings {
             // With any modifiers, and while switching, since these keys
             // mean nothing else.
             Key::Command(command) => Some(Action::Run(command)),
+            key if mods.logo && !mods.alt && !mods.ctrl && !mods.shift => super_action(key),
             _ => None,
         };
         self.consume(keycode, action)
@@ -208,6 +244,18 @@ impl Bindings {
     }
 }
 
+/// What Super plus `key`, with no other modifier, does.
+fn super_action(key: Key) -> Option<Action> {
+    if let Some(app) = App::for_key(key) {
+        return Some(Action::Spawn(app));
+    }
+    match key {
+        Key::Char('q') => Some(Action::Close),
+        Key::Digit(n) => Some(Action::FocusNth(n as usize)),
+        _ => None,
+    }
+}
+
 /// The only bindings that work while the screen is locked. Switching to a
 /// text console is safe, since it has its own login, and lets the user
 /// recover from a broken lock screen. The brightness and volume keys only
@@ -232,6 +280,12 @@ mod tests {
     const LEFT: u32 = 113;
     const UP: u32 = 111;
     const A: u32 = 38;
+    const L: u32 = 46;
+    const E: u32 = 26;
+    const B: u32 = 56;
+    const Q: u32 = 24;
+    const THREE: u32 = 12;
+    const RETURN: u32 = 36;
     const BACKSPACE: u32 = 22;
     const F2: u32 = 68;
     const ESCAPE: u32 = 9;
@@ -506,6 +560,51 @@ mod tests {
     }
 
     #[test]
+    fn super_shortcuts() {
+        let mut b = Bindings::default();
+        let cases = [
+            (RETURN, Key::Return, Action::Spawn(App::Terminal)),
+            (E, Key::Char('e'), Action::Spawn(App::FileManager)),
+            (B, Key::Char('b'), Action::Spawn(App::Browser)),
+            (Q, Key::Char('q'), Action::Close),
+            (THREE, Key::Digit(3), Action::FocusNth(3)),
+        ];
+        for (keycode, key, action) in cases {
+            assert_eq!(
+                b.key(keycode, key, true, logo()),
+                Outcome::intercept(Some(action))
+            );
+            assert_eq!(b.key(keycode, key, false, logo()), Outcome::intercept(None));
+            // Without Super they are typing.
+            assert_eq!(b.key(keycode, key, true, none()), Outcome::forward(None));
+        }
+    }
+
+    #[test]
+    fn super_l_locks() {
+        let mut b = Bindings::default();
+        b.key(SUPER, Key::Super, true, logo());
+        let l = Key::Char('l');
+        assert_eq!(
+            b.key(L, l, true, logo()),
+            Outcome::intercept(Some(Action::Spawn(App::Lock)))
+        );
+        assert_eq!(b.key(L, l, false, logo()), Outcome::intercept(None));
+        // Super was used as a modifier, so releasing it does not launch.
+        assert_eq!(
+            b.key(SUPER, Key::Super, false, none()),
+            Outcome::forward(None)
+        );
+        // A plain l, or with other modifiers, is typing.
+        assert_eq!(b.key(L, l, true, none()), Outcome::forward(None));
+        let super_shift = Mods {
+            shift: true,
+            ..logo()
+        };
+        assert_eq!(b.key(L, l, true, super_shift), Outcome::forward(None));
+    }
+
+    #[test]
     fn locked_forwards_window_management_keys() {
         let mut b = Bindings {
             locked: true,
@@ -519,6 +618,9 @@ mod tests {
             (ESCAPE, Key::Escape, alt()),
             (BACKSPACE, Key::Backspace, ctrl_alt()),
             (A, Key::Other, none()),
+            (L, Key::Char('l'), logo()),
+            (Q, Key::Char('q'), logo()),
+            (THREE, Key::Digit(3), logo()),
         ];
         for (keycode, key, mods) in presses {
             assert_eq!(b.key(keycode, key, true, mods), Outcome::forward(None));

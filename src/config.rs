@@ -9,7 +9,7 @@ use std::{env, fs, path::PathBuf};
 use serde::Deserialize;
 use tracing::{info, warn};
 
-use crate::keyboard::Command;
+use crate::keyboard::{App, Command};
 
 #[derive(Debug, Default, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
@@ -95,6 +95,14 @@ pub struct CommandsConfig {
     pub volume_down: String,
     pub volume_mute: String,
     pub mic_mute: String,
+    /// A new terminal window, Super+Return.
+    pub terminal: String,
+    /// The file manager, Super+e.
+    pub file_manager: String,
+    /// The web browser, Super+b.
+    pub browser: String,
+    /// The screen locker, Super+l.
+    pub lock: String,
 }
 
 impl Default for CommandsConfig {
@@ -106,6 +114,10 @@ impl Default for CommandsConfig {
             volume_down: "rustwm-volume down 5".into(),
             volume_mute: "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle".into(),
             mic_mute: "wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle".into(),
+            terminal: "rustwm-terminal".into(),
+            file_manager: "xdg-open \"$HOME\"".into(),
+            browser: "gtk-launch \"$(xdg-settings get default-web-browser)\"".into(),
+            lock: "swaylock -f -c 000000".into(),
         }
     }
 }
@@ -119,6 +131,16 @@ impl CommandsConfig {
             Command::VolumeDown => &self.volume_down,
             Command::VolumeMute => &self.volume_mute,
             Command::MicMute => &self.mic_mute,
+        }
+    }
+
+    /// The command a Super shortcut starts `app` with.
+    pub fn app(&self, app: App) -> &str {
+        match app {
+            App::Terminal => &self.terminal,
+            App::FileManager => &self.file_manager,
+            App::Browser => &self.browser,
+            App::Lock => &self.lock,
         }
     }
 }
@@ -265,6 +287,14 @@ mod tests {
         );
         assert_eq!(config.keyboard.repeat_delay, 200);
         assert_eq!(config.keyboard.repeat_rate, 1);
+    }
+
+    #[test]
+    fn sample_config_parses() {
+        let sample = include_str!("../resources/config.toml");
+        let config = Config::parse(sample).unwrap();
+        assert_eq!(config.commands.app(App::Lock), "swaylock -f -c 000000");
+        assert_eq!(config.commands.terminal, CommandsConfig::default().terminal);
     }
 
     #[test]

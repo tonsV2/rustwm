@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Opens the user's preferred terminal, for Super+Return: xdg-terminal-exec
+# when installed, else the first entry of xdg-terminals.list (the file
+# xdg-terminal-exec reads, which some desktops write), else foot.
+set -euo pipefail
+
+if command -v xdg-terminal-exec >/dev/null; then
+    exec xdg-terminal-exec "$@"
+fi
+
+IFS=: read -r -a config_dirs <<<"${XDG_CONFIG_DIRS:-/etc/xdg}"
+for dir in "${XDG_CONFIG_HOME:-$HOME/.config}" "${config_dirs[@]}"; do
+    for list in "$dir/${XDG_CURRENT_DESKTOP:-rustwm}-xdg-terminals.list" "$dir/xdg-terminals.list"; do
+        [[ -r "$list" ]] || continue
+        # Entries are desktop file ids; comments start with #.
+        while read -r entry; do
+            entry=${entry%%#*}
+            entry=${entry//[[:space:]]/}
+            [[ -n "$entry" ]] || continue
+            if gtk-launch "${entry%.desktop}" 2>/dev/null; then
+                exit 0
+            fi
+        done <"$list"
+    done
+done
+
+exec foot "$@"
