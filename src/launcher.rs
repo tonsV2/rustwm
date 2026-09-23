@@ -5,7 +5,7 @@
 
 use std::{
     env,
-    ffi::OsStr,
+    ffi::{OsStr, OsString},
     path::Path,
     process::{Child, Command},
 };
@@ -15,12 +15,29 @@ use tracing::{info, warn};
 /// Launcher executable, overridable with `RUSTWM_LAUNCHER` for testing.
 const DEFAULT_COMMAND: &str = "fuzzel";
 
+/// The environment of every process rustwm starts: its own Wayland socket, xwayland-satellite's X display if it runs (never the host's), and the session type and desktop name apps use to pick Wayland and the portal config.
+#[derive(Debug, Clone)]
+pub struct ChildEnv {
+    pub wayland_display: OsString,
+    pub x_display: Option<String>,
+}
+
+impl ChildEnv {
+    pub fn apply(&self, command: &mut Command) {
+        command
+            .env("WAYLAND_DISPLAY", &self.wayland_display)
+            .env("XDG_SESSION_TYPE", "wayland")
+            .env("XDG_CURRENT_DESKTOP", "rustwm");
+        match &self.x_display {
+            Some(display) => command.env("DISPLAY", display),
+            None => command.env_remove("DISPLAY"),
+        };
+    }
+}
+
 pub struct Launcher {
     command: String,
     child: Option<Child>,
-    /// The X display of xwayland-satellite, given to launched apps as
-    /// `DISPLAY` so X11-only apps can run.
-    x_display: Option<String>,
 }
 
 impl Launcher {
@@ -35,18 +52,13 @@ impl Launcher {
         Self {
             command,
             child: None,
-            x_display: None,
         }
-    }
-
-    pub fn set_x_display(&mut self, display: Option<String>) {
-        self.x_display = display;
     }
 
     /// Starts the launcher, or closes it if it is already open.
     ///
     /// Toggling keeps a second Super tap from stacking launcher instances.
-    pub fn toggle(&mut self, wayland_display: &OsStr) {
+    pub fn toggle(&mut self, child_env: &ChildEnv) {
         if let Some(child) = &mut self.child {
             match child.try_wait() {
                 Ok(None) => {
@@ -63,14 +75,7 @@ impl Launcher {
 
         info!(command = self.command, "starting launcher");
         let mut command = Command::new(&self.command);
-        command.env("WAYLAND_DISPLAY", wayland_display);
-        // Keep apps started from the launcher on our Wayland socket instead
-        // of falling back to the host's X server when nested. X11-only apps
-        // get xwayland-satellite's display, whose windows are ours too.
-        match &self.x_display {
-            Some(display) => command.env("DISPLAY", display),
-            None => command.env_remove("DISPLAY"),
-        };
+        child_env.apply(&mut command);
         let result = command.spawn();
         match result {
             Ok(child) => self.child = Some(child),
@@ -129,7 +134,10 @@ pub fn export_to_dbus(wayland_display: &OsStr, x_display: Option<&str>, nested: 
     if on_shared_bus {
         command.arg("--systemd");
     }
-    command.arg(arg).arg("XDG_CURRENT_DESKTOP=rustwm");
+    command
+        .arg(arg)
+        .arg("XDG_CURRENT_DESKTOP=rustwm")
+        .arg("XDG_SESSION_TYPE=wayland");
     if let Some(display) = x_display {
         command.arg(format!("DISPLAY={display}"));
     }
@@ -137,5 +145,49 @@ pub fn export_to_dbus(wayland_display: &OsStr, x_display: Option<&str>, nested: 
         Ok(status) if status.success() => info!("D-Bus activation environment updated"),
         Ok(status) => warn!(%status, "failed to update D-Bus activation environment"),
         Err(err) => warn!(%err, "failed to run dbus-update-activation-environment"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn envs(command: &Command) -> Vec<(String, Option<String>)> {
+        let mut envs: Vec<_> = command
+            .get_envs()
+            .map(|(k, v)| {
+                (
+                    k.to_string_lossy().into_owned(),
+                    v.map(|v| v.to_string_lossy().into_owned()),
+                )
+            })
+            .collect();
+        envs.sort();
+        envs
+    }
+
+    #[test]
+    fn child_env_points_apps_at_rustwm() {
+        let mut env = ChildEnv {
+            wayland_display: "wayland-1".into(),
+            x_display: Some(":2".into()),
+        };
+        let mut command = Command::new("true");
+        env.apply(&mut command);
+        let pair = |k: &str, v: &str| (k.to_string(), Some(v.to_string()));
+        assert_eq!(
+            envs(&command),
+            [
+                pair("DISPLAY", ":2"),
+                pair("WAYLAND_DISPLAY", "wayland-1"),
+                pair("XDG_CURRENT_DESKTOP", "rustwm"),
+                pair("XDG_SESSION_TYPE", "wayland"),
+            ]
+        );
+
+        env.x_display = None;
+        let mut command = Command::new("true");
+        env.apply(&mut command);
+        assert!(envs(&command).contains(&("DISPLAY".to_string(), None)));
     }
 }

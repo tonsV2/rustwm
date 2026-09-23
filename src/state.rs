@@ -58,6 +58,7 @@ use crate::{
     handlers::{OutputPowerState, ScreenLock},
     keyboard::Bindings,
     keymap,
+    launcher::ChildEnv,
     launcher::Launcher,
     layout::{Layout, Rect},
     osd::Osd,
@@ -369,6 +370,13 @@ impl State {
             .collect();
         for id in ids {
             self.apply_layout(id);
+        }
+    }
+
+    pub fn child_env(&self) -> ChildEnv {
+        ChildEnv {
+            wayland_display: self.socket_name.clone(),
+            x_display: self.xwayland.as_ref().map(|s| s.display.clone()),
         }
     }
 

@@ -187,6 +187,17 @@ Commands run with `sh -c`, so quoting, `&&` and `$HOME` work as in a terminal. A
 
 Each keyboard field without a setting comes from its `XKB_DEFAULT_*` variable, or else from the system keyboard (`localectl set-x11-keymap dk`, also chosen during installation). A layout that does not exist is logged and replaced by `us`.
 
+### Default apps
+
+Apps started by rustwm get `XDG_CURRENT_DESKTOP=rustwm`. GNOME's default apps (Loupe for images, Papers for PDFs, Text Editor, ...) live in `gnome-mimeapps.list`, which GIO only reads under GNOME, so without it Files opens images in whichever app claims them first. Point rustwm at GNOME's list:
+
+```sh
+mkdir -p ~/.local/share/applications
+ln -s /usr/share/applications/gnome-mimeapps.list ~/.local/share/applications/rustwm-mimeapps.list
+```
+
+Choices you made yourself in `~/.config/mimeapps.list` (Open With → Set as default) still come first.
+
 GNOME Settings does not work here: it refuses to start outside GNOME, and its display, mouse and keyboard pages configure GNOME's compositor, not rustwm. Settings that apps read themselves (dark style, fonts, text size) are stored in dconf and still apply when you change them from GNOME.
 
 ### Environment variables
