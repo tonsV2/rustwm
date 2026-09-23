@@ -231,7 +231,7 @@ impl State {
         let device = Device::of(command);
         commands::run(
             self.config.commands.get(command),
-            &self.socket_name,
+            &self.child_env(),
             move || {
                 let Some((sender, seq)) = reader else { return };
                 if let Some(level) = device.read() {

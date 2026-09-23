@@ -5,27 +5,25 @@
 //! work.
 
 use std::{
-    ffi::OsStr,
     process::{Command, Stdio},
     thread,
 };
 
 use tracing::{debug, warn};
 
+use crate::launcher::ChildEnv;
+
 /// Exit status of `sh -c` when the command is not on `PATH`.
 const NOT_FOUND: i32 = 127;
 
 /// Runs `command` through `sh -c`, without waiting for it to finish.
 /// `then` runs on the waiting thread once the command has succeeded.
-pub fn run(command: &str, wayland_display: &OsStr, then: impl FnOnce() + Send + 'static) {
+pub fn run(command: &str, child_env: &ChildEnv, then: impl FnOnce() + Send + 'static) {
     debug!(command, "running command");
-    let result = Command::new("sh")
-        .arg("-c")
-        .arg(command)
-        .env("WAYLAND_DISPLAY", wayland_display)
-        .env_remove("DISPLAY")
-        .stdin(Stdio::null())
-        .spawn();
+    let mut sh = Command::new("sh");
+    sh.arg("-c").arg(command).stdin(Stdio::null());
+    child_env.apply(&mut sh);
+    let result = sh.spawn();
     let mut child = match result {
         Ok(child) => child,
         Err(err) => {
