@@ -19,6 +19,11 @@ if (($# == 0)); then
     set -- rustwm
 fi
 
+# Helper scripts such as rustwm-volume sit next to this one, in the checkout's
+# resources/ or in /usr/local/bin once installed.
+here="$(dirname "$(readlink -f "$0")")"
+export PATH="$here:$PATH"
+
 # True when this user has a graphical session other than the current one.
 other_graphical_session() {
     local user id type state
@@ -47,7 +52,7 @@ if [[ "$nested" == false && -S "$shared_socket" ]] && ! other_graphical_session;
     exec "$@"
 fi
 
-relay="$(dirname "$(readlink -f "$0")")/rustwm-secrets-relay"
+relay="$here/rustwm-secrets-relay"
 # Inside the private bus: start the relay, then replace the shell with rustwm.
 # The relay exits on its own when the bus goes away with rustwm.
 # shellcheck disable=SC2016
