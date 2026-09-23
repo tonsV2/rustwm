@@ -6,6 +6,7 @@ mod focus;
 mod handlers;
 mod input;
 mod keyboard;
+mod keymap;
 mod launcher;
 mod layout;
 mod state;

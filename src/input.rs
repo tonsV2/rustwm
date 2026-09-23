@@ -20,7 +20,7 @@ use smithay::{
 use crate::{
     commands,
     focus::WindowId,
-    keyboard::{Action, Command, Key, Mods, REPEAT_DELAY_MS, REPEAT_RATE},
+    keyboard::{Action, Command, Key, Mods},
     layout::{Direction, Layout},
     state::{Backend, State},
 };
@@ -106,8 +106,8 @@ impl State {
     /// Runs `command` again at the key repeat rate while its key is held,
     /// after the usual repeat delay.
     fn start_key_repeat(&mut self, keycode: u32, command: Command) {
-        let delay = Duration::from_millis(REPEAT_DELAY_MS as u64);
-        let interval = Duration::from_millis(1000 / REPEAT_RATE as u64);
+        let delay = Duration::from_millis(self.config.keyboard.repeat_delay as u64);
+        let interval = Duration::from_millis(1000 / self.config.keyboard.repeat_rate as u64);
         let timer = Timer::from_duration(delay);
         let inserted = self.loop_handle.insert_source(timer, move |_, _, state| {
             commands::run(state.config.commands.get(command), &state.socket_name);

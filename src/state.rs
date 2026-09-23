@@ -43,9 +43,10 @@ use smithay::{
 use tracing::{error, info, warn};
 
 use crate::{
-    config::Config,
+    config::{Config, KeyboardConfig},
     focus::{FocusHistory, WindowId},
-    keyboard::{Bindings, REPEAT_DELAY_MS, REPEAT_RATE},
+    keyboard::Bindings,
+    keymap,
     launcher::Launcher,
     layout::{Layout, Rect},
     switcher::Switcher,
@@ -153,9 +154,7 @@ impl State {
 
         let mut seat_state = SeatState::new();
         let mut seat = seat_state.new_wl_seat(&dh, "seat0");
-        // An empty XkbConfig lets libxkbcommon read the XKB_DEFAULT_* variables.
-        seat.add_keyboard(XkbConfig::default(), REPEAT_DELAY_MS, REPEAT_RATE)
-            .context("failed to set up keyboard (check XKB_DEFAULT_* variables)")?;
+        add_keyboard(&mut seat, &config.keyboard)?;
         seat.add_pointer();
 
         let socket_name = init_wayland_listener(display, event_loop)?;
@@ -427,6 +426,34 @@ impl State {
                 .map(|layer| (output.clone(), layer.clone()))
         })
     }
+}
+
+/// Adds the keyboard with the keymap from [`keymap::resolve`]. A keymap
+/// that does not compile, such as a misspelt layout, is logged and replaced
+/// by the US layout rather than stopping the compositor.
+fn add_keyboard(seat: &mut Seat<State>, config: &KeyboardConfig) -> anyhow::Result<()> {
+    let names = keymap::resolve(config);
+    let xkb = XkbConfig {
+        rules: "",
+        model: &names.model,
+        layout: &names.layout,
+        variant: &names.variant,
+        options: (!names.options.is_empty()).then(|| names.options.clone()),
+    };
+    let (delay, rate) = (config.repeat_delay, config.repeat_rate);
+    match seat.add_keyboard(xkb, delay, rate) {
+        Ok(_) => info!(?names, "keyboard layout set"),
+        Err(err) => {
+            warn!(?names, ?err, "invalid keyboard layout; using us");
+            let us = XkbConfig {
+                layout: "us",
+                ..XkbConfig::default()
+            };
+            seat.add_keyboard(us, delay, rate)
+                .context("failed to set up keyboard")?;
+        }
+    }
+    Ok(())
 }
 
 fn init_wayland_listener(

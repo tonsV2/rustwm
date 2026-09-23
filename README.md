@@ -140,11 +140,15 @@ Settings live in `~/.config/rustwm/config.toml`. Copy [resources/config.toml](re
 | `input.pointer_speed` | `0.0` | Pointer acceleration, `-1.0` to `1.0` |
 | `input.natural_scroll` | `false` | Touchpad content follows the fingers |
 | `input.tap_to_click` | `true` | Tap the touchpad to click |
+| `keyboard.layout`, `variant`, `model`, `options` | the system keyboard (`localectl`) | XKB keymap, e.g. `layout = "us,dk"`, `options = "grp:alt_shift_toggle"` |
+| `keyboard.repeat_delay`, `repeat_rate` | `200`, `25` | Milliseconds before a held key repeats, and repeats per second |
 | `commands.brightness_up`, `brightness_down` | `brightnessctl set +5%`, `… 5%-` | Brightness keys |
 | `commands.volume_up`, `volume_down`, `volume_mute` | `wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%+`, `… 5%-`, `wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle` | Volume keys |
 | `commands.mic_mute` | `wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle` | Microphone mute key |
 
 Commands run with `sh -c`, so quoting, `&&` and `$HOME` work as in a terminal. An empty command (`""`) passes the key on to the focused application.
+
+Each keyboard field without a setting comes from its `XKB_DEFAULT_*` variable, or else from the system keyboard (`localectl set-x11-keymap dk`, also chosen during installation). A layout that does not exist is logged and replaced by `us`.
 
 GNOME Settings does not work here: it refuses to start outside GNOME, and its display, mouse and keyboard pages configure GNOME's compositor, not rustwm. Settings that apps read themselves (dark style, fonts, text size) are stored in dconf and still apply when you change them from GNOME.
 
@@ -154,7 +158,7 @@ GNOME Settings does not work here: it refuses to start outside GNOME, and its di
 | --- | --- |
 | `RUST_LOG` | Log filter, default `info,smithay=warn`. `RUST_LOG=rustwm=debug` shows window placement |
 | `RUSTWM_LAUNCHER` | Launcher command instead of `fuzzel` |
-| `XKB_DEFAULT_LAYOUT`, `XKB_DEFAULT_VARIANT`, `XKB_DEFAULT_OPTIONS` | Keyboard layout, e.g. `XKB_DEFAULT_LAYOUT=dk` |
+| `XKB_DEFAULT_LAYOUT`, `XKB_DEFAULT_VARIANT`, `XKB_DEFAULT_MODEL`, `XKB_DEFAULT_OPTIONS` | Keyboard layout when `config.toml` sets none, e.g. `XKB_DEFAULT_LAYOUT=dk` |
 | `XCURSOR_THEME`, `XCURSOR_SIZE` | Cursor theme and size on the hardware backend |
 
 ## Known limitations
@@ -173,6 +177,7 @@ GNOME Settings does not work here: it refuses to start outside GNOME, and its di
 | `src/layout.rs` | Layout geometry and snap rules (no Smithay, unit tested) |
 | `src/focus.rs` | Most-recently-used focus history and Alt+Tab (no Smithay, unit tested) |
 | `src/keyboard.rs` | Keybinding state machine, including the Super tap (no Smithay, unit tested) |
+| `src/keymap.rs` | Picks the keyboard layout: config, `XKB_DEFAULT_*`, then the system keyboard |
 | `src/state.rs` | Compositor state and focus/layout plumbing |
 | `src/window.rs` | Managed window and its configure logic |
 | `src/input.rs` | Routes input events to bindings and clients |

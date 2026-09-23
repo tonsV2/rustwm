@@ -7,12 +7,6 @@ use std::collections::HashSet;
 
 use crate::layout::Direction;
 
-/// Delay before a held key starts repeating, in milliseconds. Clients are
-/// told the same values, so held keys repeat alike everywhere.
-pub const REPEAT_DELAY_MS: i32 = 200;
-/// Repeats per second once a held key repeats.
-pub const REPEAT_RATE: i32 = 25;
-
 /// The keys the bindings care about, already translated from keysyms.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Key {

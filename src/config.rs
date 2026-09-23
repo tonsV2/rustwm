@@ -16,6 +16,7 @@ use crate::keyboard::Command;
 pub struct Config {
     pub output: OutputConfig,
     pub input: InputConfig,
+    pub keyboard: KeyboardConfig,
     pub commands: CommandsConfig,
 }
 
@@ -43,6 +44,41 @@ impl Default for InputConfig {
             pointer_speed: 0.0,
             natural_scroll: false,
             tap_to_click: true,
+        }
+    }
+}
+
+/// The XKB keymap and key repeat. Unset keymap fields come from the
+/// `XKB_DEFAULT_*` variables, or else from the system keyboard set with
+/// `localectl` (see [`crate::keymap`]).
+#[derive(Debug, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct KeyboardConfig {
+    /// Comma separated layouts, such as "dk" or "us,dk".
+    pub layout: Option<String>,
+    /// Comma separated variants, one per layout, such as "nodeadkeys".
+    pub variant: Option<String>,
+    /// Keyboard model, such as "pc105".
+    pub model: Option<String>,
+    /// Comma separated XKB options, such as "caps:escape".
+    pub options: Option<String>,
+    /// Milliseconds a key is held before it repeats. Clients are told the
+    /// same values, so held keys repeat alike in apps and in the
+    /// compositor's own bindings.
+    pub repeat_delay: i32,
+    /// Repeats per second while a key is held.
+    pub repeat_rate: i32,
+}
+
+impl Default for KeyboardConfig {
+    fn default() -> Self {
+        Self {
+            layout: None,
+            variant: None,
+            model: None,
+            options: None,
+            repeat_delay: 200,
+            repeat_rate: 25,
         }
     }
 }
@@ -115,7 +151,11 @@ impl Config {
     }
 
     fn parse(text: &str) -> Result<Self, toml::de::Error> {
-        toml::from_str(text)
+        let mut config: Self = toml::from_str(text)?;
+        // A rate of 0 would divide by zero when timing repeats.
+        config.keyboard.repeat_delay = config.keyboard.repeat_delay.max(0);
+        config.keyboard.repeat_rate = config.keyboard.repeat_rate.max(1);
+        Ok(config)
     }
 }
 
@@ -187,6 +227,22 @@ mod tests {
             "brightnessctl set +5%"
         );
         assert!(Config::parse("[commands]\nvolume_raise = \"true\"\n").is_err());
+    }
+
+    #[test]
+    fn keyboard_parses() {
+        let config = Config::parse(
+            "[keyboard]\nlayout = \"us,dk\"\noptions = \"grp:alt_shift_toggle\"\nrepeat_rate = 0\n",
+        )
+        .unwrap();
+        assert_eq!(config.keyboard.layout.as_deref(), Some("us,dk"));
+        assert_eq!(config.keyboard.variant, None);
+        assert_eq!(
+            config.keyboard.options.as_deref(),
+            Some("grp:alt_shift_toggle")
+        );
+        assert_eq!(config.keyboard.repeat_delay, 200);
+        assert_eq!(config.keyboard.repeat_rate, 1);
     }
 
     #[test]
