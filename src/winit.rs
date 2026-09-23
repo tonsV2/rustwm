@@ -5,7 +5,15 @@ use anyhow::Context;
 use smithay::{
     backend::{
         egl::EGLDevice,
-        renderer::{ImportDma, damage::OutputDamageTracker, gles::GlesRenderer},
+        renderer::{
+            ImportDma,
+            damage::OutputDamageTracker,
+            element::{
+                Kind,
+                surface::{WaylandSurfaceRenderElement, render_elements_from_surface_tree},
+            },
+            gles::GlesRenderer,
+        },
         winit::{self, WinitEvent, WinitEventLoop, WinitGraphicsBackend},
     },
     desktop::{layer_map_for_output, space::render_output},
@@ -17,6 +25,7 @@ use smithay::{
 use tracing::{info, warn};
 
 use crate::{
+    handlers::LOCKED_BACKGROUND,
     state::{Backend, State},
     switcher::SwitcherElement,
 };
@@ -149,13 +158,43 @@ fn render(state: &mut State) {
         return;
     };
     let output = winit.output.clone();
-    let overlay = state.switcher_elements(&output);
+    // While locked (or with the output off) only the lock screen is drawn,
+    // over a solid colour: no windows, layer surfaces or overlays.
+    let hidden = state.is_locked() || state.is_powered_off(&output);
+    let lock_surface = state
+        .lock_surface(&output)
+        .filter(|_| !state.is_powered_off(&output))
+        .map(|s| s.wl_surface().clone());
+    let overlay = if hidden {
+        Vec::new()
+    } else {
+        state.overlay_elements(&output)
+    };
     let Backend::Winit(winit) = &mut state.backend else {
         return;
     };
     let size = winit.backend.window_size();
 
     let rendered = match winit.backend.bind() {
+        Ok((renderer, mut framebuffer)) if hidden => {
+            let scale = output.current_scale().fractional_scale();
+            let elements: Vec<WaylandSurfaceRenderElement<GlesRenderer>> = lock_surface
+                .map(|surface| {
+                    render_elements_from_surface_tree(
+                        renderer,
+                        &surface,
+                        (0, 0),
+                        scale,
+                        1.0,
+                        Kind::Unspecified,
+                    )
+                })
+                .unwrap_or_default();
+            winit
+                .damage_tracker
+                .render_output(renderer, &mut framebuffer, 0, &elements, LOCKED_BACKGROUND)
+                .is_ok()
+        }
         Ok((renderer, mut framebuffer)) => render_output::<_, SwitcherElement, _, _>(
             &output,
             renderer,
@@ -174,14 +213,20 @@ fn render(state: &mut State) {
         }
     };
 
+    let mut presented = false;
     if rendered {
         let damage = Rectangle::from_size(size);
-        if let Err(err) = winit.backend.submit(Some(&[damage])) {
-            warn!(%err, "failed to present frame");
+        match winit.backend.submit(Some(&[damage])) {
+            Ok(()) => presented = true,
+            Err(err) => warn!(%err, "failed to present frame"),
         }
     }
     // Winit only redraws on request, so keep the loop going at vsync.
     winit.backend.window().request_redraw();
+
+    if presented && hidden {
+        state.lock_frame_shown();
+    }
 
     crate::capture::render_queued(state, &output);
     state.send_frame_callbacks(&output);

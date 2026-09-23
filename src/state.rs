@@ -9,8 +9,15 @@ use std::{
 use anyhow::Context;
 use smithay::{
     backend::renderer::gles::GlesRenderer,
-    desktop::{LayerSurface, PopupManager, Space, Window, WindowSurfaceType, layer_map_for_output},
-    input::{Seat, SeatState, keyboard::XkbConfig, pointer::CursorImageStatus},
+    desktop::{
+        LayerSurface, PopupManager, Space, Window, WindowSurfaceType, layer_map_for_output,
+        utils::{send_frames_surface_tree, under_from_surface_tree},
+    },
+    input::{
+        Seat, SeatState,
+        keyboard::XkbConfig,
+        pointer::{CursorImageStatus, MotionEvent},
+    },
     output::Output,
     reexports::{
         calloop::{
@@ -28,8 +35,11 @@ use smithay::{
         compositor::{CompositorClientState, CompositorState},
         dmabuf::DmabufState,
         fractional_scale::FractionalScaleManagerState,
+        idle_inhibit::IdleInhibitManagerState,
+        idle_notify::IdleNotifierState,
         output::OutputManagerState,
         selection::{data_device::DataDeviceState, primary_selection::PrimarySelectionState},
+        session_lock::SessionLockManagerState,
         shell::{
             wlr_layer::{Layer, WlrLayerShellState},
             xdg::{XdgShellState, decoration::XdgDecorationState},
@@ -46,10 +56,12 @@ use crate::{
     capture::{image_copy::ImageCopyState, screencopy::ScreencopyState},
     config::{Config, KeyboardConfig},
     focus::{FocusHistory, WindowId},
+    handlers::{OutputPowerState, ScreenLock},
     keyboard::Bindings,
     keymap,
     launcher::Launcher,
     layout::{Layout, Rect},
+    osd::Osd,
     switcher::Switcher,
     udev::UdevData,
     window::ManagedWindow,
@@ -101,6 +113,11 @@ pub struct State {
     pub xdg_activation_state: XdgActivationState,
     pub screencopy_state: ScreencopyState,
     pub image_copy_state: ImageCopyState,
+    pub session_lock_state: SessionLockManagerState,
+    pub idle_notifier_state: IdleNotifierState<State>,
+    #[allow(dead_code)]
+    pub idle_inhibit_state: IdleInhibitManagerState,
+    pub output_power: OutputPowerState,
     pub seat_state: SeatState<State>,
     pub data_device_state: DataDeviceState,
     pub primary_selection_state: PrimarySelectionState,
@@ -127,10 +144,18 @@ pub struct State {
     /// Runs X11 apps; `None` when xwayland-satellite is not installed.
     pub xwayland: Option<Satellite>,
     pub switcher: Switcher,
+    /// The brightness and volume indicator.
+    pub osd: Osd,
     pub config: Config,
     /// A layer surface (the launcher) that has taken keyboard focus. While
     /// set, it keeps focus over windows.
     pub layer_focus: Option<WlSurface>,
+    /// The screen lock (ext-session-lock). While locked, only the lock
+    /// screen is drawn and gets input.
+    pub screen_lock: ScreenLock,
+    /// Surfaces whose clients asked to keep the session from going idle,
+    /// such as a video player. Only visible ones count.
+    pub idle_inhibitors: Vec<WlSurface>,
 }
 
 impl State {
@@ -154,6 +179,10 @@ impl State {
         let xdg_activation_state = XdgActivationState::new::<Self>(&dh);
         let screencopy_state = ScreencopyState::new::<Self>(&dh);
         let image_copy_state = ImageCopyState::new::<Self>(&dh);
+        let session_lock_state = SessionLockManagerState::new::<Self, _>(&dh, |_| true);
+        let idle_notifier_state = IdleNotifierState::new(&dh, event_loop.handle());
+        let idle_inhibit_state = IdleInhibitManagerState::new::<Self>(&dh);
+        let output_power = OutputPowerState::new(&dh);
         let data_device_state = DataDeviceState::new::<Self>(&dh);
         let primary_selection_state = PrimarySelectionState::new::<Self>(&dh);
 
@@ -163,6 +192,7 @@ impl State {
         seat.add_pointer();
 
         let socket_name = init_wayland_listener(display, event_loop)?;
+        let osd = Osd::new(&event_loop.handle())?;
 
         Ok(Self {
             start_time: Instant::now(),
@@ -183,6 +213,10 @@ impl State {
             xdg_activation_state,
             screencopy_state,
             image_copy_state,
+            session_lock_state,
+            idle_notifier_state,
+            idle_inhibit_state,
+            output_power,
             seat_state,
             data_device_state,
             primary_selection_state,
@@ -198,8 +232,11 @@ impl State {
             launcher: Launcher::new(),
             xwayland: None,
             switcher: Switcher::default(),
+            osd,
             config,
             layer_focus: None,
+            screen_lock: ScreenLock::default(),
+            idle_inhibitors: Vec::new(),
         })
     }
 
@@ -210,6 +247,7 @@ impl State {
     pub fn after_dispatch(&mut self) {
         self.space.refresh();
         self.popups.cleanup();
+        self.update_idle_inhibit();
         if let Err(err) = self.display_handle.flush_clients() {
             warn!(%err, "failed to flush clients");
         }
@@ -220,6 +258,15 @@ impl State {
     pub fn send_frame_callbacks(&self, output: &Output) {
         let time = self.start_time.elapsed();
         let throttle = Some(Duration::ZERO);
+        // Hidden windows wait for the lock to end.
+        if self.is_locked() {
+            if let Some(surface) = self.lock_surface(output) {
+                send_frames_surface_tree(surface.wl_surface(), output, time, throttle, |_, _| {
+                    Some(output.clone())
+                });
+            }
+            return;
+        }
         for window in self.space.elements() {
             window.send_frame(output, time, throttle, |_, _| Some(output.clone()));
         }
@@ -318,8 +365,9 @@ impl State {
     }
 
     /// Re-applies every window's layout on `output`, after its size or
-    /// exclusive zones changed.
+    /// exclusive zones changed. Lock surfaces are resized too.
     pub fn relayout_output(&mut self, output: &Output) {
+        self.configure_lock_surfaces();
         let ids: Vec<WindowId> = self
             .windows
             .iter()
@@ -363,16 +411,23 @@ impl State {
             }
         }
 
-        let target = match &self.layer_focus {
-            Some(layer) => Some(layer.clone()),
-            None => current_window.and_then(|w| w.wl_surface().cloned()),
+        // While locked, only the lock screen gets the keyboard.
+        let target = if self.is_locked() {
+            self.lock_focus().map(|s| s.wl_surface().clone())
+        } else {
+            match &self.layer_focus {
+                Some(layer) => Some(layer.clone()),
+                None => current_window.and_then(|w| w.wl_surface().cloned()),
+            }
         };
         let changed = self
             .seat
             .get_keyboard()
             .is_some_and(|k| k.current_focus() != target);
         if changed {
-            if self.layer_focus.is_some() {
+            if self.is_locked() {
+                info!("focus changed to lock screen");
+            } else if self.layer_focus.is_some() {
                 info!("focus changed to layer surface");
             } else {
                 info!(window = current.map(|id| id.0), "focus changed");
@@ -392,13 +447,19 @@ impl State {
     }
 
     /// Finds the surface under `pos`, in stacking order: overlay and top
-    /// layers, then windows, then bottom and background layers.
+    /// layers, then windows, then bottom and background layers. While
+    /// locked, only the lock screen is there.
     pub fn surface_under(
         &self,
         pos: Point<f64, Logical>,
     ) -> Option<(WlSurface, Point<f64, Logical>)> {
         let output = self.space.output_under(pos).next()?;
         let output_geo = self.space.output_geometry(output)?;
+        if self.is_locked() {
+            let surface = self.lock_surface(output)?.wl_surface();
+            return under_from_surface_tree(surface, pos, output_geo.loc, WindowSurfaceType::ALL)
+                .map(|(surface, loc)| (surface, loc.to_f64()));
+        }
         let layers = layer_map_for_output(output);
         let pos_in_output = pos - output_geo.loc.to_f64();
 
@@ -423,6 +484,39 @@ impl State {
             })
             .or_else(|| layer_hit(Layer::Bottom))
             .or_else(|| layer_hit(Layer::Background))
+    }
+
+    /// Sends the pointer's current position again, so that the surface
+    /// under it gets pointer focus after what is shown changed, such as
+    /// when the screen locks.
+    pub fn refresh_pointer_focus(&mut self) {
+        let Some(pointer) = self.seat.get_pointer() else {
+            return;
+        };
+        let pos = pointer.current_location();
+        let under = self.surface_under(pos);
+        let time = self.start_time.elapsed().as_millis() as u32;
+        pointer.motion(
+            self,
+            under,
+            &MotionEvent {
+                location: pos,
+                serial: SERIAL_COUNTER.next_serial(),
+                time,
+            },
+        );
+        pointer.frame(self);
+    }
+
+    /// Whether the backend shows a picture at all: not while another VT has
+    /// the screen, or while the monitor is off or missing.
+    pub fn is_showing(&self) -> bool {
+        match &self.backend {
+            Backend::Winit(_) => true,
+            Backend::Udev(udev) => udev
+                .output()
+                .is_some_and(|output| udev.is_active() && !self.is_powered_off(output)),
+        }
     }
 
     /// Finds the layer surface with `surface` as its main surface.

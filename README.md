@@ -24,11 +24,11 @@ Every application opens filling the screen. Snap windows to halves and quarters 
 | `Ctrl+Alt+Backspace` | Quit rustwm |
 | `Ctrl+Alt+F1`…`F12` | Switch virtual terminal (hardware backend only) |
 | Brightness up / down | `brightnessctl set +5%` / `5%-`; repeats while held |
-| Volume up / down | `wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%+` / `5%-`; repeats while held |
+| Volume up / down | `rustwm-volume up 5` / `down 5`: 5% steps up to 100%, keeping the left/right balance; repeats while held |
 | Mute / microphone mute | Toggle mute: `wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle`, or `@DEFAULT_AUDIO_SOURCE@` for the microphone |
 | `Print` | Save a screenshot to `~/Pictures/Screenshots` with `grim` |
 
-The brightness, volume and Print keys work with any modifiers held, and their commands can be changed in the [configuration](#configuration).
+The brightness, volume and Print keys work with any modifiers held, and their commands can be changed in the [configuration](#configuration). After each brightness or volume press a small panel near the bottom of the screen shows the new level, read back with `wpctl get-volume` or `brightnessctl -m`, and whether it is muted.
 
 Dialogs (windows with a parent, such as file pickers) open centred at their own size. Snapping a dialog treats it as full screen first.
 
@@ -44,6 +44,7 @@ Done:
 - Super tap launches Fuzzel; Super used with another key or a click does not
 - X11-only apps through [xwayland-satellite](https://github.com/Supreeeme/xwayland-satellite): rustwm starts it on a free display when it is installed, stops it on exit, and gives apps started from Fuzzel that display as `DISPLAY`
 - xdg-activation: an application can bring another forward, for example a terminal opening a link in the running browser. Only the focused application can hand out a request, right after an input event, and it expires after 10 seconds
+- Screen locking and idle: ext-session-lock (swaylock), ext-idle-notify and idle-inhibit (swayidle, video players keeping the screen on), and wlr-output-power-management (`wlopm` turns the monitor off). See [Locking the screen](#locking-the-screen)
 - [Screenshots and screen sharing](#screenshots-and-screen-sharing): wlr-screencopy and ext-image-copy-capture, into shared memory or dmabuf buffers, for `grim` and `xdg-desktop-portal-wlr`
 
 Not done yet:
@@ -58,7 +59,8 @@ Nested development needs only Rust and Mesa, which Fedora Workstation has alread
 sudo dnf install cargo rust rustfmt clippy mesa-libEGL-devel libxkbcommon-devel wayland-devel
 sudo dnf install fuzzel foot   # launcher, plus a simple terminal to test with
 sudo dnf install xwayland-satellite   # optional: runs X11-only apps
-sudo dnf install brightnessctl # brightness keys; wpctl for the volume keys comes with wireplumber
+sudo dnf install brightnessctl # brightness keys; wpctl (wireplumber) and pactl (pulseaudio-utils) for the volume keys are installed with GNOME
+sudo dnf install swaylock swayidle wlopm   # screen locking, idle timeout, monitor off
 sudo dnf install grim slurp xdg-desktop-portal-wlr   # screenshots and screen sharing
 ```
 
@@ -127,12 +129,34 @@ Starting a second `gnome-keyring-daemon` on the private bus does not help: `--st
 Once it works from a console, you can add it to the GDM session list:
 
 ```sh
-sudo install -m 755 target/release/rustwm resources/rustwm-session resources/rustwm-secrets-relay /usr/local/bin/
+sudo install -m 755 target/release/rustwm resources/rustwm-session resources/rustwm-secrets-relay resources/rustwm-volume /usr/local/bin/
 sudo install -m 644 resources/rustwm.desktop /usr/share/wayland-sessions/rustwm.desktop
 sudo install -m 644 resources/rustwm-portals.conf /usr/share/xdg-desktop-portal/rustwm-portals.conf
 ```
 
 Log out and pick "rustwm" from the gear menu on the login screen.
+
+## Locking the screen
+
+rustwm draws no lock screen of its own; [swaylock](https://github.com/swaywm/swaylock) does, and [swayidle](https://github.com/swaywm/swayidle) runs it after a while without input. Run this once from a terminal inside rustwm (it stops when rustwm exits; starting it automatically waits for autostart, #4):
+
+```sh
+setsid -f swayidle -w \
+    timeout 300 'swaylock -f -c 000000' \
+    timeout 600 'wlopm --off "*"' resume 'wlopm --on "*"' \
+    before-sleep 'swaylock -f -c 000000'
+```
+
+This locks after 5 minutes, turns the monitor off after 10, and locks before the laptop suspends (`-w` makes the suspend wait until the lock screen is up). To lock right away, run `swaylock -f -c 000000`. Any key or mouse movement turns the monitor back on. `wlr-randr --off` does not work, because rustwm has no output-management protocol; use `wlopm`.
+
+While locked:
+
+- Only the lock screen is drawn; windows, Fuzzel and the Alt+Tab switcher are hidden, and all keyboard and mouse input goes to the lock screen.
+- The window keys are off, and so is `Ctrl+Alt+Backspace`, which would otherwise quit past the lock. `Ctrl+Alt+F1`…`F12` (VT switching) and the brightness and volume keys still work.
+- If swaylock crashes, the screen stays black and locked. Switch to a text console with `Ctrl+Alt+F3`, log in and run `WAYLAND_DISPLAY=wayland-1 swaylock` (the `ready` line in `logs/rustwm.log` names the socket) to get a lock screen back, then switch back and unlock.
+- Unlocking returns focus to the window that had it.
+
+A video player or browser playing video can keep the screen from locking and turning off (idle-inhibit) while its window is shown.
 
 ## Configuration
 
@@ -147,11 +171,14 @@ Settings live in `~/.config/rustwm/config.toml`. Copy [resources/config.toml](re
 | `keyboard.layout`, `variant`, `model`, `options` | the system keyboard (`localectl`) | XKB keymap, e.g. `layout = "us,dk"`, `options = "grp:alt_shift_toggle"` |
 | `keyboard.repeat_delay`, `repeat_rate` | `200`, `25` | Milliseconds before a held key repeats, and repeats per second |
 | `commands.brightness_up`, `brightness_down` | `brightnessctl set +5%`, `… 5%-` | Brightness keys |
-| `commands.volume_up`, `volume_down`, `volume_mute` | `wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%+`, `… 5%-`, `wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle` | Volume keys |
+| `commands.volume_up`, `volume_down`, `volume_mute` | `rustwm-volume up 5`, `rustwm-volume down 5`, `wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle` | Volume keys |
 | `commands.mic_mute` | `wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle` | Microphone mute key |
 | `commands.screenshot` | `mkdir -p ~/Pictures/Screenshots && grim ~/Pictures/Screenshots/Screenshot-$(date +%Y-%m-%d-%H%M%S).png` | Print key |
+| `osd.enabled` | `true` | Show the brightness and volume level after a key press; turn off if you run your own indicator (swayosd, wob) |
 
 Commands run with `sh -c`, so quoting, `&&` and `$HOME` work as in a terminal. An empty command (`""`) passes the key on to the focused application.
+
+`resources/rustwm-volume` scales every channel of the default speaker by the same factor, so a left/right balance set in the sound settings survives the volume keys (`wpctl set-volume` would set all channels to one level). It stops one step above silence and mutes there instead, since at 0% the balance is lost. `rustwm-session` puts the directory holding it on `PATH`.
 
 Each keyboard field without a setting comes from its `XKB_DEFAULT_*` variable, or else from the system keyboard (`localectl set-x11-keymap dk`, also chosen during installation). A layout that does not exist is logged and replaced by `us`.
 
@@ -201,7 +228,7 @@ rustwm puts `WAYLAND_DISPLAY` and `XDG_CURRENT_DESKTOP=rustwm` in the D-Bus acti
 - Client requests to maximize or go full screen (such as F11 or full-screen video) are ignored, because the keyboard decides placement.
 - An application whose minimum size is larger than its slot draws past the slot's edge.
 - X11-only apps need `xwayland-satellite` installed; without it they do not run. Some Java apps show a blank window under it until `_JAVA_AWT_WM_NONREPARENTING=1` is set. JetBrains IDEs also have a Wayland mode: add `-Dawt.toolkit.name=WLToolkit` via Help → Edit Custom VM Options. They also run as a single instance per user, so close the IDE in any other session first.
-- No screen locking, built-in XWayland, workspaces or window decorations (the last three are out of scope by design).
+- No built-in XWayland, workspaces or window decorations (out of scope by design).
 - Screen sharing shares the whole screen; single windows cannot be chosen. Nested, the pointer is not in captures (the host draws it).
 
 ## Code layout
@@ -215,13 +242,14 @@ rustwm puts `WAYLAND_DISPLAY` and `XDG_CURRENT_DESKTOP=rustwm` in the D-Bus acti
 | `src/state.rs` | Compositor state and focus/layout plumbing |
 | `src/window.rs` | Managed window and its configure logic |
 | `src/input.rs` | Routes input events to bindings and clients |
-| `src/handlers/` | Smithay protocol handlers (compositor, xdg-shell, layer-shell, seat, clipboard, ...) |
+| `src/handlers/` | Smithay protocol handlers (compositor, xdg-shell, layer-shell, seat, clipboard, session lock, idle, output power, ...) |
 | `src/switcher.rs` | Alt+Tab switcher: thumbnails, icons and text (fontdue, font from fontconfig) |
 | `src/apps.rs` | Application names and icons from desktop files and icon themes |
 | `src/launcher.rs` | Spawns Fuzzel |
 | `src/xwayland.rs` | Starts xwayland-satellite for X11 apps |
 | `src/commands.rs` | Runs the brightness, volume and Print key commands |
 | `src/capture/` | Screen capture protocols (wlr-screencopy, ext-image-copy-capture) for screenshots and screen sharing; drawn in `src/handlers/capture.rs` |
+| `src/osd.rs` | On-screen brightness and volume indicator |
 | `src/winit.rs` | Nested backend and rendering |
 | `src/udev.rs` | Hardware backend: session, GPU, monitor, libinput, rendering |
 | `src/cursor.rs` | Default cursor image for the hardware backend |

@@ -1006,7 +1006,9 @@ In particular, do not spontaneously implement:
 * application indexing
 * desktop search
 
-The one exception to power and audio controls: the brightness and volume keys (`XF86MonBrightnessUp`/`Down`, `XF86AudioRaiseVolume`/`LowerVolume`/`Mute`, `XF86AudioMicMute`) are bound to configurable outside commands, by default `brightnessctl` and `wpctl`. The compositor only runs the command; it contains no brightness or audio logic and shows no on-screen indicator.
+The one exception to power and audio controls: the brightness and volume keys (`XF86MonBrightnessUp`/`Down`, `XF86AudioRaiseVolume`/`LowerVolume`/`Mute`, `XF86AudioMicMute`) are bound to configurable outside commands, by default `brightnessctl` and `wpctl`. The compositor only runs the command; it contains no brightness or audio logic. After the command finishes it may read the level back with `wpctl get-volume` or `brightnessctl -m` and show it briefly in a small on-screen indicator (an icon and a level bar, muted state included), which the configuration can turn off.
+
+Screen locking is also an exception, since it is security rather than desktop functionality. The compositor implements `ext-session-lock-v1`, `ext-idle-notify-v1`, `zwp_idle_inhibit_manager_v1` and `wlr-output-power-management-unstable-v1`, so that outside programs (`swaylock`, `swayidle`, `wlopm`) can lock the session, lock after inactivity or before suspend, and turn the monitor off. The compositor draws no lock screen of its own and has no idle timeouts; while locked it shows only the locker's surface, or a solid colour, and sends it all input.
 
 Screen capture is supported so that outside tools work: the compositor implements the wlr-screencopy and ext-image-copy-capture protocols, which `grim` uses for screenshots and `xdg-desktop-portal-wlr` for screen sharing. The Print key runs a configurable command, by default `grim`. There is no capture interface in the compositor itself.
 

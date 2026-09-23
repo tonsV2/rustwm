@@ -3,7 +3,10 @@
 
 mod capture;
 mod compositor;
+mod idle;
 mod layer_shell;
+mod output_power;
+mod session_lock;
 mod xdg_activation;
 mod xdg_shell;
 
@@ -37,6 +40,8 @@ use smithay::{
 use tracing::info;
 
 pub use layer_shell::handle_commit as handle_layer_commit;
+pub use output_power::OutputPowerState;
+pub use session_lock::{LOCKED_BACKGROUND, ScreenLock};
 pub use xdg_shell::handle_commit as handle_xdg_commit;
 
 use crate::state::State;

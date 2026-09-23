@@ -124,6 +124,10 @@ pub struct Bindings {
     /// each key, since a switch can also end outside the bindings, for
     /// example when a click focuses a window.
     pub switching: bool,
+    /// Whether the screen is locked. The caller sets this before each key.
+    /// While locked, every key goes to the lock screen except the ones in
+    /// [`locked_action`].
+    pub locked: bool,
 }
 
 impl Bindings {
@@ -142,6 +146,10 @@ impl Bindings {
     }
 
     fn press(&mut self, keycode: u32, key: Key, mods: Mods) -> Outcome {
+        if self.locked {
+            self.super_tap = false;
+            return self.consume(keycode, locked_action(key));
+        }
         if key == Key::Super {
             self.super_tap = !(mods.ctrl || mods.alt || mods.shift);
             self.first_in_hold = true;
@@ -174,7 +182,12 @@ impl Bindings {
             Key::Command(command) => Some(Action::Run(command)),
             _ => None,
         };
+        self.consume(keycode, action)
+    }
 
+    /// Intercepts a press that triggers `action`, and remembers to intercept
+    /// its release too. Presses without an action reach the client.
+    fn consume(&mut self, keycode: u32, action: Option<Action>) -> Outcome {
         match action {
             Some(action) => {
                 self.suppressed.insert(keycode);
@@ -188,12 +201,29 @@ impl Bindings {
         if self.suppressed.remove(&keycode) {
             return Outcome::intercept(None);
         }
+        if self.locked {
+            return Outcome::forward(None);
+        }
         let action = match key {
             Key::Super if std::mem::take(&mut self.super_tap) => Some(Action::Launch),
             Key::Alt => Some(Action::FinishSwitch),
             _ => None,
         };
         Outcome::forward(action)
+    }
+}
+
+/// The only bindings that work while the screen is locked. Switching to a
+/// text console is safe, since it has its own login, and lets the user
+/// recover from a broken lock screen. The brightness and volume keys only
+/// run their outside commands. Everything else, including
+/// Ctrl+Alt+Backspace, would get around the lock and goes to the lock
+/// screen instead.
+fn locked_action(key: Key) -> Option<Action> {
+    match key {
+        Key::SwitchVt(vt) => Some(Action::SwitchVt(vt)),
+        Key::Command(command) => Some(Action::Run(command)),
+        _ => None,
     }
 }
 
@@ -471,5 +501,88 @@ mod tests {
             ..Mods::default()
         };
         assert_eq!(b.key(TAB, Key::Tab, true, ctrl), Outcome::forward(None));
+    }
+
+    fn ctrl_alt() -> Mods {
+        Mods {
+            ctrl: true,
+            alt: true,
+            ..Mods::default()
+        }
+    }
+
+    #[test]
+    fn locked_forwards_window_management_keys() {
+        let mut b = Bindings {
+            locked: true,
+            ..Bindings::default()
+        };
+        let left = Key::Arrow(Direction::Left);
+        let presses = [
+            (SUPER, Key::Super, logo()),
+            (LEFT, left, logo()),
+            (TAB, Key::Tab, alt()),
+            (ESCAPE, Key::Escape, alt()),
+            (BACKSPACE, Key::Backspace, ctrl_alt()),
+            (A, Key::Other, none()),
+        ];
+        for (keycode, key, mods) in presses {
+            assert_eq!(b.key(keycode, key, true, mods), Outcome::forward(None));
+            assert_eq!(b.key(keycode, key, false, mods), Outcome::forward(None));
+        }
+        // Not even while a switch seemed to be in progress.
+        b.switching = true;
+        assert_eq!(b.key(LEFT, left, true, alt()), Outcome::forward(None));
+        assert_eq!(b.key(ALT, Key::Alt, false, none()), Outcome::forward(None));
+    }
+
+    #[test]
+    fn locked_allows_vt_switch_and_command_keys() {
+        let mut b = Bindings {
+            locked: true,
+            ..Bindings::default()
+        };
+        assert_eq!(
+            b.key(F2, Key::SwitchVt(2), true, ctrl_alt()),
+            Outcome::intercept(Some(Action::SwitchVt(2)))
+        );
+        assert_eq!(
+            b.key(F2, Key::SwitchVt(2), false, ctrl_alt()),
+            Outcome::intercept(None)
+        );
+        let up = Key::Command(Command::VolumeUp);
+        assert_eq!(
+            b.key(VOLUME_UP, up, true, none()),
+            Outcome::intercept(Some(Action::Run(Command::VolumeUp)))
+        );
+        assert_eq!(
+            b.key(VOLUME_UP, up, false, none()),
+            Outcome::intercept(None)
+        );
+    }
+
+    #[test]
+    fn super_held_across_lock_does_not_launch() {
+        let mut b = Bindings::default();
+        b.key(SUPER, Key::Super, true, logo());
+        b.locked = true;
+        assert_eq!(
+            b.key(SUPER, Key::Super, false, none()),
+            Outcome::forward(None)
+        );
+        // Nor does a tap that started while locked, released after unlock.
+        b.key(SUPER, Key::Super, true, logo());
+        b.locked = false;
+        assert_eq!(b.key(SUPER, Key::Super, false, none()).action, None);
+    }
+
+    #[test]
+    fn key_pressed_before_lock_has_its_release_consumed() {
+        let mut b = Bindings::default();
+        let left = Key::Arrow(Direction::Left);
+        b.key(SUPER, Key::Super, true, logo());
+        assert!(b.key(LEFT, left, true, logo()).action.is_some());
+        b.locked = true;
+        assert_eq!(b.key(LEFT, left, false, logo()), Outcome::intercept(None));
     }
 }

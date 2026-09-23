@@ -18,7 +18,6 @@ use smithay::{
 };
 
 use crate::{
-    commands,
     focus::WindowId,
     keyboard::{Action, Command, Key, Mods},
     layout::{Direction, Layout},
@@ -28,6 +27,14 @@ use tracing::{info, warn};
 
 impl State {
     pub fn process_input_event<I: InputBackend>(&mut self, event: InputEvent<I>) {
+        if !matches!(
+            event,
+            InputEvent::DeviceAdded { .. } | InputEvent::DeviceRemoved { .. }
+        ) {
+            // The user is here: restart the idle timers and wake the monitor.
+            self.idle_notifier_state.notify_activity(&self.seat);
+            self.power_on_outputs();
+        }
         match event {
             InputEvent::Keyboard { event } => self.on_keyboard::<I>(event),
             InputEvent::PointerMotion { event } => self.on_pointer_motion::<I>(event),
@@ -83,6 +90,7 @@ impl State {
                     shift: mods.shift,
                 };
                 state.bindings.switching = state.focus.is_switching();
+                state.bindings.locked = state.is_locked();
                 let outcome = state.bindings.key(keycode.raw(), key, pressed, mods);
                 action = outcome.action;
                 if outcome.forward {
@@ -110,7 +118,7 @@ impl State {
         let interval = Duration::from_millis(1000 / self.config.keyboard.repeat_rate as u64);
         let timer = Timer::from_duration(delay);
         let inserted = self.loop_handle.insert_source(timer, move |_, _, state| {
-            commands::run(state.config.commands.get(command), &state.socket_name);
+            state.run_command(command);
             TimeoutAction::ToDuration(interval)
         });
         match inserted {
@@ -150,9 +158,7 @@ impl State {
                     udev.change_vt(vt);
                 }
             }
-            Action::Run(command) => {
-                commands::run(self.config.commands.get(command), &self.socket_name)
-            }
+            Action::Run(command) => self.run_command(command),
             Action::Quit => {
                 info!("quit requested");
                 self.loop_signal.stop();
@@ -231,7 +237,8 @@ impl State {
 
         if state == ButtonState::Pressed {
             self.bindings.pointer_button();
-            if !pointer.is_grabbed()
+            if !self.is_locked()
+                && !pointer.is_grabbed()
                 && let Some(id) = self.window_under(pointer.current_location())
             {
                 self.focus_window(id);

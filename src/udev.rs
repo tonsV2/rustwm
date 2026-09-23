@@ -58,6 +58,7 @@ use tracing::{error, info, warn};
 use crate::{
     config::{InputConfig, auto_scale},
     cursor::Cursor,
+    handlers::LOCKED_BACKGROUND,
     state::{Backend, State},
     switcher::SwitcherElement,
 };
@@ -94,6 +95,9 @@ pub struct UdevData {
     pub active: bool,
     /// A render is already queued, either waiting for vblank or on a timer.
     render_pending: bool,
+    /// The queued frame was drawn while locked; once it is on screen the
+    /// locker can be told that the session is locked.
+    lock_frame_queued: bool,
 }
 
 /// The monitor currently in use.
@@ -203,6 +207,7 @@ pub fn init_backend(
             cursor: Cursor::load(1),
             active: true,
             render_pending: false,
+            lock_frame_queued: false,
         },
         dmabuf_state,
     ))
@@ -258,6 +263,8 @@ fn insert_sources(
                     udev.drm.pause();
                     // The held key's release will not arrive.
                     state.stop_key_repeat();
+                    // Nothing of the session is on screen any more.
+                    state.lock_frame_shown();
                 }
                 SessionEvent::ActivateSession => {
                     info!("session resumed");
@@ -269,6 +276,9 @@ fn insert_sources(
                         error!(%err, "failed to resume display");
                     }
                     udev.render_pending = false;
+                    // Resuming lit the monitor again; the user switched back
+                    // and wants to see it.
+                    state.power_on_outputs();
                     render(state);
                 }
             }
@@ -445,6 +455,7 @@ fn remove_screen(state: &mut State) {
         return;
     };
     info!(output = screen.output.name(), "output removed");
+    state.output_power_removed(&screen.output);
     state.space.unmap_output(&screen.output);
     state.display_handle.disable_global::<State>(screen.global);
 }
@@ -463,6 +474,9 @@ fn on_vblank(state: &mut State, crtc: crtc::Handle) {
         warn!(?err, "frame was not presented");
     }
     udev.render_pending = false;
+    if std::mem::take(&mut udev.lock_frame_queued) {
+        state.lock_frame_shown();
+    }
     render(state);
 }
 
@@ -471,18 +485,28 @@ fn on_vblank(state: &mut State, crtc: crtc::Handle) {
 /// When nothing changed no page flip happens, so no vblank will arrive to
 /// trigger the next frame; a timer at the refresh interval takes its place.
 pub fn render(state: &mut State) {
-    let switcher = match &state.backend {
+    let locked = state.is_locked();
+    let output = match &state.backend {
         Backend::Udev(UdevData {
             active: true,
             render_pending: false,
             screen: Some(screen),
             ..
-        }) => {
-            let output = screen.output.clone();
-            state.switcher_elements(&output)
-        }
+        }) => Some(screen.output.clone()),
+        _ => None,
+    };
+    // A monitor that is off stays dark until something turns it on.
+    if output.as_ref().is_some_and(|o| state.is_powered_off(o)) {
+        return;
+    }
+    let switcher = match &output {
+        Some(output) if !locked => state.overlay_elements(output),
         _ => Vec::new(),
     };
+    let lock_surface = output
+        .as_ref()
+        .and_then(|o| state.lock_surface(o))
+        .map(|s| s.wl_surface().clone());
     let pointer_location = state
         .seat
         .get_pointer()
@@ -517,34 +541,55 @@ pub fn render(state: &mut State) {
         scale,
     ));
 
-    elements.extend(switcher.into_iter().map(OutputElements::Switcher));
+    // While locked, the lock screen replaces windows, layer surfaces and
+    // overlays. It has the same element type as a cursor surface.
+    if locked {
+        if let Some(surface) = &lock_surface {
+            elements.extend(render_elements_from_surface_tree(
+                &mut udev.renderer,
+                surface,
+                (0, 0),
+                scale,
+                1.0,
+                Kind::Unspecified,
+            ));
+        }
+    } else {
+        elements.extend(switcher.into_iter().map(OutputElements::Switcher));
 
-    match space_render_elements(&mut udev.renderer, [&*space], &screen.output, 1.0) {
-        Ok(space_elements) => elements.extend(space_elements.into_iter().map(Into::into)),
-        Err(err) => warn!(?err, "failed to collect window elements"),
+        match space_render_elements(&mut udev.renderer, [&*space], &screen.output, 1.0) {
+            Ok(space_elements) => elements.extend(space_elements.into_iter().map(Into::into)),
+            Err(err) => warn!(?err, "failed to collect window elements"),
+        }
     }
 
-    let queued = match screen.drm_output.render_frame(
+    let background = if locked {
+        LOCKED_BACKGROUND
+    } else {
+        BACKGROUND
+    };
+    let (queued, unchanged) = match screen.drm_output.render_frame(
         &mut udev.renderer,
         &elements,
-        BACKGROUND,
+        background,
         FrameFlags::DEFAULT,
     ) {
         Ok(result) if !result.is_empty => match screen.drm_output.queue_frame(()) {
-            Ok(()) => true,
+            Ok(()) => (true, false),
             Err(err) => {
                 warn!(?err, "failed to queue frame");
-                false
+                (false, false)
             }
         },
-        Ok(_) => false,
+        Ok(_) => (false, true),
         Err(err) => {
             warn!(?err, "failed to render frame");
-            false
+            (false, false)
         }
     };
 
     udev.render_pending = true;
+    udev.lock_frame_queued = locked && queued;
     if !queued {
         let _ = loop_handle.insert_source(Timer::from_duration(screen.refresh), |_, _, state| {
             if let Backend::Udev(udev) = &mut state.backend {
@@ -556,6 +601,10 @@ pub fn render(state: &mut State) {
     }
 
     let output = screen.output.clone();
+    // Nothing changed since a frame that was already drawn locked.
+    if locked && unchanged {
+        state.lock_frame_shown();
+    }
     crate::capture::render_queued(state, &output);
     state.send_frame_callbacks(&output);
 }
@@ -617,6 +666,28 @@ pub fn cursor_elements(
     elements
 }
 
+/// Turns the monitor off by disabling its display controller, or back on
+/// by drawing a frame, which enables it again.
+pub fn set_power(state: &mut State, output: &Output, on: bool) {
+    let Backend::Udev(udev) = &mut state.backend else {
+        return;
+    };
+    let Some(screen) = udev.screen.as_mut().filter(|s| &s.output == output) else {
+        return;
+    };
+    if on {
+        // Redraw everything rather than only what changed while off.
+        screen.drm_output.reset_buffers();
+        udev.render_pending = false;
+        render(state);
+    } else if udev.active {
+        if let Err(err) = screen.drm_output.with_compositor(|c| c.clear()) {
+            warn!(%err, "failed to turn the monitor off");
+        }
+        udev.lock_frame_queued = false;
+    }
+}
+
 /// Applies the input settings to a newly connected mouse, touchpad or
 /// keyboard. Settings a device does not support are skipped.
 fn configure_device(device: &mut smithay::reexports::input::Device, config: &InputConfig) {
@@ -634,6 +705,16 @@ fn configure_device(device: &mut smithay::reexports::input::Device, config: &Inp
 impl UdevData {
     pub fn shm_formats(&self) -> Vec<smithay::reexports::wayland_server::protocol::wl_shm::Format> {
         self.renderer.shm_formats().collect()
+    }
+
+    /// The output being drawn to, if a monitor is connected.
+    pub fn output(&self) -> Option<&Output> {
+        self.screen.as_ref().map(|screen| &screen.output)
+    }
+
+    /// False while another VT has the session.
+    pub fn is_active(&self) -> bool {
+        self.active
     }
 
     pub fn change_vt(&mut self, vt: i32) {
