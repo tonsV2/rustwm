@@ -13,6 +13,7 @@ mod switcher;
 mod udev;
 mod window;
 mod winit;
+mod xwayland;
 
 use std::io::IsTerminal;
 
@@ -75,7 +76,13 @@ fn main() -> anyhow::Result<()> {
         "ready; run clients with WAYLAND_DISPLAY={}",
         state.socket_name.to_string_lossy()
     );
-    launcher::export_to_dbus(&state.socket_name);
+
+    // The socket is listening, so the satellite can connect; it is served
+    // once the event loop runs.
+    state.xwayland = xwayland::Satellite::start(&state.socket_name);
+    let x_display = state.xwayland.as_ref().map(|s| s.display.clone());
+    state.launcher.set_x_display(x_display.clone());
+    launcher::export_to_dbus(&state.socket_name, x_display.as_deref());
 
     event_loop
         .run(None, &mut state, State::after_dispatch)
@@ -87,6 +94,9 @@ fn main() -> anyhow::Result<()> {
 
 /// Inside an existing desktop session the compositor runs as a window;
 /// from a text console it takes over the hardware.
+///
+/// This reads the environment rustwm was started with. xwayland-satellite's
+/// `DISPLAY` is only given to children, never set in our own environment.
 fn nested() -> bool {
     std::env::var_os("WAYLAND_DISPLAY").is_some() || std::env::var_os("DISPLAY").is_some()
 }

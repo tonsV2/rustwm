@@ -41,6 +41,7 @@ Done:
 - Full-screen initial placement, dialogs floating centred, half and quarter layouts
 - Most-recently-used Alt+Tab with live window thumbnails, application icons and names
 - Super tap launches Fuzzel; Super used with another key or a click does not
+- X11-only apps through [xwayland-satellite](https://github.com/Supreeeme/xwayland-satellite): rustwm starts it on a free display when it is installed, stops it on exit, and gives apps started from Fuzzel that display as `DISPLAY`
 - xdg-activation: an application can bring another forward, for example a terminal opening a link in the running browser. Only the focused application can hand out a request, right after an input event, and it expires after 10 seconds
 
 Not done yet:
@@ -54,6 +55,7 @@ Nested development needs only Rust and Mesa, which Fedora Workstation has alread
 ```sh
 sudo dnf install cargo rust rustfmt clippy mesa-libEGL-devel libxkbcommon-devel wayland-devel
 sudo dnf install fuzzel foot   # launcher, plus a simple terminal to test with
+sudo dnf install xwayland-satellite   # optional: runs X11-only apps
 sudo dnf install brightnessctl # brightness keys; wpctl for the volume keys comes with wireplumber
 ```
 
@@ -154,8 +156,8 @@ GNOME Settings does not work here: it refuses to start outside GNOME, and its di
 - Only the primary GPU is used.
 - Client requests to maximize or go full screen (such as F11 or full-screen video) are ignored, because the keyboard decides placement.
 - An application whose minimum size is larger than its slot draws past the slot's edge.
-- X11-only apps do not run (no XWayland). JetBrains IDEs have a Wayland mode: add `-Dawt.toolkit.name=WLToolkit` via Help → Edit Custom VM Options. They also run as a single instance per user, so close the IDE in any other session first.
-- No screen locking, XWayland, workspaces or window decorations (the last three are out of scope by design).
+- X11-only apps need `xwayland-satellite` installed; without it they do not run. Some Java apps show a blank window under it until `_JAVA_AWT_WM_NONREPARENTING=1` is set. JetBrains IDEs also have a Wayland mode: add `-Dawt.toolkit.name=WLToolkit` via Help → Edit Custom VM Options. They also run as a single instance per user, so close the IDE in any other session first.
+- No screen locking, built-in XWayland, workspaces or window decorations (the last three are out of scope by design).
 
 ## Code layout
 
@@ -171,6 +173,7 @@ GNOME Settings does not work here: it refuses to start outside GNOME, and its di
 | `src/switcher.rs` | Alt+Tab switcher: thumbnails, icons and text (fontdue, font from fontconfig) |
 | `src/apps.rs` | Application names and icons from desktop files and icon themes |
 | `src/launcher.rs` | Spawns Fuzzel |
+| `src/xwayland.rs` | Starts xwayland-satellite for X11 apps |
 | `src/commands.rs` | Runs the brightness and volume key commands |
 | `src/winit.rs` | Nested backend and rendering |
 | `src/udev.rs` | Hardware backend: session, GPU, monitor, libinput, rendering |

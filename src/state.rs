@@ -52,6 +52,7 @@ use crate::{
     udev::UdevData,
     window::ManagedWindow,
     winit::WinitData,
+    xwayland::Satellite,
 };
 
 /// Where the compositor draws and gets input from.
@@ -119,6 +120,8 @@ pub struct State {
     /// command. Clients repeat keys themselves, but these never reach one.
     pub key_repeat: Option<(u32, RegistrationToken)>,
     pub launcher: Launcher,
+    /// Runs X11 apps; `None` when xwayland-satellite is not installed.
+    pub xwayland: Option<Satellite>,
     pub switcher: Switcher,
     pub config: Config,
     /// A layer surface (the launcher) that has taken keyboard focus. While
@@ -187,6 +190,7 @@ impl State {
             bindings: Bindings::default(),
             key_repeat: None,
             launcher: Launcher::new(),
+            xwayland: None,
             switcher: Switcher::default(),
             config,
             layer_focus: None,

@@ -59,7 +59,7 @@ Do not initially target:
 * Windows
 * X11 as the primary backend
 
-XWayland is out of scope for the first version.
+The compositor contains no XWayland or other X11 code. X11-only applications run through [xwayland-satellite](https://github.com/Supreeeme/xwayland-satellite), a separate program that runs a rootless Xwayland and shows each X11 window as a normal xdg-shell window. When it is installed, the compositor starts it on a free X display once its Wayland socket is listening, stops it on exit, and gives launched applications that display as `DISPLAY`. It needs only `xdg_wm_base` and `wp_viewporter` from the compositor.
 
 ---
 
@@ -993,7 +993,7 @@ In particular, do not spontaneously implement:
 * application menu
 * workspaces
 * virtual desktops
-* XWayland
+* XWayland inside the compositor (X11 applications use the external xwayland-satellite, see §2)
 * window decorations
 * animations
 * compositor effects
