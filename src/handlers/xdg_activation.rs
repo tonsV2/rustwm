@@ -14,7 +14,7 @@ use std::time::Duration;
 use smithay::{
     delegate_xdg_activation,
     input::Seat,
-    reexports::wayland_server::{Resource, protocol::wl_surface::WlSurface},
+    reexports::wayland_server::{Resource, backend::ClientId, protocol::wl_surface::WlSurface},
     wayland::xdg_activation::{
         XdgActivationHandler, XdgActivationState, XdgActivationToken, XdgActivationTokenData,
     },
@@ -33,7 +33,11 @@ impl XdgActivationHandler for State {
 
     fn token_created(&mut self, _token: XdgActivationToken, data: XdgActivationTokenData) -> bool {
         let Some((serial, seat)) = &data.serial else {
-            info!(app_id = ?data.app_id, client = self.client_name(&data), "activation token refused: no input event");
+            info!(
+                app_id = ?data.app_id,
+                client = self.client_name(data.client_id.clone()),
+                "activation token refused: no input event"
+            );
             return false;
         };
         if Seat::<State>::from_resource(seat).as_ref() != Some(&self.seat) {
@@ -44,12 +48,13 @@ impl XdgActivationHandler for State {
                 .and_then(|surface| surface.client())
                 .map(|client| client.id())
         };
+        let keyboard = self.seat.get_keyboard();
+        let pointer = self.seat.get_pointer();
 
         // A key or click in the focused client: the event must have come
         // after the keyboard entered its current surface, and that surface
         // must belong to the requesting client.
-        let keyboard = self.seat.get_keyboard();
-        let keyboard_ok = keyboard.is_some_and(|keyboard| {
+        let keyboard_ok = keyboard.as_ref().is_some_and(|keyboard| {
             keyboard
                 .last_enter()
                 .is_some_and(|enter| serial.is_no_older_than(&enter))
@@ -59,22 +64,33 @@ impl XdgActivationHandler for State {
         // A click on the client under the pointer, which may not take the
         // keyboard: the event must be newer than the pointer entering its
         // surface, so hovering alone is not enough.
-        let pointer = self.seat.get_pointer();
-        let pointer_ok = pointer.is_some_and(|pointer| {
+        let pointer_ok = pointer.as_ref().is_some_and(|pointer| {
             pointer
                 .last_enter()
                 .is_some_and(|enter| *serial != enter && serial.is_no_older_than(&enter))
                 && client(pointer.current_focus()) == data.client_id
         });
 
-        if !(keyboard_ok || pointer_ok) {
-            info!(
-                app_id = ?data.app_id,
-                client = self.client_name(&data),
-                "activation token refused: not from a recent input event"
-            );
+        let name = self.client_name(data.client_id.clone());
+        if keyboard_ok || pointer_ok {
+            info!(app_id = ?data.app_id, client = name, "activation token created");
+            return true;
         }
-        keyboard_ok || pointer_ok
+        let keyboard_focus =
+            self.client_name(client(keyboard.as_ref().and_then(|k| k.current_focus())));
+        let pointer_focus =
+            self.client_name(client(pointer.as_ref().and_then(|p| p.current_focus())));
+        info!(
+            app_id = ?data.app_id,
+            client = name,
+            ?serial,
+            keyboard_focus,
+            keyboard_enter = ?keyboard.as_ref().and_then(|k| k.last_enter()),
+            pointer_focus,
+            pointer_enter = ?pointer.as_ref().and_then(|p| p.last_enter()),
+            "activation token refused: not from a recent input event"
+        );
+        false
     }
 
     fn request_activation(
@@ -101,10 +117,10 @@ impl XdgActivationHandler for State {
 }
 
 impl State {
-    /// The requesting client's process as `name (pid)`, for the log: the
-    /// app id is often missing.
-    fn client_name(&self, data: &XdgActivationTokenData) -> String {
-        let Some(credentials) = data.client_id.clone().and_then(|id| {
+    /// A client's process as `name (pid)`, for the log: the app id in a
+    /// token request is often missing.
+    fn client_name(&self, client: Option<ClientId>) -> String {
+        let Some(credentials) = client.and_then(|id| {
             self.display_handle
                 .backend_handle()
                 .get_client_credentials(id)
