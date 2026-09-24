@@ -133,7 +133,7 @@ Start a first application with a Super tap (Fuzzel). If something goes wrong, se
 `resources/rustwm-session` decides which D-Bus session bus rustwm runs on. `start.sh`, `scripts/nested.sh` and the login session all go through it.
 
 - **Next to another graphical session** (logged in to GNOME on another VT, or nested inside it): rustwm gets a private bus from `dbus-run-session`. Many apps (GTK apps, Ghostty) run as a single instance: on launch they look for a running copy on the D-Bus session bus and hand the request over. On GNOME's bus the window would open in GNOME instead. The keyring GNOME unlocked at login only answers on GNOME's bus, so `rustwm-session` also starts `resources/rustwm-secrets-relay`, which owns `org.freedesktop.secrets` on the private bus and passes every call through to GNOME's keyring daemon. Apps that store passwords (browsers, IDEs, credential helpers) find it unlocked, with no prompt. The relay needs Python with GObject introspection (`python3-gobject-base`, installed with GNOME).
-- **As the only graphical session** (logged in from GDM, or from a console while nobody is logged in to GNOME): rustwm uses the shared user bus, where PAM unlocked the keyring at a GDM login, and points the D-Bus and systemd activation environment (`WAYLAND_DISPLAY`, `XDG_CURRENT_DESKTOP`) at itself. After a console login the keyring is still locked, and the first app that needs it shows one unlock prompt.
+- **As the only graphical session** (logged in from GDM, or from a console while nobody is logged in to GNOME): rustwm uses the shared user bus, where PAM unlocked the keyring at a GDM login, and points the D-Bus and systemd activation environment (`WAYLAND_DISPLAY`, `XDG_CURRENT_DESKTOP`) at itself. It then starts `graphical-session.target` through its own `rustwm-session.target` (written to `$XDG_RUNTIME_DIR/systemd/user/`, nothing to install), which `xdg-desktop-portal` needs before it starts, and stops it on exit. After a console login the keyring is still locked, and the first app that needs it shows one unlock prompt.
 
 Starting a second `gnome-keyring-daemon` on the private bus does not help: `--start` finds the running daemon through its per-user control socket in `$XDG_RUNTIME_DIR/keyring/`, initialises that one and exits, and the running daemon stays on GNOME's bus only. `--replace` would take the keyring away from GNOME.
 
@@ -220,6 +220,16 @@ ln -s /usr/share/applications/gnome-mimeapps.list ~/.local/share/applications/ru
 Choices you made yourself in `~/.config/mimeapps.list` (Open With → Set as default) still come first.
 
 GNOME Settings does not work here: it refuses to start outside GNOME, and its display, mouse and keyboard pages configure GNOME's compositor, not rustwm. Settings that apps read themselves (dark style, fonts, text size) are stored in dconf and still apply when you change them from GNOME.
+
+### Dark style
+
+Apps follow the dark style in `org.gnome.desktop.interface color-scheme`, set from GNOME or with:
+
+```sh
+gsettings set org.gnome.desktop.interface color-scheme prefer-dark
+```
+
+GTK4, libadwaita, Firefox, Chromium and Electron apps and Qt 6 read it through the desktop portal, which only runs in a graphical session (see [D-Bus bus and keyring](#d-bus-bus-and-keyring)). GTK3 apps ignore it, in GNOME too, and only change with their theme: `gsettings set org.gnome.desktop.interface gtk-theme Adwaita-dark`, or `adw-gtk3-dark` from the `adw-gtk3-theme` package for the libadwaita look.
 
 ### Environment variables
 

@@ -1,0 +1,12 @@
+# rustwm writes this unit to $XDG_RUNTIME_DIR/systemd/user/ and starts it once
+# it has put WAYLAND_DISPLAY in the systemd environment. graphical-session.target
+# refuses a manual start, so this target pulls it in; services that need a
+# graphical session, such as xdg-desktop-portal, wait for it. Stopping this
+# target stops them too: the portal would otherwise keep the session target up.
+[Unit]
+Description=rustwm session
+Documentation=man:systemd.special(7)
+BindsTo=graphical-session.target
+PropagatesStopTo=graphical-session.target
+Wants=graphical-session-pre.target
+After=graphical-session-pre.target

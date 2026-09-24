@@ -88,7 +88,8 @@ fn main() -> anyhow::Result<()> {
     // once the event loop runs.
     state.xwayland = xwayland::Satellite::start(&state.socket_name);
     let x_display = state.xwayland.as_ref().map(|s| s.display.clone());
-    launcher::export_to_dbus(&state.socket_name, x_display.as_deref(), nested);
+    let graphical_session =
+        launcher::export_to_dbus(&state.socket_name, x_display.as_deref(), nested);
     for command in &state.config.autostart.commands {
         info!(command, "autostart");
         commands::run(command, &state.child_env(), || {});
@@ -96,12 +97,15 @@ fn main() -> anyhow::Result<()> {
     state.start_panel();
     state.watch_config();
 
-    event_loop
+    let result = event_loop
         .run(None, &mut state, State::after_dispatch)
-        .context("event loop failed")?;
+        .context("event loop failed");
 
+    if graphical_session {
+        launcher::stop_session_target();
+    }
     info!("rustwm exiting");
-    Ok(())
+    result
 }
 
 /// Inside an existing desktop session the compositor runs as a window;

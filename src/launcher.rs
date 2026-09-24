@@ -111,7 +111,11 @@ pub fn is_on_path(command: &str) -> bool {
 ///
 /// `x_display` is xwayland-satellite's display, exported as `DISPLAY` when
 /// it runs.
-pub fn export_to_dbus(wayland_display: &OsStr, x_display: Option<&str>, nested: bool) {
+///
+/// On the shared bus this also starts the systemd graphical session (see
+/// [`start_session_target`]) and returns true; [`stop_session_target`] ends
+/// it when rustwm exits.
+pub fn export_to_dbus(wayland_display: &OsStr, x_display: Option<&str>, nested: bool) -> bool {
     let bus = env::var("DBUS_SESSION_BUS_ADDRESS").unwrap_or_default();
     let shared_bus = env::var("XDG_RUNTIME_DIR")
         .map(|dir| format!("unix:path={dir}/bus"))
@@ -125,7 +129,7 @@ pub fn export_to_dbus(wayland_display: &OsStr, x_display: Option<&str>, nested: 
              already running in another session will open their windows there. \
              Start rustwm with `rustwm-session` to avoid this"
         );
-        return;
+        return false;
     }
 
     let mut arg = std::ffi::OsString::from("WAYLAND_DISPLAY=");
@@ -143,8 +147,69 @@ pub fn export_to_dbus(wayland_display: &OsStr, x_display: Option<&str>, nested: 
     }
     match command.status() {
         Ok(status) if status.success() => info!("D-Bus activation environment updated"),
-        Ok(status) => warn!(%status, "failed to update D-Bus activation environment"),
-        Err(err) => warn!(%err, "failed to run dbus-update-activation-environment"),
+        Ok(status) => {
+            warn!(%status, "failed to update D-Bus activation environment");
+            return false;
+        }
+        Err(err) => {
+            warn!(%err, "failed to run dbus-update-activation-environment");
+            return false;
+        }
+    }
+    on_shared_bus && start_session_target()
+}
+
+/// Our session target, which pulls in `graphical-session.target`.
+const SESSION_TARGET: &str = "rustwm-session.target";
+const SESSION_TARGET_UNIT: &str = include_str!("../resources/rustwm-session.target");
+
+/// Starts `graphical-session.target` in the systemd user manager, through
+/// our own target since it refuses a manual start. Services that need a
+/// graphical session wait for it: without it `xdg-desktop-portal` does not
+/// start, and apps miss the dark style, file chooser and screen sharing.
+///
+/// The unit goes to the runtime unit directory, so rustwm needs nothing
+/// installed and the unit is gone after logout. A target left over from a
+/// rustwm that crashed is restarted, so the portals it kept alive stop and
+/// come back pointing at this compositor.
+fn start_session_target() -> bool {
+    let Some(runtime_dir) = env::var_os("XDG_RUNTIME_DIR") else {
+        warn!("XDG_RUNTIME_DIR is not set; not starting the graphical session");
+        return false;
+    };
+    let dir = Path::new(&runtime_dir).join("systemd/user");
+    if let Err(err) = std::fs::create_dir_all(&dir)
+        .and_then(|()| std::fs::write(dir.join(SESSION_TARGET), SESSION_TARGET_UNIT))
+    {
+        warn!(%err, "failed to write {SESSION_TARGET}");
+        return false;
+    }
+    let started = systemctl(&["daemon-reload"]) && systemctl(&["restart", SESSION_TARGET]);
+    if started {
+        info!("graphical session started");
+    }
+    started
+}
+
+/// Stops the target [`start_session_target`] started, and with it
+/// `graphical-session.target` and the services that are part of it.
+pub fn stop_session_target() {
+    if systemctl(&["stop", SESSION_TARGET]) {
+        info!("graphical session stopped");
+    }
+}
+
+fn systemctl(args: &[&str]) -> bool {
+    match Command::new("systemctl").arg("--user").args(args).status() {
+        Ok(status) if status.success() => true,
+        Ok(status) => {
+            warn!(%status, ?args, "systemctl --user failed");
+            false
+        }
+        Err(err) => {
+            warn!(%err, "failed to run systemctl");
+            false
+        }
     }
 }
 
