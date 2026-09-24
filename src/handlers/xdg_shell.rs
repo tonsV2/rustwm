@@ -41,6 +41,7 @@ impl XdgShellHandler for State {
             layout: None,
             output,
             mapped: false,
+            unzoomed: None,
         });
     }
 
@@ -57,6 +58,7 @@ impl XdgShellHandler for State {
 
         self.space.unmap_elem(&window.window);
         self.focus.remove(window.id);
+        self.groups.remove(window.id);
         self.sync_focus();
     }
 

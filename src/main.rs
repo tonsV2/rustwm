@@ -4,6 +4,7 @@ mod commands;
 mod config;
 mod cursor;
 mod focus;
+mod group;
 mod handlers;
 mod input;
 mod keyboard;

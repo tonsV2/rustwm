@@ -453,7 +453,20 @@ Do not initially implement:
 * `Alt+Shift+Tab`
 * workspaces
 * virtual desktops
-* window groups
+
+## Window groups
+
+A group is a set of snapped windows that come into view together, over the full-screen application underneath, and share one Alt+Tab entry. This is the layer from the vision.
+
+* `Super+g` groups the snapped windows that can be seen: those above the topmost full-screen window that are not hidden behind snapped windows above them. If one of them is already in a group, the others join that group.
+* `Super+Shift+g` takes the focused window out of its group. It stays where it is.
+* A window belongs to at most one group. Closing a window takes it out of its group, and a group left with one window disappears.
+* Snapping a group member to full screen zooms it: it stays in the group, and the first `Super+arrow` of a later hold puts it back in the tile it had.
+* The MRU list holds windows, and a group is shown in Alt+Tab as one entry at the place of its most recently used member. Its members get no entries of their own.
+* Focusing any member, by Alt+Tab, a click or otherwise, raises all members above everything else, most recently used on top.
+* A group's switcher entry is the screen scaled down, with each member drawn live where it sits. The members' application names are under it and their titles below the row.
+* `Super+Tab` focuses the next member of the focused window's group in reading order, and `Super+Shift+Tab` the previous one. Outside a group the key reaches the application.
+* Groups have no names and no number keys, and are not kept across restarts.
 
 ---
 

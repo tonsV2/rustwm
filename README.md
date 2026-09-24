@@ -20,7 +20,10 @@ Every application opens filling the screen. Snap windows to halves and quarters 
 | `Alt+Tab` | Switch to the previous window (most recently used first). Keep Alt held to see thumbnails of your windows; Tab/Shift+Tab or the arrow keys move the highlight, releasing Alt switches, Escape cancels |
 | `Super+Left` / `Right` / `Up` / `Down` | Snap the focused window to that half |
 | `Super+Left` then `Up` (Super held) | Snap to a quarter; any horizontal plus vertical pair works |
-| `Super+<direction the window is already in>` | Back to full screen |
+| `Super+<direction the window is already in>` | Back to full screen. A grouped window zooms instead: the next `Super+arrow` puts it back in its tile |
+| `Super+g` | Group the snapped windows on screen, so they come into view together and share one Alt+Tab entry. Windows joining a group are added to it |
+| `Super+Shift+g` | Take the focused window out of its group |
+| `Super+Tab` / `Super+Shift+Tab` | Focus the next / previous window of the focused window's group |
 | `Super+Return` | Open a terminal: `xdg-terminal-exec`, else the first entry of `~/.config/xdg-terminals.list`, else foot |
 | `Super+f` | Open the file manager on your home folder |
 | `Super+b` | Open the default web browser |
@@ -48,6 +51,7 @@ Done:
 - xdg-shell windows and popups, wlr-layer-shell (needed by Fuzzel), clipboard and primary selection, linux-dmabuf, viewporter, fractional scale, cursor shape (the compositor draws the cursors apps ask for by name, at one size), server-side decoration negotiation (the compositor draws no decorations)
 - Full-screen initial placement, dialogs floating centred, half and quarter layouts
 - Most-recently-used Alt+Tab with live window thumbnails, application icons and names
+- Window groups: snapped windows grouped with `Super+g` come into view together over the full-screen app underneath, and Alt+Tab shows each group as one screen-shaped thumbnail
 - Super tap launches Fuzzel; Super used with another key or a click does not
 - X11-only apps through [xwayland-satellite](https://github.com/Supreeeme/xwayland-satellite): rustwm starts it on a free display when it is installed, stops it on exit, and gives apps started from Fuzzel that display as `DISPLAY`
 - xdg-activation: an application can bring another forward, for example a terminal opening a link in the running browser. Only the focused application can hand out a request, right after an input event, and it expires after 10 seconds
@@ -270,6 +274,7 @@ rustwm puts `WAYLAND_DISPLAY` and `XDG_CURRENT_DESKTOP=rustwm` in the D-Bus acti
 | --- | --- |
 | `src/layout.rs` | Layout geometry and snap rules (no Smithay, unit tested) |
 | `src/focus.rs` | Most-recently-used focus history and Alt+Tab (no Smithay, unit tested) |
+| `src/group.rs` | Window groups: which windows belong together (no Smithay, unit tested), grouping, raising and cycling |
 | `src/keyboard.rs` | Keybinding state machine, including the Super tap (no Smithay, unit tested) |
 | `src/keymap.rs` | Picks the keyboard layout: config, `XKB_DEFAULT_*`, then the system keyboard |
 | `src/state.rs` | Compositor state and focus/layout plumbing |
