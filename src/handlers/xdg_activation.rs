@@ -33,7 +33,7 @@ impl XdgActivationHandler for State {
 
     fn token_created(&mut self, _token: XdgActivationToken, data: XdgActivationTokenData) -> bool {
         let Some((serial, seat)) = &data.serial else {
-            info!(app_id = ?data.app_id, "activation token refused: no input event");
+            info!(app_id = ?data.app_id, client = self.client_name(&data), "activation token refused: no input event");
             return false;
         };
         if Seat::<State>::from_resource(seat).as_ref() != Some(&self.seat) {
@@ -68,7 +68,11 @@ impl XdgActivationHandler for State {
         });
 
         if !(keyboard_ok || pointer_ok) {
-            info!(app_id = ?data.app_id, "activation token refused: not from a recent input event");
+            info!(
+                app_id = ?data.app_id,
+                client = self.client_name(&data),
+                "activation token refused: not from a recent input event"
+            );
         }
         keyboard_ok || pointer_ok
     }
@@ -93,6 +97,24 @@ impl XdgActivationHandler for State {
         }
         info!(window = id.0, "window activated by request");
         self.focus_window(id);
+    }
+}
+
+impl State {
+    /// The requesting client's process as `name (pid)`, for the log: the
+    /// app id is often missing.
+    fn client_name(&self, data: &XdgActivationTokenData) -> String {
+        let Some(credentials) = data.client_id.clone().and_then(|id| {
+            self.display_handle
+                .backend_handle()
+                .get_client_credentials(id)
+                .ok()
+        }) else {
+            return "unknown".into();
+        };
+        let pid = credentials.pid;
+        let name = std::fs::read_to_string(format!("/proc/{pid}/comm")).unwrap_or_default();
+        format!("{} ({pid})", name.trim())
     }
 }
 
