@@ -16,8 +16,8 @@ icon-location=left
 anchor=bottom-right
 # Above windows, in the bottom-right corner, which is out of the way of the panel at the top.
 layer=top
-# Apps that set no timeout of their own: hide after 10 seconds, long enough to reach for the mouse and click.
-default-timeout=10000
+# Apps that set no timeout of their own: hide after 15 seconds, long enough to reach for the mouse and click.
+default-timeout=15000
 max-visible=3
 # A click runs the notification's action (usually opens it); a right click dismisses it.
 on-button-left=invoke-default-action

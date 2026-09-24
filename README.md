@@ -179,7 +179,7 @@ A video player or browser playing video can keep the screen from locking and tur
 
 GNOME Shell shows notifications in GNOME; in rustwm, [mako](https://github.com/emersion/mako) does. rustwm starts `resources/rustwm-notifications` before the panel and the autostart commands, so mako owns `org.freedesktop.Notifications` before apps send anything. Notifications from apps (Chrome, Signal, `notify-send`) and from the desktop portal all go there.
 
-They show in the bottom-right corner above windows, at most three at a time, for 10 seconds unless the app asks otherwise; critical ones stay until dismissed. Click one to open it (the app's default action, which brings the app forward), right-click to dismiss it. `makoctl restore` brings back the last one that went away, `makoctl dismiss --all` clears them all, and `makoctl mode -t do-not-disturb` turns hiding them on and off.
+They show in the bottom-right corner above windows, at most three at a time, for 15 seconds unless the app asks otherwise; critical ones stay until dismissed. Click one to open it (the app's default action, which brings the app forward), right-click to dismiss it. `makoctl restore` brings back the last one that went away, `makoctl dismiss --all` clears them all, and `makoctl mode -t do-not-disturb` turns hiding them on and off.
 
 The look is in [resources/mako/config](resources/mako/config). Copy it to `~/.config/rustwm/mako/config` to change it (see `man 5 mako`) and run `makoctl reload`. To use another daemon, set `notifications.command` to it, or to `""` and start it yourself.
 
