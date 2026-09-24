@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Starts mako as rustwm's notification daemon. The config comes from ~/.config/rustwm/mako if it exists, else from the one shipped with rustwm.
+set -euo pipefail
+
+here="$(dirname "$(readlink -f "$0")")"
+
+for dir in "${XDG_CONFIG_HOME:-$HOME/.config}/rustwm/mako" "$here/mako" "$here/../share/rustwm/mako"; do
+    if [[ -r "$dir/config" ]]; then
+        break
+    fi
+done
+[[ -r "$dir/config" ]] || { echo "rustwm-notifications: no mako config found" >&2; exit 1; }
+
+exec mako --config "$dir/config"

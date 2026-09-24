@@ -22,6 +22,7 @@ pub struct Config {
     pub osd: OsdConfig,
     pub autostart: AutostartConfig,
     pub panel: PanelConfig,
+    pub notifications: NotificationsConfig,
 }
 
 #[derive(Debug, Default, Deserialize, PartialEq)]
@@ -175,7 +176,23 @@ impl Default for OsdConfig {
     }
 }
 
-/// Programs started once the Wayland socket is ready, such as swayidle or a notification daemon.
+/// The notification daemon: an outside layer-shell program, mako by default.
+#[derive(Debug, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct NotificationsConfig {
+    /// Started once rustwm is ready, before the panel and autostart, so it owns `org.freedesktop.Notifications` before apps send any. Empty means no daemon.
+    pub command: String,
+}
+
+impl Default for NotificationsConfig {
+    fn default() -> Self {
+        Self {
+            command: "rustwm-notifications".into(),
+        }
+    }
+}
+
+/// Programs started once the Wayland socket is ready, such as swayidle.
 #[derive(Debug, Default, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 pub struct AutostartConfig {
@@ -392,8 +409,8 @@ mod tests {
     #[test]
     fn autostart_parses() {
         let config =
-            Config::parse("[autostart]\ncommands = [\"mako\", \"swayidle -w\"]\n").unwrap();
-        assert_eq!(config.autostart.commands, ["mako", "swayidle -w"]);
+            Config::parse("[autostart]\ncommands = [\"nm-applet\", \"swayidle -w\"]\n").unwrap();
+        assert_eq!(config.autostart.commands, ["nm-applet", "swayidle -w"]);
         assert!(Config::default().autostart.commands.is_empty());
     }
 
@@ -413,6 +430,16 @@ mod tests {
             (PanelPosition::Top, PanelMode::AutoHide)
         );
         assert!(Config::parse("[panel]\nmode = \"sometimes\"\n").is_err());
+    }
+
+    #[test]
+    fn notifications_parse() {
+        assert_eq!(
+            Config::default().notifications.command,
+            "rustwm-notifications"
+        );
+        let config = Config::parse("[notifications]\ncommand = \"\"\n").unwrap();
+        assert!(config.notifications.command.is_empty());
     }
 
     #[test]

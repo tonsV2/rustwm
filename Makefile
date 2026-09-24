@@ -5,8 +5,8 @@
 #   sudo make uninstall  remove them again
 #
 # install never builds: run as root, cargo would leave root-owned files in
-# target/. PREFIX (default /usr/local) holds the binaries and the Waybar
-# config. The session and portal files go to /usr/share, where GDM and
+# target/. PREFIX (default /usr/local) holds the binaries and the Waybar and
+# mako configs. The session and portal files go to /usr/share, where GDM and
 # xdg-desktop-portal look for them.
 
 PREFIX ?= /usr/local
@@ -16,8 +16,9 @@ SESSIONDIR ?= /usr/share/wayland-sessions
 PORTALDIR ?= /usr/share/xdg-desktop-portal
 
 BINARY = target/release/rustwm
-SCRIPTS = rustwm-session rustwm-secrets-relay rustwm-volume rustwm-terminal rustwm-panel
+SCRIPTS = rustwm-session rustwm-secrets-relay rustwm-volume rustwm-terminal rustwm-panel rustwm-notifications
 WAYBAR = config.jsonc style.css
+MAKODIR = $(PREFIX)/share/rustwm/mako
 
 .PHONY: all build install uninstall
 
@@ -30,6 +31,7 @@ install:
 	@test -x $(BINARY) || { echo "$(BINARY) is missing; run make first" >&2; exit 1; }
 	install -D -m 755 -t $(DESTDIR)$(BINDIR) $(BINARY) $(addprefix resources/,$(SCRIPTS))
 	install -D -m 644 -t $(DESTDIR)$(WAYBARDIR) $(addprefix resources/waybar/,$(WAYBAR))
+	install -D -m 644 -t $(DESTDIR)$(MAKODIR) resources/mako/config
 	install -d $(DESTDIR)$(SESSIONDIR)
 	sed 's|^Exec=.*|Exec=$(BINDIR)/rustwm-session|' resources/rustwm.desktop >$(DESTDIR)$(SESSIONDIR)/rustwm.desktop
 	chmod 644 $(DESTDIR)$(SESSIONDIR)/rustwm.desktop

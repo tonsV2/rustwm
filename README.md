@@ -56,6 +56,7 @@ Done:
 - X11-only apps through [xwayland-satellite](https://github.com/Supreeeme/xwayland-satellite): rustwm starts it on a free display when it is installed, stops it on exit, and gives apps started from Fuzzel that display as `DISPLAY`
 - xdg-activation: an application can bring another forward, for example a terminal opening a link in the running browser. Only the focused application can hand out a request, right after an input event, and it expires after 10 seconds
 - A panel (Waybar) with the time, tray, volume, brightness, network and battery, at the top or bottom, auto-hidden until the pointer touches that edge or always shown
+- [Notifications](#notifications) through mako, styled like the switcher and panel
 - Screen locking and idle: ext-session-lock (swaylock), ext-idle-notify and idle-inhibit (swayidle, video players keeping the screen on), and wlr-output-power-management (`wlopm` turns the monitor off). See [Locking the screen](#locking-the-screen)
 - [Screenshots and screen sharing](#screenshots-and-screen-sharing): wlr-screencopy and ext-image-copy-capture, into shared memory or dmabuf buffers, for `grim` and `xdg-desktop-portal-wlr`
 
@@ -74,6 +75,7 @@ sudo dnf install xwayland-satellite   # optional: runs X11-only apps
 sudo dnf install brightnessctl # brightness keys; wpctl (wireplumber) and pactl (pulseaudio-utils) for the volume keys are installed with GNOME
 sudo dnf install swaylock swayidle wlopm   # screen locking, idle timeout, monitor off
 sudo dnf install waybar network-manager-applet   # the panel, and wifi in its tray
+sudo dnf install mako   # notifications
 sudo dnf install grim slurp xdg-desktop-portal-wlr   # screenshots and screen sharing
 ```
 
@@ -173,9 +175,17 @@ While locked:
 
 A video player or browser playing video can keep the screen from locking and turning off (idle-inhibit) while its window is shown.
 
+## Notifications
+
+GNOME Shell shows notifications in GNOME; in rustwm, [mako](https://github.com/emersion/mako) does. rustwm starts `resources/rustwm-notifications` before the panel and the autostart commands, so mako owns `org.freedesktop.Notifications` before apps send anything. Notifications from apps (Chrome, Signal, `notify-send`) and from the desktop portal all go there.
+
+They show in the top-right corner above windows, below an always-shown panel and under an auto-hidden one while it is out, for 5 seconds unless the app asks for longer; critical ones stay until dismissed. Click one to open it (the app's default action), right-click to dismiss it. `makoctl dismiss --all` clears them all, and `makoctl mode -t do-not-disturb` turns hiding them on and off.
+
+The look is in [resources/mako/config](resources/mako/config). Copy it to `~/.config/rustwm/mako/config` to change it (see `man 5 mako`) and run `makoctl reload`. To use another daemon, set `notifications.command` to it, or to `""` and start it yourself.
+
 ## Configuration
 
-Settings live in `~/.config/rustwm/config.toml`. Copy [resources/config.toml](resources/config.toml) there as a starting point. Everything is optional. Saving the file applies it right away: pointer and touchpad settings, the keyboard layout and repeat, the output scale, shortcuts and the indicator. A file with a mistake is reported in the log and the current settings stay. The panel's `command`, `position` and `mode`, and `[autostart]`, apply the next time rustwm starts.
+Settings live in `~/.config/rustwm/config.toml`. Copy [resources/config.toml](resources/config.toml) there as a starting point. Everything is optional. Saving the file applies it right away: pointer and touchpad settings, the keyboard layout and repeat, the output scale, shortcuts and the indicator. A file with a mistake is reported in the log and the current settings stay. The panel's `command`, `position` and `mode`, `notifications.command` and `[autostart]` apply the next time rustwm starts.
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
@@ -195,12 +205,13 @@ Settings live in `~/.config/rustwm/config.toml`. Copy [resources/config.toml](re
 | `shortcuts.browser` | `gtk-launch "$(xdg-settings get default-web-browser)"` | Browser for `Super+b` |
 | `shortcuts.lock` | `swaylock -f -c 000000` | Screen locker for `Super+l` |
 | `osd.enabled` | `true` | Show the brightness and volume level after a key press; turn off if you run your own indicator (swayosd, wob) |
-| `autostart.commands` | none | Commands started once rustwm is ready, such as swayidle or a notification daemon (`mako`); they stop when rustwm exits |
+| `autostart.commands` | none | Commands started once rustwm is ready, such as swayidle; they stop when rustwm exits |
 | `panel.position` | `"top"` | `"top"` or `"bottom"` |
 | `panel.mode` | `"auto-hide"` | `"auto-hide"`: hidden until the pointer touches the panel's screen edge, over windows. `"always"`: always shown, windows laid out beside it |
 | `panel.command` | `rustwm-panel` | The bar to start; `""` for no panel. `rustwm-panel` runs Waybar with the config in `resources/waybar/`, or `~/.config/rustwm/waybar/` if you copy it there |
 | `panel.hide_delay_ms` | `1000` | In auto-hide mode, how long the panel stays after the pointer leaves it, in milliseconds |
 | `panel.namespace` | `"waybar"` | The layer-shell namespace of the bar's surface, for auto-hide with another bar |
+| `notifications.command` | `rustwm-notifications` | The notification daemon to start; `""` for none. `rustwm-notifications` runs mako with the config in `resources/mako/`, or `~/.config/rustwm/mako/` if you copy it there |
 
 Commands run with `sh -c`, so quoting, `&&` and `$HOME` work as in a terminal. An empty command (`""`) passes the key on to the focused application.
 
