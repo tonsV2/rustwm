@@ -23,7 +23,7 @@ Every application opens filling the screen. Snap windows to halves and quarters 
 | `Super+<direction the window is already in>` | Back to full screen. A grouped window zooms instead: the next `Super+arrow` puts it back in its tile |
 | `Super+g` | Group the snapped windows on screen, so they come into view together and share one Alt+Tab entry. Windows joining a group are added to it |
 | `Super+Shift+g` | Take the focused window out of its group |
-| `Alt+<key above Tab>` | Focus the next window of the focused window's group (`Shift` for the previous one) |
+| `Super+Tab` / `Super+Shift+Tab` | Focus the next / previous window of the focused window's group |
 | `Super+Return` | Open a terminal: `xdg-terminal-exec`, else the first entry of `~/.config/xdg-terminals.list`, else foot |
 | `Super+f` | Open the file manager on your home folder |
 | `Super+b` | Open the default web browser |

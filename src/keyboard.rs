@@ -14,8 +14,6 @@ pub enum Key {
     Alt,
     /// Tab, or Shift+Tab (ISO_Left_Tab).
     Tab,
-    /// The key above Tab, whatever the layout puts on it (` on US keyboards).
-    AboveTab,
     Escape,
     Arrow(Direction),
     Backspace,
@@ -173,8 +171,7 @@ pub struct Bindings {
     /// example when a click focuses a window.
     pub switching: bool,
     /// Whether the focused window is in a group. The caller sets this
-    /// before each key; Alt plus the key above Tab reaches the client
-    /// otherwise.
+    /// before each key; Super+Tab reaches the client otherwise.
     pub grouped: bool,
     /// Whether the screen is locked. The caller sets this before each key.
     /// While locked, every key goes to the lock screen except the ones in
@@ -221,7 +218,7 @@ impl Bindings {
             Key::Tab if mods.alt && !mods.logo && !mods.ctrl => Some(Action::Switch {
                 forward: !mods.shift,
             }),
-            Key::AboveTab if mods.alt && !mods.logo && !mods.ctrl && self.grouped => {
+            Key::Tab if mods.logo && !mods.alt && !mods.ctrl && self.grouped => {
                 Some(Action::CycleGroup {
                     forward: !mods.shift,
                 })
@@ -323,7 +320,6 @@ mod tests {
     const S: u32 = 39;
     const THREE: u32 = 12;
     const G: u32 = 42;
-    const GRAVE: u32 = 49;
     const RETURN: u32 = 36;
     const BACKSPACE: u32 = 22;
     const F2: u32 = 68;
@@ -654,34 +650,35 @@ mod tests {
     }
 
     #[test]
-    fn alt_above_tab_cycles_only_in_a_group() {
+    fn super_tab_cycles_only_in_a_group() {
         let mut b = Bindings::default();
-        assert_eq!(
-            b.key(GRAVE, Key::AboveTab, true, alt()),
-            Outcome::forward(None)
-        );
-        b.key(GRAVE, Key::AboveTab, false, alt());
+        b.key(SUPER, Key::Super, true, logo());
+        assert_eq!(b.key(TAB, Key::Tab, true, logo()), Outcome::forward(None));
+        b.key(TAB, Key::Tab, false, logo());
         b.grouped = true;
         assert_eq!(
-            b.key(GRAVE, Key::AboveTab, true, alt()),
+            b.key(TAB, Key::Tab, true, logo()),
             Outcome::intercept(Some(Action::CycleGroup { forward: true }))
         );
         assert_eq!(
-            b.key(GRAVE, Key::AboveTab, false, alt()),
+            b.key(TAB, Key::Tab, false, logo()),
             Outcome::intercept(None)
         );
-        let alt_shift = Mods {
+        let super_shift = Mods {
             shift: true,
-            ..alt()
+            ..logo()
         };
         assert_eq!(
-            b.key(GRAVE, Key::AboveTab, true, alt_shift).action,
+            b.key(TAB, Key::Tab, true, super_shift).action,
             Some(Action::CycleGroup { forward: false })
         );
-        // Without Alt it is typing.
+        b.key(TAB, Key::Tab, false, super_shift);
+        // Super was used as a modifier, so releasing it does not launch.
+        assert_eq!(b.key(SUPER, Key::Super, false, none()).action, None);
+        // Alt+Tab still switches.
         assert_eq!(
-            b.key(GRAVE, Key::AboveTab, true, none()),
-            Outcome::forward(None)
+            b.key(TAB, Key::Tab, true, alt()).action,
+            Some(Action::Switch { forward: true })
         );
     }
 
@@ -738,7 +735,7 @@ mod tests {
             (L, Key::Char('l'), logo()),
             (Q, Key::Char('q'), logo()),
             (G, Key::Char('g'), logo()),
-            (GRAVE, Key::AboveTab, alt()),
+            (TAB, Key::Tab, logo()),
             (THREE, Key::Digit(3), logo()),
         ];
         for (keycode, key, mods) in presses {

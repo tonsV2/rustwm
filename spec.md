@@ -465,7 +465,7 @@ A group is a set of snapped windows that come into view together, over the full-
 * The MRU list holds windows, and a group is shown in Alt+Tab as one entry at the place of its most recently used member. Its members get no entries of their own.
 * Focusing any member, by Alt+Tab, a click or otherwise, raises all members above everything else, most recently used on top.
 * A group's switcher entry is the screen scaled down, with each member drawn live where it sits. The members' application names are under it and their titles below the row.
-* `Alt` plus the key above Tab (by position, since layouts put different symbols on it) focuses the next member of the focused window's group in reading order, and with `Shift` the previous one. Outside a group the key reaches the application.
+* `Super+Tab` focuses the next member of the focused window's group in reading order, and `Super+Shift+Tab` the previous one. Outside a group the key reaches the application.
 * Groups have no names and no number keys, and are not kept across restarts.
 
 ---

@@ -77,12 +77,7 @@ impl State {
             serial,
             time,
             |state, mods, handle| {
-                let sym = if keycode.raw() == ABOVE_TAB {
-                    Key::AboveTab
-                } else {
-                    classify(handle.modified_sym())
-                };
-                let key = match sym {
+                let key = match classify(handle.modified_sym()) {
                     // An empty command leaves the key to the client.
                     Key::Command(command) if state.config.shortcuts.get(command).is_empty() => {
                         Key::Other
@@ -371,9 +366,6 @@ impl State {
             .map(|w| w.id)
     }
 }
-
-/// The xkb keycode of the key above Tab (evdev KEY_GRAVE), found by position since layouts put different symbols on it.
-const ABOVE_TAB: u32 = 49;
 
 fn classify(sym: Keysym) -> Key {
     match sym {
