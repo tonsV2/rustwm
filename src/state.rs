@@ -358,7 +358,7 @@ impl State {
     }
 
     /// Sends the configure for a window's current layout and, if mapped,
-    /// moves it in the space.
+    /// moves it in the space without changing the stacking order.
     pub fn apply_layout(&mut self, id: WindowId) {
         let Some(window) = self.window(id) else {
             return;
@@ -374,8 +374,22 @@ impl State {
 
         if window.mapped {
             let element = window.window.clone();
+            // Mapping moves the window to the top, so the windows that were
+            // above it are raised again in their order. Otherwise re-laying
+            // out an output, as when a notification closes, would bring the
+            // newest window to the front.
+            let above: Vec<Window> = self
+                .space
+                .elements()
+                .skip_while(|e| *e != &element)
+                .skip(1)
+                .cloned()
+                .collect();
             self.space
                 .map_element(element, (geometry.x, geometry.y), false);
+            for window in above {
+                self.space.raise_element(&window, false);
+            }
         }
     }
 
