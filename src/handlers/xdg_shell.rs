@@ -42,6 +42,7 @@ impl XdgShellHandler for State {
             output,
             mapped: false,
             unzoomed: None,
+            fullscreen: false,
         });
     }
 
@@ -124,9 +125,9 @@ impl XdgShellHandler for State {
         }
     }
 
-    // Window placement is keyboard-driven, so client requests to maximize or
-    // go fullscreen are ignored. The protocol still requires an answering
-    // configure, which repeats the current state.
+    // Window placement is keyboard-driven, so client requests to maximize
+    // are ignored. The protocol still requires an answering configure, which
+    // repeats the current state.
     fn maximize_request(&mut self, surface: ToplevelSurface) {
         reject_state_request(&surface);
     }
@@ -135,12 +136,14 @@ impl XdgShellHandler for State {
         reject_state_request(&surface);
     }
 
+    /// A video player or browser going full screen covers the whole output,
+    /// panels included, until it asks to leave or the user snaps it.
     fn fullscreen_request(&mut self, surface: ToplevelSurface, _output: Option<WlOutput>) {
-        reject_state_request(&surface);
+        self.set_fullscreen(surface.wl_surface(), true);
     }
 
     fn unfullscreen_request(&mut self, surface: ToplevelSurface) {
-        reject_state_request(&surface);
+        self.set_fullscreen(surface.wl_surface(), false);
     }
 }
 delegate_xdg_shell!(State);
