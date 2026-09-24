@@ -8,8 +8,14 @@
 //! client under the pointer, such as a notification from mako asking for
 //! the app that sent it. They are only honoured for a short while, so
 //! applications cannot steal focus on their own.
+//!
+//! A click on a shell surface, such as a mako notification or the panel,
+//! is also lent to the next token request that follows within a moment.
+//! Mako hands its own token to the app that sent the notification, but
+//! apps such as Ghostty ignore it and ask for a new one with their last
+//! key press, which is refused once another window has the keyboard.
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use smithay::{
     delegate_xdg_activation,
@@ -26,12 +32,27 @@ use crate::state::State;
 /// How long a token stays valid after it was handed out.
 const TOKEN_LIFETIME: Duration = Duration::from_secs(10);
 
+/// How long a click on a shell surface is lent to the next token request.
+const SHELL_CLICK_LENDING: Duration = Duration::from_secs(2);
+
 impl XdgActivationHandler for State {
     fn activation_state(&mut self) -> &mut XdgActivationState {
         &mut self.xdg_activation_state
     }
 
     fn token_created(&mut self, _token: XdgActivationToken, data: XdgActivationTokenData) -> bool {
+        if let Some((clicked, shell_client)) = self.shell_click.take()
+            && clicked.elapsed() <= SHELL_CLICK_LENDING
+            && data.client_id.as_ref() != Some(&shell_client)
+        {
+            info!(
+                app_id = ?data.app_id,
+                client = self.client_name(data.client_id.clone()),
+                shell = self.client_name(Some(shell_client)),
+                "activation token created for a click on the shell"
+            );
+            return true;
+        }
         let Some((serial, seat)) = &data.serial else {
             info!(
                 app_id = ?data.app_id,
@@ -74,6 +95,14 @@ impl XdgActivationHandler for State {
         let name = self.client_name(data.client_id.clone());
         if keyboard_ok || pointer_ok {
             info!(app_id = ?data.app_id, client = name, "activation token created");
+            let on_shell = pointer_ok
+                && pointer
+                    .as_ref()
+                    .and_then(|pointer| pointer.current_focus())
+                    .is_some_and(|surface| self.layer_for_surface(&surface).is_some());
+            if on_shell && let Some(client) = data.client_id.clone() {
+                self.shell_click = Some((Instant::now(), client));
+            }
             return true;
         }
         let keyboard_focus =
