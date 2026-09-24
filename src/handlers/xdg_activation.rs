@@ -19,7 +19,7 @@ use smithay::{
         XdgActivationHandler, XdgActivationState, XdgActivationToken, XdgActivationTokenData,
     },
 };
-use tracing::{debug, info};
+use tracing::info;
 
 use crate::state::State;
 
@@ -33,7 +33,7 @@ impl XdgActivationHandler for State {
 
     fn token_created(&mut self, _token: XdgActivationToken, data: XdgActivationTokenData) -> bool {
         let Some((serial, seat)) = &data.serial else {
-            debug!(app_id = ?data.app_id, "activation token refused: no input event");
+            info!(app_id = ?data.app_id, "activation token refused: no input event");
             return false;
         };
         if Seat::<State>::from_resource(seat).as_ref() != Some(&self.seat) {
@@ -68,7 +68,7 @@ impl XdgActivationHandler for State {
         });
 
         if !(keyboard_ok || pointer_ok) {
-            debug!(app_id = ?data.app_id, "activation token refused: not from a recent input event");
+            info!(app_id = ?data.app_id, "activation token refused: not from a recent input event");
         }
         keyboard_ok || pointer_ok
     }
@@ -80,11 +80,11 @@ impl XdgActivationHandler for State {
         surface: WlSurface,
     ) {
         if token_data.timestamp.elapsed() > TOKEN_LIFETIME {
-            debug!("activation refused: token expired");
+            info!("activation refused: token expired");
             return;
         }
         let Some(window) = self.window_for_surface(&surface) else {
-            debug!("activation refused: not a window");
+            info!("activation refused: not a window");
             return;
         };
         let id = window.id;
