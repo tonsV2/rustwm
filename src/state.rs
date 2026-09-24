@@ -149,6 +149,10 @@ pub struct State {
     /// The held brightness or volume key and the timer repeating its
     /// command. Clients repeat keys themselves, but these never reach one.
     pub key_repeat: Option<(u32, RegistrationToken)>,
+    /// When a click on a layer surface, such as a notification, last got
+    /// an activation token, and the client that got it. The next token
+    /// request from another client within a moment is granted too.
+    pub shell_click: Option<(Instant, ClientId)>,
     pub launcher: Launcher,
     /// Runs X11 apps; `None` when xwayland-satellite is not installed.
     pub xwayland: Option<Satellite>,
@@ -243,6 +247,7 @@ impl State {
             snap_hold: None,
             bindings: Bindings::default(),
             key_repeat: None,
+            shell_click: None,
             launcher: Launcher::new(),
             xwayland: None,
             switcher: Switcher::default(),

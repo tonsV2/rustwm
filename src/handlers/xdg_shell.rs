@@ -246,6 +246,9 @@ impl State {
         };
         window.mapped = false;
         let element = window.window.clone();
+        if let Some(toplevel) = element.toplevel() {
+            log_window("window unmapped", id.0, toplevel);
+        }
 
         self.space.unmap_elem(&element);
         self.focus.remove(id);

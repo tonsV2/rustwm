@@ -301,6 +301,9 @@ impl State {
                 && !pointer.is_grabbed()
                 && let Some(id) = self.window_under(pointer.current_location())
             {
+                if self.focus.current() != Some(id) {
+                    info!(window = id.0, "window clicked");
+                }
                 self.focus_window(id);
             }
         }
