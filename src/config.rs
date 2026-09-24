@@ -82,7 +82,7 @@ impl Default for KeyboardConfig {
             variant: None,
             model: None,
             options: None,
-            repeat_delay: 200,
+            repeat_delay: 500,
             repeat_rate: 25,
         }
     }
@@ -391,7 +391,7 @@ mod tests {
             config.keyboard.options.as_deref(),
             Some("grp:alt_shift_toggle")
         );
-        assert_eq!(config.keyboard.repeat_delay, 200);
+        assert_eq!(config.keyboard.repeat_delay, 500);
         assert_eq!(config.keyboard.repeat_rate, 1);
     }
 

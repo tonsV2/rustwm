@@ -194,7 +194,7 @@ Settings live in `~/.config/rustwm/config.toml`. Copy [resources/config.toml](re
 | `input.natural_scroll` | `false` | Touchpad content follows the fingers |
 | `input.tap_to_click` | `true` | Tap the touchpad to click |
 | `keyboard.layout`, `variant`, `model`, `options` | the system keyboard (`localectl`) | XKB keymap, e.g. `layout = "us,dk"`, `options = "grp:alt_shift_toggle"` |
-| `keyboard.repeat_delay`, `repeat_rate` | `200`, `25` | Milliseconds before a held key repeats, and repeats per second |
+| `keyboard.repeat_delay`, `repeat_rate` | `500`, `25` | Milliseconds before a held key repeats, and repeats per second |
 | `shortcuts.brightness_up`, `brightness_down` | `brightnessctl set +5%`, `… 5%-` | Brightness keys |
 | `shortcuts.volume_up`, `volume_down`, `volume_mute` | `rustwm-volume up 5`, `rustwm-volume down 5`, `wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle` | Volume keys |
 | `shortcuts.mic_mute` | `wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle` | Microphone mute key |
