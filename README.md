@@ -54,7 +54,7 @@ Done:
 - Window groups: snapped windows grouped with `Super+g` come into view together over the full-screen app underneath, and Alt+Tab shows each group as one screen-shaped thumbnail
 - Super tap launches Fuzzel; Super used with another key or a click does not
 - X11-only apps through [xwayland-satellite](https://github.com/Supreeeme/xwayland-satellite): rustwm starts it on a free display when it is installed, stops it on exit, and gives apps started from Fuzzel that display as `DISPLAY`
-- xdg-activation: an application can bring another forward, for example a terminal opening a link in the running browser. Only the focused application can hand out a request, right after an input event, and it expires after 10 seconds
+- xdg-activation: an application can bring another forward, for example a terminal opening a link in the running browser, or a clicked notification bringing up the app that sent it. Only the focused application, or the one just clicked, can hand out a request, right after that input event, and it expires after 10 seconds
 - A panel (Waybar) with the time, tray, volume, brightness, network and battery, at the top or bottom, auto-hidden until the pointer touches that edge or always shown
 - [Notifications](#notifications) through mako, styled like the switcher and panel
 - Screen locking and idle: ext-session-lock (swaylock), ext-idle-notify and idle-inhibit (swayidle, video players keeping the screen on), and wlr-output-power-management (`wlopm` turns the monitor off). See [Locking the screen](#locking-the-screen)
@@ -179,7 +179,7 @@ A video player or browser playing video can keep the screen from locking and tur
 
 GNOME Shell shows notifications in GNOME; in rustwm, [mako](https://github.com/emersion/mako) does. rustwm starts `resources/rustwm-notifications` before the panel and the autostart commands, so mako owns `org.freedesktop.Notifications` before apps send anything. Notifications from apps (Chrome, Signal, `notify-send`) and from the desktop portal all go there.
 
-They show in the top-right corner above windows, below an always-shown panel and under an auto-hidden one while it is out, for 5 seconds unless the app asks for longer; critical ones stay until dismissed. Click one to open it (the app's default action), right-click to dismiss it. `makoctl dismiss --all` clears them all, and `makoctl mode -t do-not-disturb` turns hiding them on and off.
+They show in the top-right corner above windows, below an always-shown panel and under an auto-hidden one while it is out, for 5 seconds unless the app asks for longer; critical ones stay until dismissed. Click one to open it (the app's default action, which brings the app forward), right-click to dismiss it. `makoctl dismiss --all` clears them all, and `makoctl mode -t do-not-disturb` turns hiding them on and off.
 
 The look is in [resources/mako/config](resources/mako/config). Copy it to `~/.config/rustwm/mako/config` to change it (see `man 5 mako`) and run `makoctl reload`. To use another daemon, set `notifications.command` to it, or to `""` and start it yourself.
 
