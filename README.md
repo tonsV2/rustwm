@@ -142,13 +142,13 @@ Starting a second `gnome-keyring-daemon` on the private bus does not help: `--st
 Once it works from a console, you can add it to the GDM session list:
 
 ```sh
-sudo install -m 755 target/release/rustwm resources/rustwm-session resources/rustwm-secrets-relay resources/rustwm-volume resources/rustwm-terminal resources/rustwm-panel /usr/local/bin/
-sudo install -D -m 644 -t /usr/local/share/rustwm/waybar resources/waybar/config.jsonc resources/waybar/style.css
-sudo install -m 644 resources/rustwm.desktop /usr/share/wayland-sessions/rustwm.desktop
-sudo install -m 644 resources/rustwm-portals.conf /usr/share/xdg-desktop-portal/rustwm-portals.conf
+make
+sudo make install
 ```
 
-Log out and pick "rustwm" from the gear menu on the login screen.
+`make` builds the release binary as you; `sudo make install` only copies it, the helper scripts and the Waybar config to `/usr/local` (set `PREFIX` to change that), and the session and portal files to `/usr/share`. Run both again after pulling changes. `sudo make uninstall` removes everything.
+
+Log out and pick "rustwm" from the gear menu on the login screen. Its output goes to the journal (`journalctl -b _UID=$(id -u)`) instead of `logs/rustwm.log`.
 
 ## Locking the screen
 
