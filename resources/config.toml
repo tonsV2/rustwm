@@ -1,7 +1,7 @@
 # rustwm settings. Copy to ~/.config/rustwm/config.toml and adjust.
 # Every setting is optional; delete a line to use its default.
-# Saving the file applies it, except the panel's command, position and mode and
-# [autostart], which apply when rustwm restarts.
+# Saving the file applies it, except the panel's command, position and mode, the
+# notifications command and [autostart], which apply when rustwm restarts.
 
 [output]
 # Output scale. Without this line, rustwm guesses from the monitor's pixel
@@ -63,6 +63,10 @@ mode = "auto-hide"
 hide_delay_ms = 1000
 # rustwm-panel runs Waybar with the config in resources/waybar (copy it to ~/.config/rustwm/waybar to change it). "" for no panel.
 command = "rustwm-panel"
+
+[notifications]
+# rustwm-notifications runs mako with the config in resources/mako (copy it to ~/.config/rustwm/mako to change it). "" for no notifications, or when you start your own daemon.
+command = "rustwm-notifications"
 
 [autostart]
 # Started once when rustwm is ready, each with `sh -c`, with the same environment as apps started from Fuzzel. They stop on their own when rustwm exits and its Wayland socket goes away. swayidle locks after 5 minutes without input, turns the monitor off after 10, and locks before suspend. nm-applet puts NetworkManager in the panel's tray, for picking a wifi network.

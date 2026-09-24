@@ -3,9 +3,11 @@
 //!
 //! The requesting application first gets a token, then hands it to the
 //! other application, which presents it with its window. Tokens are only
-//! handed out to the client with keyboard focus for an input event it has
-//! just received, and only honoured for a short while, so applications
-//! cannot steal focus on their own.
+//! handed out for an input event the requesting client has just received:
+//! a key or click in the client with keyboard focus, or a click on the
+//! client under the pointer, such as a notification from mako asking for
+//! the app that sent it. They are only honoured for a short while, so
+//! applications cannot steal focus on their own.
 
 use std::time::Duration;
 
@@ -31,23 +33,44 @@ impl XdgActivationHandler for State {
 
     fn token_created(&mut self, _token: XdgActivationToken, data: XdgActivationTokenData) -> bool {
         let Some((serial, seat)) = &data.serial else {
+            info!(app_id = ?data.app_id, "activation token refused: no input event");
             return false;
         };
-        let Some(keyboard) = self.seat.get_keyboard() else {
+        if Seat::<State>::from_resource(seat).as_ref() != Some(&self.seat) {
             return false;
+        }
+        let client = |surface: Option<WlSurface>| {
+            surface
+                .and_then(|surface| surface.client())
+                .map(|client| client.id())
         };
-        let same_seat = Seat::<State>::from_resource(seat).as_ref() == Some(&self.seat);
-        // The event must have come after the keyboard entered its current
-        // surface, and that surface must belong to the requesting client.
-        let recent = keyboard
-            .last_enter()
-            .is_some_and(|enter| serial.is_no_older_than(&enter));
-        let focused = keyboard
-            .current_focus()
-            .and_then(|surface| surface.client())
-            .map(|client| client.id())
-            == data.client_id;
-        same_seat && recent && focused
+
+        // A key or click in the focused client: the event must have come
+        // after the keyboard entered its current surface, and that surface
+        // must belong to the requesting client.
+        let keyboard = self.seat.get_keyboard();
+        let keyboard_ok = keyboard.is_some_and(|keyboard| {
+            keyboard
+                .last_enter()
+                .is_some_and(|enter| serial.is_no_older_than(&enter))
+                && client(keyboard.current_focus()) == data.client_id
+        });
+
+        // A click on the client under the pointer, which may not take the
+        // keyboard: the event must be newer than the pointer entering its
+        // surface, so hovering alone is not enough.
+        let pointer = self.seat.get_pointer();
+        let pointer_ok = pointer.is_some_and(|pointer| {
+            pointer
+                .last_enter()
+                .is_some_and(|enter| *serial != enter && serial.is_no_older_than(&enter))
+                && client(pointer.current_focus()) == data.client_id
+        });
+
+        if !(keyboard_ok || pointer_ok) {
+            info!(app_id = ?data.app_id, "activation token refused: not from a recent input event");
+        }
+        keyboard_ok || pointer_ok
     }
 
     fn request_activation(
@@ -57,9 +80,11 @@ impl XdgActivationHandler for State {
         surface: WlSurface,
     ) {
         if token_data.timestamp.elapsed() > TOKEN_LIFETIME {
+            info!("activation refused: token expired");
             return;
         }
         let Some(window) = self.window_for_surface(&surface) else {
+            info!("activation refused: not a window");
             return;
         };
         let id = window.id;

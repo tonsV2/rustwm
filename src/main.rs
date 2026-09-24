@@ -90,6 +90,11 @@ fn main() -> anyhow::Result<()> {
     let x_display = state.xwayland.as_ref().map(|s| s.display.clone());
     let graphical_session =
         launcher::export_to_dbus(&state.socket_name, x_display.as_deref(), nested);
+    let notifications = &state.config.notifications.command;
+    if !notifications.is_empty() {
+        info!(command = notifications, "starting notifications");
+        commands::run(notifications, &state.child_env(), || {});
+    }
     for command in &state.config.autostart.commands {
         info!(command, "autostart");
         commands::run(command, &state.child_env(), || {});

@@ -88,6 +88,9 @@ impl State {
         {
             info!("panel command, position and mode apply after a restart");
         }
+        if old.notifications != self.config.notifications {
+            info!("the notifications command applies after a restart");
+        }
     }
 
     fn reconfigure_keyboard(&mut self) {
