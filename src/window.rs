@@ -26,6 +26,8 @@ pub struct ManagedWindow {
     pub mapped: bool,
     /// The tile a group member was zoomed to full screen from, which the next Super+arrow puts it back in.
     pub unzoomed: Option<Layout>,
+    /// The client asked to cover the whole output, as a video player does, until it asks to leave or the user snaps it.
+    pub fullscreen: bool,
 }
 
 impl ManagedWindow {
@@ -56,6 +58,7 @@ impl ManagedWindow {
                     state.states.unset(flag);
                 }
             };
+            set(xdg_toplevel::State::Fullscreen, false);
             set(xdg_toplevel::State::Maximized, layout == Layout::Fullscreen);
             set(xdg_toplevel::State::TiledLeft, edges.left);
             set(xdg_toplevel::State::TiledRight, edges.right);
@@ -63,6 +66,30 @@ impl ManagedWindow {
             set(xdg_toplevel::State::TiledBottom, edges.bottom);
         });
 
+        if toplevel.is_initial_configure_sent() {
+            toplevel.send_pending_configure();
+        }
+    }
+
+    /// Tells the client it covers `output`, the whole output including where panels sit.
+    pub fn configure_fullscreen(&self, output: Rect) {
+        let Some(toplevel) = self.window.toplevel() else {
+            return;
+        };
+        toplevel.with_pending_state(|state| {
+            state.size = Some((output.width, output.height).into());
+            state.bounds = Some((output.width, output.height).into());
+            state.states.set(xdg_toplevel::State::Fullscreen);
+            for flag in [
+                xdg_toplevel::State::Maximized,
+                xdg_toplevel::State::TiledLeft,
+                xdg_toplevel::State::TiledRight,
+                xdg_toplevel::State::TiledTop,
+                xdg_toplevel::State::TiledBottom,
+            ] {
+                state.states.unset(flag);
+            }
+        });
         if toplevel.is_initial_configure_sent() {
             toplevel.send_pending_configure();
         }

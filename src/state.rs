@@ -24,6 +24,7 @@ use smithay::{
             EventLoop, Interest, LoopHandle, LoopSignal, Mode, PostAction, RegistrationToken,
             generic::Generic,
         },
+        wayland_protocols::xdg::shell::server::xdg_toplevel,
         wayland_server::{
             Display, DisplayHandle,
             backend::{ClientData, ClientId, DisconnectReason},
@@ -358,24 +359,70 @@ impl State {
             return;
         };
         window.layout = Some(layout);
+        window.fullscreen = false;
         info!(window = id.0, ?layout, "layout changed");
         self.apply_layout(id);
     }
 
-    /// Sends the configure for a window's current layout and, if mapped,
-    /// moves it in the space without changing the stacking order.
+    /// Sets whether the window with toplevel `surface` covers its whole
+    /// output, as the client asked. A dialog leaving full screen picks its own
+    /// size again.
+    pub fn set_fullscreen(&mut self, surface: &WlSurface, fullscreen: bool) {
+        let Some(window) = self
+            .windows
+            .iter_mut()
+            .find(|w| w.wl_surface() == Some(surface))
+        else {
+            return;
+        };
+        window.fullscreen = fullscreen;
+        let (id, floating) = (window.id, window.layout.is_none());
+        info!(window = id.0, fullscreen, "full screen changed");
+
+        if !fullscreen && floating {
+            let window = window.clone();
+            if let Some(toplevel) = window.window.toplevel() {
+                toplevel.with_pending_state(|state| {
+                    state.size = None;
+                    state.states.unset(xdg_toplevel::State::Fullscreen);
+                });
+                if toplevel.is_initial_configure_sent() {
+                    toplevel.send_pending_configure();
+                }
+            }
+        } else {
+            self.apply_layout(id);
+        }
+        if fullscreen {
+            self.focus_window(id);
+        }
+    }
+
+    /// Sends the configure for a window's current layout, or for covering
+    /// its output while it is full screen, and, if mapped, moves it in the
+    /// space without changing the stacking order.
     pub fn apply_layout(&mut self, id: WindowId) {
         let Some(window) = self.window(id) else {
             return;
         };
-        let Some(layout) = window.layout else {
-            return;
+        let geometry = if window.fullscreen {
+            let Some(geo) = self.space.output_geometry(&window.output) else {
+                return;
+            };
+            let geometry = Rect::new(geo.loc.x, geo.loc.y, geo.size.w, geo.size.h);
+            window.configure_fullscreen(geometry);
+            geometry
+        } else {
+            let Some(layout) = window.layout else {
+                return;
+            };
+            let Some(area) = self.usable_area(&window.output) else {
+                return;
+            };
+            let geometry = layout.geometry(area);
+            window.configure_for_layout(layout, geometry, area);
+            geometry
         };
-        let Some(area) = self.usable_area(&window.output) else {
-            return;
-        };
-        let geometry = layout.geometry(area);
-        window.configure_for_layout(layout, geometry, area);
 
         if window.mapped {
             let element = window.window.clone();
