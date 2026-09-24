@@ -231,6 +231,12 @@ gsettings set org.gnome.desktop.interface color-scheme prefer-dark
 
 GTK4, libadwaita, Firefox, Chromium and Electron apps and Qt 6 read it through the desktop portal, which only runs in a graphical session (see [D-Bus bus and keyring](#d-bus-bus-and-keyring)). GTK3 apps ignore it, in GNOME too, and only change with their theme: `gsettings set org.gnome.desktop.interface gtk-theme Adwaita-dark`, or `adw-gtk3-dark` from the `adw-gtk3-theme` package for the libadwaita look.
 
+Flatpak apps do not see the themes installed on the host, so a GTK3 or Electron app from Flathub (Signal, for example) falls back to the light Adwaita until the theme is installed as a Flatpak extension too:
+
+```sh
+flatpak install flathub org.gtk.Gtk3theme.adw-gtk3 org.gtk.Gtk3theme.adw-gtk3-dark
+```
+
 ### Environment variables
 
 | Variable | Purpose |
