@@ -17,6 +17,9 @@ pub enum Key {
     Escape,
     Arrow(Direction),
     Backspace,
+    Delete,
+    Home,
+    End,
     F4,
     Return,
     /// A letter key, lowercase: `'l'` for Super+l.
@@ -93,7 +96,20 @@ pub struct Mods {
 /// A window-management action triggered by a key event.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
-    Launch,
+    /// Open the overview, or close it if it is open (a Super tap).
+    ToggleOverview,
+    /// Close the overview without doing anything (Escape).
+    CloseOverview,
+    /// Focus the highlighted window or start the highlighted search result
+    /// in the overview (Return).
+    OverviewActivate,
+    /// Move the overview's highlight.
+    OverviewMove(Direction),
+    /// Edit the overview's search text.
+    OverviewEdit(Edit),
+    /// Add the key's character to the overview's search. The caller reads
+    /// the character from the key.
+    OverviewType,
     /// Snap the focused window. `first_in_hold` is true for the first arrow
     /// pressed since Super went down.
     Snap {
@@ -132,6 +148,42 @@ pub enum Action {
     Quit,
 }
 
+/// An edit of the overview's search text at its caret.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Edit {
+    /// Delete the character before the caret (Backspace).
+    Backspace,
+    /// Delete the character after the caret (Delete).
+    Delete,
+    /// Delete back to the start of the word (Ctrl+Backspace, Ctrl+w).
+    DeleteWordBack,
+    /// Delete forward to the end of the word (Ctrl+Delete).
+    DeleteWordForward,
+    /// Delete everything (Ctrl+u, or Escape with text).
+    Clear,
+    Left,
+    Right,
+    /// To the start of the word (Ctrl+Left).
+    WordLeft,
+    /// To the end of the word (Ctrl+Right).
+    WordRight,
+    Home,
+    End,
+}
+
+impl Action {
+    /// Whether holding the key repeats the action at the key repeat rate.
+    /// Toggles do not repeat, or a held key would flip back and forth, and
+    /// neither does a screenshot or anything that closes the overview.
+    pub fn repeats(self) -> bool {
+        match self {
+            Action::Run(command) => command.repeats(),
+            Action::OverviewMove(_) | Action::OverviewEdit(_) | Action::OverviewType => true,
+            _ => false,
+        }
+    }
+}
+
 /// What to do with one key event.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Outcome {
@@ -159,7 +211,7 @@ impl Outcome {
 #[derive(Debug, Default)]
 pub struct Bindings {
     /// Super is down and nothing else has happened since, so releasing it
-    /// launches the launcher. Deciding on release avoids any timeout.
+    /// toggles the overview. Deciding on release avoids any timeout.
     super_tap: bool,
     /// No arrow has been pressed yet in the current Super hold.
     first_in_hold: bool,
@@ -177,6 +229,13 @@ pub struct Bindings {
     /// While locked, every key goes to the lock screen except the ones in
     /// [`locked_action`].
     pub locked: bool,
+    /// Whether the overview is open. The caller sets this before each key.
+    /// While open, no key reaches a window: they type into the search, move
+    /// the highlight, or are the few in [`overview_action`].
+    pub overview: bool,
+    /// Whether the overview's search has text. The caller sets this before
+    /// each key; with text, Left, Right and Escape work on the text.
+    pub overview_text: bool,
 }
 
 impl Bindings {
@@ -189,7 +248,7 @@ impl Bindings {
     }
 
     /// A pointer button press while Super is held means Super was used as a
-    /// modifier, so it must not launch the launcher on release.
+    /// modifier, so it must not open the overview on release.
     pub fn pointer_button(&mut self) {
         self.super_tap = false;
     }
@@ -205,6 +264,10 @@ impl Bindings {
             return Outcome::forward(None);
         }
         self.super_tap = false;
+        if self.overview {
+            self.suppressed.insert(keycode);
+            return Outcome::intercept(overview_action(key, mods, self.overview_text));
+        }
 
         let action = match key {
             Key::Arrow(direction) if mods.logo && !mods.alt && !mods.ctrl && !mods.shift => {
@@ -267,7 +330,7 @@ impl Bindings {
             return Outcome::forward(None);
         }
         let action = match key {
-            Key::Super if std::mem::take(&mut self.super_tap) => Some(Action::Launch),
+            Key::Super if std::mem::take(&mut self.super_tap) => Some(Action::ToggleOverview),
             Key::Alt => Some(Action::FinishSwitch),
             _ => None,
         };
@@ -285,6 +348,47 @@ fn super_action(key: Key) -> Option<Action> {
         Key::Char('g') => Some(Action::Group),
         Key::Digit(n) => Some(Action::FocusNth(n as usize)),
         _ => None,
+    }
+}
+
+/// What a key does while the overview is open. Keys with a letter or symbol
+/// type into the search, which edits like a text field: Ctrl with
+/// Backspace, Delete, Left and Right works on words, Ctrl+w and Ctrl+u
+/// delete a word and the line as in a shell. With `text` in the field, Left
+/// and Right move the caret and Escape clears the text; otherwise they move
+/// the highlight and close the overview. Other Ctrl, Alt and Super
+/// combinations do nothing, except the ones that work everywhere:
+/// Ctrl+Alt+Backspace, the virtual terminal keys and the brightness and
+/// volume keys.
+fn overview_action(key: Key, mods: Mods, text: bool) -> Option<Action> {
+    let plain = !(mods.ctrl || mods.alt || mods.logo);
+    let ctrl = mods.ctrl && !(mods.alt || mods.logo);
+    let edit = |edit: Edit| Some(Action::OverviewEdit(edit));
+    match key {
+        Key::SwitchVt(vt) => Some(Action::SwitchVt(vt)),
+        Key::Command(command) => Some(Action::Run(command)),
+        Key::Backspace if mods.ctrl && mods.alt => Some(Action::Quit),
+        Key::Backspace if ctrl => edit(Edit::DeleteWordBack),
+        Key::Delete if ctrl => edit(Edit::DeleteWordForward),
+        Key::Arrow(Direction::Left) if ctrl => edit(Edit::WordLeft),
+        Key::Arrow(Direction::Right) if ctrl => edit(Edit::WordRight),
+        Key::Char('w') if ctrl => edit(Edit::DeleteWordBack),
+        Key::Char('u') if ctrl => edit(Edit::Clear),
+        _ if !plain => None,
+        Key::Escape if text => edit(Edit::Clear),
+        Key::Escape => Some(Action::CloseOverview),
+        Key::Return => Some(Action::OverviewActivate),
+        Key::Arrow(Direction::Left) if text => edit(Edit::Left),
+        Key::Arrow(Direction::Right) if text => edit(Edit::Right),
+        Key::Arrow(direction) => Some(Action::OverviewMove(direction)),
+        Key::Tab if mods.shift => Some(Action::OverviewMove(Direction::Left)),
+        Key::Tab => Some(Action::OverviewMove(Direction::Right)),
+        Key::Backspace => edit(Edit::Backspace),
+        Key::Delete => edit(Edit::Delete),
+        Key::Home => edit(Edit::Home),
+        Key::End => edit(Edit::End),
+        Key::Char(_) | Key::Digit(_) | Key::Other => Some(Action::OverviewType),
+        Key::Super | Key::Alt | Key::F4 => None,
     }
 }
 
@@ -325,6 +429,18 @@ mod tests {
     const F2: u32 = 68;
     const F4: u32 = 70;
     const ESCAPE: u32 = 9;
+    const DELETE: u32 = 119;
+    const HOME: u32 = 110;
+    const END: u32 = 115;
+    const W: u32 = 25;
+    const U: u32 = 30;
+
+    fn ctrl() -> Mods {
+        Mods {
+            ctrl: true,
+            ..Mods::default()
+        }
+    }
 
     fn logo() -> Mods {
         Mods {
@@ -353,8 +469,168 @@ mod tests {
         );
         assert_eq!(
             b.key(SUPER, Key::Super, false, none()),
-            Outcome::forward(Some(Action::Launch))
+            Outcome::forward(Some(Action::ToggleOverview))
         );
+    }
+
+    #[test]
+    fn overview_takes_every_key() {
+        let mut b = Bindings {
+            overview: true,
+            ..Bindings::default()
+        };
+        let cases = [
+            (A, Key::Char('a'), none(), Some(Action::OverviewType)),
+            (THREE, Key::Digit(3), none(), Some(Action::OverviewType)),
+            (
+                A,
+                Key::Other,
+                Mods {
+                    shift: true,
+                    ..none()
+                },
+                Some(Action::OverviewType),
+            ),
+            (
+                BACKSPACE,
+                Key::Backspace,
+                none(),
+                Some(Action::OverviewEdit(Edit::Backspace)),
+            ),
+            (
+                BACKSPACE,
+                Key::Backspace,
+                ctrl(),
+                Some(Action::OverviewEdit(Edit::DeleteWordBack)),
+            ),
+            (
+                DELETE,
+                Key::Delete,
+                none(),
+                Some(Action::OverviewEdit(Edit::Delete)),
+            ),
+            (
+                DELETE,
+                Key::Delete,
+                ctrl(),
+                Some(Action::OverviewEdit(Edit::DeleteWordForward)),
+            ),
+            (
+                HOME,
+                Key::Home,
+                none(),
+                Some(Action::OverviewEdit(Edit::Home)),
+            ),
+            (END, Key::End, none(), Some(Action::OverviewEdit(Edit::End))),
+            (
+                W,
+                Key::Char('w'),
+                ctrl(),
+                Some(Action::OverviewEdit(Edit::DeleteWordBack)),
+            ),
+            (
+                U,
+                Key::Char('u'),
+                ctrl(),
+                Some(Action::OverviewEdit(Edit::Clear)),
+            ),
+            (
+                LEFT,
+                Key::Arrow(Direction::Left),
+                ctrl(),
+                Some(Action::OverviewEdit(Edit::WordLeft)),
+            ),
+            (RETURN, Key::Return, none(), Some(Action::OverviewActivate)),
+            (ESCAPE, Key::Escape, none(), Some(Action::CloseOverview)),
+            (
+                LEFT,
+                Key::Arrow(Direction::Left),
+                none(),
+                Some(Action::OverviewMove(Direction::Left)),
+            ),
+            (
+                TAB,
+                Key::Tab,
+                none(),
+                Some(Action::OverviewMove(Direction::Right)),
+            ),
+            (
+                TAB,
+                Key::Tab,
+                Mods {
+                    shift: true,
+                    ..none()
+                },
+                Some(Action::OverviewMove(Direction::Left)),
+            ),
+            // Shortcuts do nothing, but their keys still do not reach a window.
+            (TAB, Key::Tab, alt(), None),
+            (Q, Key::Char('q'), logo(), None),
+            (
+                L,
+                Key::Char('l'),
+                Mods {
+                    ctrl: true,
+                    ..none()
+                },
+                None,
+            ),
+            (F4, Key::F4, alt(), None),
+            // The keys that work everywhere.
+            (BACKSPACE, Key::Backspace, ctrl_alt(), Some(Action::Quit)),
+            (F2, Key::SwitchVt(2), ctrl_alt(), Some(Action::SwitchVt(2))),
+            (
+                MUTE,
+                Key::Command(Command::VolumeMute),
+                none(),
+                Some(Action::Run(Command::VolumeMute)),
+            ),
+        ];
+        for (keycode, key, mods, action) in cases {
+            assert_eq!(
+                b.key(keycode, key, true, mods),
+                Outcome::intercept(action),
+                "{key:?}"
+            );
+            assert_eq!(
+                b.key(keycode, key, false, mods),
+                Outcome::intercept(None),
+                "{key:?}"
+            );
+        }
+        // With text in the field, Left and Right move the caret and Escape clears.
+        b.overview_text = true;
+        assert_eq!(
+            b.key(LEFT, Key::Arrow(Direction::Left), true, none())
+                .action,
+            Some(Action::OverviewEdit(Edit::Left))
+        );
+        b.key(LEFT, Key::Arrow(Direction::Left), false, none());
+        assert_eq!(
+            b.key(ESCAPE, Key::Escape, true, none()).action,
+            Some(Action::OverviewEdit(Edit::Clear))
+        );
+        b.key(ESCAPE, Key::Escape, false, none());
+        assert_eq!(
+            b.key(UP, Key::Arrow(Direction::Up), true, none()).action,
+            Some(Action::OverviewMove(Direction::Up))
+        );
+        b.key(UP, Key::Arrow(Direction::Up), false, none());
+        b.overview_text = false;
+        // A Super tap closes the overview.
+        b.key(SUPER, Key::Super, true, logo());
+        assert_eq!(
+            b.key(SUPER, Key::Super, false, none()).action,
+            Some(Action::ToggleOverview)
+        );
+        // Super with another key is neither a tap nor typing.
+        b.key(SUPER, Key::Super, true, logo());
+        assert_eq!(
+            b.key(A, Key::Char('a'), true, logo()),
+            Outcome::intercept(None)
+        );
+        b.key(A, Key::Char('a'), false, logo());
+        assert_eq!(b.key(SUPER, Key::Super, false, none()).action, None);
     }
 
     #[test]
@@ -561,6 +837,18 @@ mod tests {
         b.key(MUTE, mute, true, logo());
         b.key(MUTE, mute, false, logo());
         assert_eq!(b.key(SUPER, Key::Super, false, none()).action, None);
+    }
+
+    #[test]
+    fn held_keys_repeat_in_the_overview_but_not_the_ones_that_close_it() {
+        assert!(Action::OverviewMove(Direction::Down).repeats());
+        assert!(Action::OverviewEdit(Edit::Backspace).repeats());
+        assert!(Action::OverviewType.repeats());
+        assert!(Action::Run(Command::VolumeUp).repeats());
+        assert!(!Action::Run(Command::VolumeMute).repeats());
+        assert!(!Action::ToggleOverview.repeats());
+        assert!(!Action::CloseOverview.repeats());
+        assert!(!Action::OverviewActivate.repeats());
     }
 
     #[test]

@@ -61,19 +61,26 @@ enabled = true
 [panel]
 # "top" or "bottom".
 position = "top"
-# "auto-hide" keeps the panel off screen until the pointer touches its edge; "always" keeps it shown and lays windows out beside it.
+# "auto-hide" keeps the panel off screen until the pointer touches its edge, and pushes the windows aside while it shows; "always" keeps it shown.
 mode = "auto-hide"
 # In auto-hide mode, how long the panel stays after the pointer leaves it, in milliseconds.
 hide_delay_ms = 1000
+# In auto-hide mode, how long the panel takes to slide in and out, in milliseconds. 0 moves it at once.
+slide_in_ms = 200
+slide_out_ms = 200
 # rustwm-panel runs Waybar with the config in resources/waybar (copy it to ~/.config/rustwm/waybar to change it). "" for no panel.
 command = "rustwm-panel"
+
+[overview]
+# What a Super tap's search runs to find files, with `sh -c` and the typed text as $1, one path per line. The default searches the plocate database (updated daily by plocate-updatedb.timer) for paths under your home directory, leaving out hidden directories. "" searches applications only.
+file_search = "plocate -i -- \"$HOME/\" \"$1\" | grep -v '/\\.' | head -20"
 
 [notifications]
 # rustwm-notifications runs mako with the config in resources/mako (copy it to ~/.config/rustwm/mako to change it). "" for no notifications, or when you start your own daemon.
 command = "rustwm-notifications"
 
 [autostart]
-# Started once when rustwm is ready, each with `sh -c`, with the same environment as apps started from Fuzzel. They stop on their own when rustwm exits and its Wayland socket goes away. swayidle locks after 5 minutes without input, turns the monitor off after 10, and locks before suspend. nm-applet puts NetworkManager in the panel's tray, for picking a wifi network.
+# Started once when rustwm is ready, each with `sh -c`, with the same environment as apps started from the overview. They stop on their own when rustwm exits and its Wayland socket goes away. swayidle locks after 5 minutes without input, turns the monitor off after 10, and locks before suspend. nm-applet puts NetworkManager in the panel's tray, for picking a wifi network.
 commands = [
     "swayidle -w timeout 300 'swaylock -f -c 000000' timeout 600 'wlopm --off \"*\"' resume 'wlopm --on \"*\"' before-sleep 'swaylock -f -c 000000'",
     "nm-applet --indicator",

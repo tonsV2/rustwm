@@ -1,19 +1,15 @@
-//! Starts the external application launcher (Fuzzel).
-//!
-//! The compositor only spawns the process. Fuzzel finds, searches and
-//! launches applications on its own.
+//! The session around the compositor: the environment every process it
+//! starts gets, and the D-Bus session bus and systemd graphical session
+//! that make apps open here rather than in another desktop.
 
 use std::{
     env,
     ffi::{OsStr, OsString},
     path::Path,
-    process::{Child, Command},
+    process::Command,
 };
 
 use tracing::{info, warn};
-
-/// Launcher executable, overridable with `RUSTWM_LAUNCHER` for testing.
-const DEFAULT_COMMAND: &str = "fuzzel";
 
 /// The environment of every process rustwm starts: its own Wayland socket, xwayland-satellite's X display if it runs (never the host's), and the session type and desktop name apps use to pick Wayland and the portal config.
 #[derive(Debug, Clone)]
@@ -32,55 +28,6 @@ impl ChildEnv {
             Some(display) => command.env("DISPLAY", display),
             None => command.env_remove("DISPLAY"),
         };
-    }
-}
-
-pub struct Launcher {
-    command: String,
-    child: Option<Child>,
-}
-
-impl Launcher {
-    pub fn new() -> Self {
-        let command = env::var("RUSTWM_LAUNCHER").unwrap_or_else(|_| DEFAULT_COMMAND.into());
-        if !is_on_path(&command) {
-            warn!(
-                command,
-                "launcher not found on PATH; Super will do nothing until it is installed"
-            );
-        }
-        Self {
-            command,
-            child: None,
-        }
-    }
-
-    /// Starts the launcher, or closes it if it is already open.
-    ///
-    /// Toggling keeps a second Super tap from stacking launcher instances.
-    pub fn toggle(&mut self, child_env: &ChildEnv) {
-        if let Some(child) = &mut self.child {
-            match child.try_wait() {
-                Ok(None) => {
-                    info!("closing launcher");
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    self.child = None;
-                    return;
-                }
-                // Already exited; reaping it here avoids a zombie process.
-                Ok(Some(_)) | Err(_) => self.child = None,
-            }
-        }
-
-        info!(command = self.command, "starting launcher");
-        let mut command = Command::new(&self.command);
-        child_env.apply(&mut command);
-        let result = command.spawn();
-        match result {
-            Ok(child) => self.child = Some(child),
-            Err(err) => warn!(command = self.command, %err, "failed to start launcher"),
-        }
     }
 }
 

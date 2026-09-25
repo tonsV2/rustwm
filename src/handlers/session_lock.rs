@@ -105,9 +105,11 @@ impl State {
 
     /// Takes input away from windows when the screen locks.
     fn start_lock(&mut self) {
-        // An Alt+Tab switch in progress ends with nothing changed.
+        // An Alt+Tab switch in progress ends with nothing changed, and the
+        // overview closes.
         self.focus.cancel_switch();
         self.switcher.hide();
+        self.close_overview();
         // A popup menu or a held mouse button must not keep input flowing
         // to a window.
         if let Some(keyboard) = self.seat.get_keyboard() {
@@ -167,7 +169,7 @@ impl SessionLockHandler for State {
     fn unlock(&mut self) {
         info!("session unlocked");
         self.screen_lock = ScreenLock::default();
-        // Focus returns to the window that had it, or the launcher.
+        // Focus returns to the window that had it.
         self.sync_focus();
         self.refresh_pointer_focus();
     }

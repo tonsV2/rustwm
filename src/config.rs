@@ -23,6 +23,7 @@ pub struct Config {
     pub autostart: AutostartConfig,
     pub panel: PanelConfig,
     pub notifications: NotificationsConfig,
+    pub overview: OverviewConfig,
 }
 
 #[derive(Debug, Default, Deserialize, PartialEq)]
@@ -206,6 +207,28 @@ impl Default for NotificationsConfig {
     }
 }
 
+/// The Super tap overview.
+#[derive(Debug, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct OverviewConfig {
+    /// The command the overview's search runs for files, with `sh -c` and
+    /// the typed text as `$1`. It prints one path per line. Empty means
+    /// applications only.
+    pub file_search: String,
+}
+
+impl Default for OverviewConfig {
+    fn default() -> Self {
+        Self {
+            file_search: FILE_SEARCH.into(),
+        }
+    }
+}
+
+/// Files under the home directory whose path contains the text, leaving
+/// out hidden directories, from the plocate database.
+const FILE_SEARCH: &str = "plocate -i -- \"$HOME/\" \"$1\" | grep -v '/\\.' | head -20";
+
 /// Programs started once the Wayland socket is ready, such as swayidle.
 #[derive(Debug, Default, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
@@ -225,6 +248,10 @@ pub struct PanelConfig {
     pub namespace: String,
     /// In auto-hide mode, how long the panel stays after the pointer leaves it, in milliseconds.
     pub hide_delay_ms: u64,
+    /// In auto-hide mode, how long the panel takes to slide in, in milliseconds. 0 shows it at once.
+    pub slide_in_ms: u64,
+    /// In auto-hide mode, how long the panel takes to slide out, in milliseconds. 0 hides it at once.
+    pub slide_out_ms: u64,
 }
 
 impl Default for PanelConfig {
@@ -235,6 +262,8 @@ impl Default for PanelConfig {
             mode: PanelMode::AutoHide,
             namespace: "waybar".into(),
             hide_delay_ms: 1000,
+            slide_in_ms: 200,
+            slide_out_ms: 200,
         }
     }
 }
@@ -433,10 +462,13 @@ mod tests {
     #[test]
     fn panel_parses() {
         let config = Config::parse(
-            "[panel]\nposition = \"bottom\"\nmode = \"always\"\nhide_delay_ms = 2500\n",
+            "[panel]\nposition = \"bottom\"\nmode = \"always\"\nhide_delay_ms = 2500\nslide_in_ms = 150\nslide_out_ms = 0\n",
         )
         .unwrap();
         assert_eq!(config.panel.hide_delay_ms, 2500);
+        assert_eq!(config.panel.slide_in_ms, 150);
+        assert_eq!(config.panel.slide_out_ms, 0);
+        assert_eq!(Config::default().panel.slide_in_ms, 200);
         assert_eq!(config.panel.position, PanelPosition::Bottom);
         assert_eq!(config.panel.mode, PanelMode::Always);
         assert_eq!(config.panel.command, "rustwm-panel");
@@ -456,6 +488,13 @@ mod tests {
         );
         let config = Config::parse("[notifications]\ncommand = \"\"\n").unwrap();
         assert!(config.notifications.command.is_empty());
+    }
+
+    #[test]
+    fn overview_parses() {
+        assert_eq!(Config::default().overview.file_search, FILE_SEARCH);
+        let config = Config::parse("[overview]\nfile_search = \"\"\n").unwrap();
+        assert!(config.overview.file_search.is_empty());
     }
 
     #[test]

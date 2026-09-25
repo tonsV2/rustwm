@@ -12,7 +12,7 @@ use std::{
 
 use tracing::{debug, warn};
 
-use crate::launcher::ChildEnv;
+use crate::session::ChildEnv;
 
 /// Exit status of `sh -c` when the command is not on `PATH`.
 const NOT_FOUND: i32 = 127;

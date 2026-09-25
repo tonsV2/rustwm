@@ -70,8 +70,8 @@ pub(crate) const RADIUS: f32 = 16.0;
 pub(crate) const BACKGROUND: [f32; 4] = [0.12, 0.12, 0.13, 0.94];
 pub(crate) const HIGHLIGHT: [f32; 4] = [1.0, 1.0, 1.0, 0.14];
 pub(crate) const TEXT_COLOR: [f32; 4] = [0.95, 0.95, 0.95, 1.0];
-const NAME_COLOR: [f32; 4] = [0.95, 0.95, 0.95, 0.75];
-const PLACEHOLDER: [f32; 4] = [0.35, 0.37, 0.42, 1.0];
+pub(crate) const NAME_COLOR: [f32; 4] = [0.95, 0.95, 0.95, 0.75];
+pub(crate) const PLACEHOLDER: [f32; 4] = [0.35, 0.37, 0.42, 1.0];
 /// Behind a group's members, where the screen shows through between them.
 const GROUP_BACKGROUND: [f32; 4] = [0.0, 0.0, 0.0, 0.6];
 
@@ -80,6 +80,8 @@ render_elements! {
     pub SwitcherElement<=GlesRenderer>;
     Image=MemoryRenderBufferRenderElement<GlesRenderer>,
     Thumbnail=CropRenderElement<RescaleRenderElement<WaylandSurfaceRenderElement<GlesRenderer>>>,
+    /// A surface drawn as it is, such as the panel sliding in.
+    Surface=WaylandSurfaceRenderElement<GlesRenderer>,
 }
 
 /// One window or group in the switcher.
@@ -395,7 +397,7 @@ impl State {
 }
 
 /// A toplevel's app id and title, empty when it has not set them.
-fn app_id_and_title(surface: &WlSurface) -> (String, String) {
+pub(crate) fn app_id_and_title(surface: &WlSurface) -> (String, String) {
     with_states(surface, |states| {
         states
             .data_map
@@ -477,7 +479,10 @@ impl Panel {
 
 /// A window of `size` scaled down to fit `area`, keeping its shape, and
 /// centred in it. Small windows are not enlarged.
-fn fit(area: Rectangle<i32, Logical>, size: Size<i32, Logical>) -> Option<Rectangle<f64, Logical>> {
+pub(crate) fn fit(
+    area: Rectangle<i32, Logical>,
+    size: Size<i32, Logical>,
+) -> Option<Rectangle<f64, Logical>> {
     if size.w <= 0 || size.h <= 0 {
         return None;
     }
@@ -621,9 +626,9 @@ fn draw(
     (below.into_image(), above.into_image())
 }
 
-struct TextStyle {
-    size: f32,
-    color: [f32; 4],
+pub(crate) struct TextStyle {
+    pub(crate) size: f32,
+    pub(crate) color: [f32; 4],
 }
 
 pub(crate) struct Canvas {
@@ -717,9 +722,24 @@ impl Canvas {
         }
     }
 
+    /// Fills the whole canvas with `color`, replacing what was there.
+    pub(crate) fn fill(&mut self, color: [f32; 4]) {
+        let alpha = color[3];
+        let channel = |c: f32| (c * alpha * 255.0).round().clamp(0.0, 255.0) as u8;
+        let pixel = [
+            channel(color[2]),
+            channel(color[1]),
+            channel(color[0]),
+            channel(1.0),
+        ];
+        for dst in self.pixels.as_chunks_mut::<4>().0 {
+            dst.copy_from_slice(&pixel);
+        }
+    }
+
     /// Draws one line of text centred on (`centre`, `middle`), cut short
     /// with an ellipsis if it is wider than `max_width`.
-    fn centred_text(
+    pub(crate) fn centred_text(
         &mut self,
         font: &Font,
         text: &str,
@@ -728,14 +748,37 @@ impl Canvas {
         max_width: f32,
         middle: f32,
     ) {
+        let text = fit_text(font, text, style.size, max_width);
+        let left = centre - text_width(font, &text, style.size) / 2.0;
+        self.text(font, &text, style, left, middle);
+    }
+
+    /// Draws one line of text starting at `left`, vertically centred on
+    /// `middle`, cut short with an ellipsis if it is wider than `max_width`.
+    /// Returns the width drawn.
+    pub(crate) fn left_text(
+        &mut self,
+        font: &Font,
+        text: &str,
+        style: TextStyle,
+        left: f32,
+        max_width: f32,
+        middle: f32,
+    ) -> f32 {
+        let text = fit_text(font, text, style.size, max_width);
+        let width = text_width(font, &text, style.size);
+        self.text(font, &text, style, left, middle);
+        width
+    }
+
+    fn text(&mut self, font: &Font, text: &str, style: TextStyle, left: f32, middle: f32) {
         let TextStyle { size, color } = style;
-        let text = fit_text(font, text, size, max_width);
         let Some(line) = font.horizontal_line_metrics(size) else {
             return;
         };
         let baseline = (middle + (line.ascent + line.descent) / 2.0).round() as i32;
 
-        let mut pen = (centre - text_width(font, &text, size) / 2.0).round();
+        let mut pen = left.round();
         for c in text.chars() {
             let (metrics, coverage) = font.rasterize(c, size);
             let x0 = pen.round() as i32 + metrics.xmin;
@@ -750,7 +793,7 @@ impl Canvas {
     }
 }
 
-fn text_width(font: &Font, text: &str, size: f32) -> f32 {
+pub(crate) fn text_width(font: &Font, text: &str, size: f32) -> f32 {
     text.chars()
         .map(|c| font.metrics(c, size).advance_width)
         .sum()
@@ -775,7 +818,7 @@ fn fit_text(font: &Font, text: &str, size: f32, max_width: f32) -> String {
 }
 
 /// Loads the desktop's default sans-serif font through fontconfig.
-fn load_font() -> Option<Font> {
+pub(crate) fn load_font() -> Option<Font> {
     let path = Command::new("fc-match")
         .args(["--format=%{file}", "sans-serif"])
         .output()

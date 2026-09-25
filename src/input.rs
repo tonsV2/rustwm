@@ -57,8 +57,7 @@ impl State {
         let serial = SERIAL_COUNTER.next_serial();
         let time = Event::time_msec(&event);
 
-        // Any other key, or releasing the held one, stops a repeating
-        // brightness or volume key.
+        // Any other key, or releasing the held one, stops a repeating key.
         if pressed
             || self
                 .key_repeat
@@ -70,6 +69,7 @@ impl State {
         // The filter runs after xkb has applied this key, so `mods` already
         // reflects it: on Super's release, `logo` is false.
         let mut action = None;
+        let mut typed = None;
         keyboard.input::<(), _>(
             self,
             keycode,
@@ -101,8 +101,13 @@ impl State {
                     .current()
                     .is_some_and(|id| state.groups.group_of(id).is_some());
                 state.bindings.locked = state.is_locked();
+                state.bindings.overview = state.overview.open;
+                state.bindings.overview_text = state.overview.has_text();
                 let outcome = state.bindings.key(keycode.raw(), key, pressed, mods);
                 action = outcome.action;
+                if action == Some(Action::OverviewType) {
+                    typed = handle.modified_sym().key_char();
+                }
                 if outcome.forward {
                     FilterResult::Forward
                 } else {
@@ -112,23 +117,32 @@ impl State {
         );
 
         if let Some(action) = action {
-            self.run_action(action);
-            if let Action::Run(command) = action
-                && command.repeats()
-            {
-                self.start_key_repeat(keycode.raw(), command);
+            self.perform(action, typed);
+            if action.repeats() {
+                self.start_key_repeat(keycode.raw(), action, typed);
             }
         }
     }
 
-    /// Runs `command` again at the key repeat rate while its key is held,
-    /// after the usual repeat delay.
-    fn start_key_repeat(&mut self, keycode: u32, command: Command) {
+    /// Runs `action`; `typed` is the character of a key typed into the
+    /// overview's search.
+    fn perform(&mut self, action: Action, typed: Option<char>) {
+        match (action, typed) {
+            (Action::OverviewType, Some(c)) => self.overview_type(c),
+            (Action::OverviewType, None) => {}
+            (action, _) => self.run_action(action),
+        }
+    }
+
+    /// Runs `action` again at the key repeat rate while its key is held,
+    /// after the usual repeat delay. Clients repeat keys themselves, but
+    /// these never reach one.
+    fn start_key_repeat(&mut self, keycode: u32, action: Action, typed: Option<char>) {
         let delay = Duration::from_millis(self.config.keyboard.repeat_delay as u64);
         let interval = Duration::from_millis(1000 / self.config.keyboard.repeat_rate as u64);
         let timer = Timer::from_duration(delay);
         let inserted = self.loop_handle.insert_source(timer, move |_, _, state| {
-            state.run_command(command);
+            state.perform(action, typed);
             TimeoutAction::ToDuration(interval)
         });
         match inserted {
@@ -137,7 +151,7 @@ impl State {
         }
     }
 
-    /// Stops repeating a held brightness or volume key, if one repeats.
+    /// Stops repeating a held key, if one repeats.
     pub fn stop_key_repeat(&mut self) {
         if let Some((_, token)) = self.key_repeat.take() {
             self.loop_handle.remove(token);
@@ -146,10 +160,13 @@ impl State {
 
     fn run_action(&mut self, action: Action) {
         match action {
-            Action::Launch => {
-                let child_env = self.child_env();
-                self.launcher.toggle(&child_env);
-            }
+            Action::ToggleOverview => self.toggle_overview(),
+            Action::CloseOverview => self.close_overview(),
+            Action::OverviewActivate => self.overview_activate(),
+            Action::OverviewMove(direction) => self.overview_move(direction),
+            Action::OverviewEdit(edit) => self.overview_edit(edit),
+            // Handled above, where the key's character is known.
+            Action::OverviewType => {}
             Action::Snap {
                 direction,
                 first_in_hold,
@@ -275,6 +292,7 @@ impl State {
             return;
         };
         self.panel_pointer_moved(pos);
+        self.overview_pointer_moved(pos);
         let under = self.surface_under(pos);
         pointer.motion(
             self,
@@ -297,6 +315,9 @@ impl State {
 
         if state == ButtonState::Pressed {
             self.bindings.pointer_button();
+            if self.overview_click(pointer.current_location()) {
+                return;
+            }
             if !self.is_locked()
                 && !pointer.is_grabbed()
                 && let Some(id) = self.window_under(pointer.current_location())
@@ -350,7 +371,7 @@ impl State {
     }
 
     /// The window under `pos`, unless a top or overlay layer surface such as
-    /// the launcher covers that spot.
+    /// the panel covers that spot.
     fn window_under(&self, pos: Point<f64, Logical>) -> Option<WindowId> {
         let output = self.space.output_under(pos).next()?;
         let output_geo = self.space.output_geometry(output)?;
@@ -381,6 +402,9 @@ fn classify(sym: Keysym) -> Key {
         Keysym::Up => Key::Arrow(Direction::Up),
         Keysym::Down => Key::Arrow(Direction::Down),
         Keysym::BackSpace => Key::Backspace,
+        Keysym::Delete | Keysym::KP_Delete => Key::Delete,
+        Keysym::Home | Keysym::KP_Home => Key::Home,
+        Keysym::End | Keysym::KP_End => Key::End,
         Keysym::F4 => Key::F4,
         Keysym::Return | Keysym::KP_Enter => Key::Return,
         // Letters as lowercase, so Caps Lock makes no difference.

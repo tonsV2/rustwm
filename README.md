@@ -10,13 +10,13 @@ My day is mostly switching between full-screen applications: several IntelliJ wi
 
 ## What it does
 
-Every application opens filling the screen. Snap windows to halves and quarters from the keyboard, switch between them with Alt+Tab, and start applications with [Fuzzel](https://codeberg.org/dnkl/fuzzel).
+Every application opens filling the screen. Snap windows to halves and quarters from the keyboard, switch between them with Alt+Tab, and tap Super for an overview of your windows with a search field for starting applications and opening files.
 
 ## Keys
 
 | Keys | Action |
 | --- | --- |
-| `Super` (tap) | Open Fuzzel, or close it if it is open |
+| `Super` (tap) | Open the [overview](#overview), or close it if it is open |
 | `Alt+Tab` | Switch to the previous window (most recently used first). Keep Alt held to see thumbnails of your windows; Tab/Shift+Tab or the arrow keys move the highlight, releasing Alt switches, Escape cancels |
 | `Super+Left` / `Right` / `Up` / `Down` | Snap the focused window to that half |
 | `Super+Left` then `Up` (Super held) | Snap to a quarter; any horizontal plus vertical pair works |
@@ -42,20 +42,28 @@ The brightness, volume and Print keys work with any modifiers held, and their co
 
 Dialogs (windows with a parent, such as file pickers) open centred at their own size. Snapping a dialog treats it as full screen first.
 
+## Overview
+
+A Super tap shows what GNOME's overview shows without the dock and the app grid: the panel stays at the top, under it is a search field, and the open windows are laid out as live previews, most recently used first. The arrow keys, Tab or the pointer move the highlight; Return or a click brings that window to the front. Typing searches the installed applications by name, generic name and keywords, and files through an outside command (`plocate` over your home directory by default, see `overview.file_search` in the [configuration](#configuration)). Return or a click starts the highlighted application with `gio launch`, or opens the file with `xdg-open`.
+
+The search field edits like any text field, with a blinking caret: Left and Right move it, `Ctrl+Left` and `Ctrl+Right` by a word, Home and End to the ends, Backspace and Delete remove a character, `Ctrl+Backspace`, `Ctrl+w` and `Ctrl+Delete` a word, `Ctrl+u` the whole line. Escape clears the text, or closes the overview when there is none; another Super tap closes it too. Held keys repeat at the keyboard's repeat rate, so holding Down walks the results. While the overview is open, no key reaches a window; the brightness and volume keys, `Ctrl+Alt+Backspace` and the virtual terminal keys still work.
+
+The windows stay where they are underneath; the overview is only a picture of them, drawn by the compositor from the same textures it shows the windows with, so nothing is copied and no other program is involved.
+
 ## Status
 
 Done:
 
 - Nested backend (runs as a window inside your current session)
 - Hardware backend (DRM/KMS with libseat, libinput and GBM): one GPU and one monitor, the first connected one; VT switching; a drawn cursor (XCURSOR_THEME, or a built-in arrow); tap-to-click enabled on touchpads
-- xdg-shell windows and popups, wlr-layer-shell (needed by Fuzzel), clipboard and primary selection, linux-dmabuf, viewporter, fractional scale, cursor shape (the compositor draws the cursors apps ask for by name, at one size), server-side decoration negotiation (the compositor draws no decorations)
+- xdg-shell windows and popups, wlr-layer-shell (for the panel and notifications), clipboard and primary selection, linux-dmabuf, viewporter, fractional scale, cursor shape (the compositor draws the cursors apps ask for by name, at one size), server-side decoration negotiation (the compositor draws no decorations)
 - Full-screen initial placement, dialogs floating centred, half and quarter layouts
 - Most-recently-used Alt+Tab with live window thumbnails, application icons and names
 - Window groups: snapped windows grouped with `Super+g` come into view together over the full-screen app underneath, and Alt+Tab shows each group as one screen-shaped thumbnail
-- Super tap launches Fuzzel; Super used with another key or a click does not
-- X11-only apps through [xwayland-satellite](https://github.com/Supreeeme/xwayland-satellite): rustwm starts it on a free display when it is installed, stops it on exit, and gives apps started from Fuzzel that display as `DISPLAY`
+- Super tap opens the overview: window previews, the date and a search for applications and files; Super used with another key or a click does not
+- X11-only apps through [xwayland-satellite](https://github.com/Supreeeme/xwayland-satellite): rustwm starts it on a free display when it is installed, stops it on exit, and gives apps started from the overview that display as `DISPLAY`
 - xdg-activation: an application can bring another forward, for example a terminal opening a link in the running browser, or a clicked notification bringing up the app that sent it. Only the focused application, or the one just clicked, can hand out a request, right after that input event, and it expires after 10 seconds
-- A panel (Waybar) with the time, tray, volume, brightness, network and battery, at the top or bottom, auto-hidden until the pointer touches that edge or always shown
+- A panel (Waybar) with the time, tray, volume, brightness, network and battery, at the top or bottom, auto-hidden until the pointer touches that edge or always shown. Auto-hidden, it slides in and out. Windows are laid out beside it whenever it is on screen, so it pushes them aside rather than covering them
 - [Notifications](#notifications) through mako, styled like the switcher and panel
 - Screen locking and idle: ext-session-lock (swaylock), ext-idle-notify and idle-inhibit (swayidle, video players keeping the screen on), and wlr-output-power-management (`wlopm` turns the monitor off). See [Locking the screen](#locking-the-screen)
 - [Screenshots and screen sharing](#screenshots-and-screen-sharing): wlr-screencopy and ext-image-copy-capture, into shared memory or dmabuf buffers, for `grim` and `xdg-desktop-portal-wlr`
@@ -70,7 +78,8 @@ Nested development needs only Rust and Mesa, which Fedora Workstation has alread
 
 ```sh
 sudo dnf install cargo rust rustfmt clippy mesa-libEGL-devel libxkbcommon-devel wayland-devel
-sudo dnf install fuzzel foot   # launcher, plus a simple terminal to test with
+sudo dnf install foot   # a simple terminal to test with
+sudo dnf install plocate   # file search in the overview; glib2 (gio) and xdg-utils, for starting what it finds, come with GNOME
 sudo dnf install xwayland-satellite   # optional: runs X11-only apps
 sudo dnf install brightnessctl # brightness keys; wpctl (wireplumber) and pactl (pulseaudio-utils) for the volume keys are installed with GNOME
 sudo dnf install swaylock swayidle wlopm   # screen locking, idle timeout, monitor off
@@ -128,7 +137,7 @@ rustwm picks its backend automatically: inside a desktop session (`WAYLAND_DISPL
 2. Run `./start.sh` from the checkout. It builds a release binary and starts it through `resources/rustwm-session` (see below), logging to `logs/rustwm.log` (the previous run's log is kept as `logs/rustwm.log.old`).
 3. `Ctrl+Alt+Backspace` quits and returns to the console. `Ctrl+Alt+F2` (or whichever VT GNOME is on) switches back to your desktop while rustwm keeps running.
 
-Start a first application with a Super tap (Fuzzel). If something goes wrong, see `logs/rustwm.log`.
+Start a first application with a Super tap and the search field. If something goes wrong, see `logs/rustwm.log`.
 
 #### D-Bus bus and keyring
 
@@ -167,7 +176,7 @@ This locks after 5 minutes, turns the monitor off after 10, and locks before the
 
 While locked:
 
-- Only the lock screen is drawn; windows, Fuzzel and the Alt+Tab switcher are hidden, and all keyboard and mouse input goes to the lock screen.
+- Only the lock screen is drawn; windows, the overview and the Alt+Tab switcher are hidden, and all keyboard and mouse input goes to the lock screen.
 - The window keys are off, and so is `Ctrl+Alt+Backspace`, which would otherwise quit past the lock. `Ctrl+Alt+F1`…`F12` (VT switching) and the brightness and volume keys still work.
 - If swaylock crashes, the screen stays black and locked. From another console than rustwm's (a free text console, or GNOME's terminal if it runs alongside), run `WAYLAND_DISPLAY=wayland-1 setsid -f swaylock -f` (the `ready` line in `logs/rustwm.log` names the socket) to get a lock screen back, then switch back to rustwm and unlock.
 - Screen captures are refused: a screen share pauses on its last frame from before the lock, and screenshots (including Print) fail.
@@ -208,11 +217,13 @@ Settings live in `~/.config/rustwm/config.toml`. Copy [resources/config.toml](re
 | `osd.enabled` | `true` | Show the brightness and volume level after a key press; turn off if you run your own indicator (swayosd, wob) |
 | `autostart.commands` | none | Commands started once rustwm is ready, such as swayidle; they stop when rustwm exits |
 | `panel.position` | `"top"` | `"top"` or `"bottom"` |
-| `panel.mode` | `"auto-hide"` | `"auto-hide"`: hidden until the pointer touches the panel's screen edge, over windows. `"always"`: always shown, windows laid out beside it |
+| `panel.mode` | `"auto-hide"` | `"auto-hide"`: slides in when the pointer touches the panel's screen edge and out again after it leaves, pushing the windows aside while it shows. `"always"`: always shown, windows laid out beside it |
 | `panel.command` | `rustwm-panel` | The bar to start; `""` for no panel. `rustwm-panel` runs Waybar with the config in `resources/waybar/`, or `~/.config/rustwm/waybar/` if you copy it there |
 | `panel.hide_delay_ms` | `1000` | In auto-hide mode, how long the panel stays after the pointer leaves it, in milliseconds |
+| `panel.slide_in_ms`, `slide_out_ms` | `200`, `200` | In auto-hide mode, how long the panel takes to slide in and out, in milliseconds. `0` moves it at once |
 | `panel.namespace` | `"waybar"` | The layer-shell namespace of the bar's surface, for auto-hide with another bar |
 | `notifications.command` | `rustwm-notifications` | The notification daemon to start; `""` for none. `rustwm-notifications` runs mako with the config in `resources/mako/`, or `~/.config/rustwm/mako/` if you copy it there |
+| `overview.file_search` | `plocate -i -- "$HOME/" "$1" \| grep -v '/\.' \| head -20` | What the overview's search runs to find files, with `sh -c` and the typed text as `$1`, one path per line. The default searches the plocate database (updated daily by `plocate-updatedb.timer`) under your home directory, leaving out hidden directories. `""` searches applications only |
 
 Commands run with `sh -c`, so quoting, `&&` and `$HOME` work as in a terminal. An empty command (`""`) passes the key on to the focused application.
 
@@ -254,7 +265,6 @@ flatpak install flathub org.gtk.Gtk3theme.adw-gtk3 org.gtk.Gtk3theme.adw-gtk3-da
 | Variable | Purpose |
 | --- | --- |
 | `RUST_LOG` | Log filter, default `info,smithay=warn`. `RUST_LOG=rustwm=debug` shows window placement |
-| `RUSTWM_LAUNCHER` | Launcher command instead of `fuzzel` |
 | `XKB_DEFAULT_LAYOUT`, `XKB_DEFAULT_VARIANT`, `XKB_DEFAULT_MODEL`, `XKB_DEFAULT_OPTIONS` | Keyboard layout when `config.toml` sets none, e.g. `XKB_DEFAULT_LAYOUT=dk` |
 | `XCURSOR_THEME`, `XCURSOR_SIZE` | Cursor theme and size on the hardware backend |
 
@@ -310,14 +320,15 @@ rustwm puts `WAYLAND_DISPLAY` and `XDG_CURRENT_DESKTOP=rustwm` in the D-Bus acti
 | `src/input.rs` | Routes input events to bindings and clients |
 | `src/handlers/` | Smithay protocol handlers (compositor, xdg-shell, layer-shell, seat, clipboard, session lock, idle, output power, ...) |
 | `src/switcher.rs` | Alt+Tab switcher: thumbnails, icons and text (fontdue, font from fontconfig) |
-| `src/apps.rs` | Application names and icons from desktop files and icon themes |
-| `src/launcher.rs` | Spawns Fuzzel |
+| `src/overview.rs` | The Super tap overview: window previews, date, and the application and file search |
+| `src/apps.rs` | Application names and icons from desktop files and icon themes, and the list of installed applications |
+| `src/session.rs` | The environment of started apps, the D-Bus session bus and the systemd graphical session |
 | `src/xwayland.rs` | Starts xwayland-satellite for X11 apps |
 | `src/commands.rs` | Runs the brightness, volume and Print key commands |
 | `src/capture/` | Screen capture protocols (wlr-screencopy, ext-image-copy-capture) for screenshots and screen sharing; drawn in `src/handlers/capture.rs` |
 | `src/osd.rs` | On-screen brightness and volume indicator |
 | `src/reload.rs` | Applies the config file again when it is saved |
-| `src/panel.rs` | Starts the panel and auto-hides it |
+| `src/panel.rs` | Starts the panel, slides it in and out in auto-hide mode and lays windows out beside it while it shows |
 | `src/winit.rs` | Nested backend and rendering |
 | `src/udev.rs` | Hardware backend: session, GPU, monitor, libinput, rendering |
 | `src/cursor.rs` | Cursor images from the theme for the hardware backend |

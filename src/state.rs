@@ -62,11 +62,11 @@ use crate::{
     handlers::{OutputPowerState, ScreenLock},
     keyboard::Bindings,
     keymap,
-    launcher::ChildEnv,
-    launcher::Launcher,
     layout::{Layout, Rect},
     osd::Osd,
+    overview::Overview,
     panel::Panel,
+    session::ChildEnv,
     switcher::Switcher,
     udev::UdevData,
     window::ManagedWindow,
@@ -147,23 +147,23 @@ pub struct State {
     /// The focused window and its layout when the current Super hold started, so a group member zoomed to full screen can go back to that tile.
     pub snap_hold: Option<(WindowId, Layout)>,
     pub bindings: Bindings,
-    /// The held brightness or volume key and the timer repeating its
-    /// command. Clients repeat keys themselves, but these never reach one.
+    /// The held key whose action repeats, and the timer repeating it.
     pub key_repeat: Option<(u32, RegistrationToken)>,
     /// When a click on a layer surface, such as a notification, last got
     /// an activation token, and the client that got it. The next token
     /// request from another client within a moment is granted too.
     pub shell_click: Option<(Instant, ClientId)>,
-    pub launcher: Launcher,
     /// Runs X11 apps; `None` when xwayland-satellite is not installed.
     pub xwayland: Option<Satellite>,
     pub switcher: Switcher,
+    /// The Super tap overview.
+    pub overview: Overview,
     /// The brightness and volume indicator.
     pub osd: Osd,
     pub panel: Panel,
     pub config: Config,
-    /// A layer surface (the launcher) that has taken keyboard focus. While
-    /// set, it keeps focus over windows.
+    /// A layer surface that has taken keyboard focus. While set, it keeps
+    /// focus over windows.
     pub layer_focus: Option<WlSurface>,
     /// The screen lock (ext-session-lock). While locked, only the lock
     /// screen is drawn and gets input.
@@ -209,6 +209,7 @@ impl State {
 
         let socket_name = init_wayland_listener(display, event_loop)?;
         let osd = Osd::new(&event_loop.handle())?;
+        let overview = Overview::new(&event_loop.handle())?;
 
         Ok(Self {
             start_time: Instant::now(),
@@ -249,9 +250,9 @@ impl State {
             bindings: Bindings::default(),
             key_repeat: None,
             shell_click: None,
-            launcher: Launcher::new(),
             xwayland: None,
             switcher: Switcher::default(),
+            overview,
             osd,
             panel: Panel::default(),
             config,
@@ -476,7 +477,8 @@ impl State {
 
     /// Makes the compositor's visible and keyboard focus match
     /// `self.focus.current()`: raises and activates that window and gives it
-    /// keyboard focus unless a layer surface holds it.
+    /// keyboard focus unless a layer surface holds it or the overview is
+    /// open.
     pub fn sync_focus(&mut self) {
         let current = self.focus.current();
         let current_window = current.and_then(|id| self.window(id)).cloned();
@@ -503,6 +505,8 @@ impl State {
         // While locked, only the lock screen gets the keyboard.
         let target = if self.is_locked() {
             self.lock_focus().map(|s| s.wl_surface().clone())
+        } else if self.overview.open {
+            None
         } else {
             match &self.layer_focus {
                 Some(layer) => Some(layer.clone()),
@@ -537,7 +541,8 @@ impl State {
 
     /// Finds the surface under `pos`, in stacking order: overlay and top
     /// layers, then windows, then bottom and background layers. While
-    /// locked, only the lock screen is there.
+    /// locked, only the lock screen is there; while the overview is open,
+    /// only the overlay and top layers, such as the panel.
     pub fn surface_under(
         &self,
         pos: Point<f64, Logical>,
@@ -563,6 +568,9 @@ impl State {
         layer_hit(Layer::Overlay)
             .or_else(|| layer_hit(Layer::Top))
             .or_else(|| {
+                if self.overview.open {
+                    return None;
+                }
                 self.space
                     .element_under(pos)
                     .and_then(|(window, location)| {
@@ -571,8 +579,8 @@ impl State {
                             .map(|(surface, loc)| (surface, (loc + location).to_f64()))
                     })
             })
-            .or_else(|| layer_hit(Layer::Bottom))
-            .or_else(|| layer_hit(Layer::Background))
+            .or_else(|| layer_hit(Layer::Bottom).filter(|_| !self.overview.open))
+            .or_else(|| layer_hit(Layer::Background).filter(|_| !self.overview.open))
     }
 
     /// Sends the pointer's current position again, so that the surface

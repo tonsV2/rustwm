@@ -17,8 +17,7 @@ The project is intentionally small. It is not intended to become a desktop envir
 The desired workflow is:
 
 * ~~Applications initially open fullscreen.~~
-* ~~`Super` opens an application launcher.~~
-* ~~The application launcher is provided by **Fuzzel**, running as a separate Wayland application.~~
+* ~~`Super` opens an overview: the open windows as live previews, the date, and a search field for starting applications and opening files (see §10).~~
 * ~~`Alt+Tab` switches between applications.~~
 * ~~`Super+Left/Right` snaps the focused application to the left/right half.~~
 * ~~`Super+Up/Down` snaps the focused application to the top/bottom half.~~
@@ -77,9 +76,9 @@ Do not implement:
 * rendering from scratch
 * EGL/OpenGL setup from scratch
 * damage tracking from scratch
-* application discovery
 * fuzzy searching
-* launcher UI
+
+The overview (§10) is the one piece of UI the compositor draws beyond the Alt+Tab switcher and the level indicator: it needs the windows' textures, which only the compositor has. Its application search is a plain substring match over desktop files, and its file search runs an outside command.
 
 The compositor should primarily implement **window-management policy**.
 
@@ -151,7 +150,7 @@ For example:
 └──────────────────────────────────────┘
 ```
 
-When a new application is launched from Fuzzel, it should therefore automatically appear fullscreen.
+When a new application is launched from the overview, it should therefore automatically appear fullscreen.
 
 ---
 
@@ -326,7 +325,7 @@ Standalone `Super` and `Super+key` must be distinguished.
 Desired behavior:
 
 ```text
-Super              → launch Fuzzel
+Super              → open or close the overview
 
 Super+Left         → snap left
 Super+Right        → snap right
@@ -334,7 +333,7 @@ Super+Up           → snap top
 Super+Down         → snap bottom
 ```
 
-The compositor must not launch Fuzzel when Super is used as part of a window-management shortcut.
+The compositor must not open the overview when Super is used as part of a window-management shortcut, or with a pointer button.
 
 Avoid introducing a noticeable delay merely to determine whether Super is standalone.
 
@@ -344,71 +343,25 @@ Do not implement a separate raw keyboard subsystem.
 
 ---
 
-# ~~10. Application Launcher~~
+# ~~10. Overview~~
 
-The compositor must **not** implement its own application launcher UI.
+A standalone `Super` opens an overview modelled on GNOME's, without the dock and the app grid. It replaces the external launcher (Fuzzel) the first version used.
 
-Use **Fuzzel** as an external application launcher.
-
-Fuzzel is responsible for:
-
-* application discovery
-* `.desktop` file parsing
-* fuzzy searching
-* application names
-* application icons
-* search UI
-* keyboard navigation
-* launching applications
-
-The compositor's only responsibility is to start Fuzzel when standalone `Super` is pressed.
-
-Conceptually:
-
-```text
-Super
-  │
-  ▼
-MyWM
-  │
-  │ spawn
-  ▼
-Fuzzel
-  │
-  ├── search installed applications
-  ├── select application
-  └── launch application
-          │
-          ▼
-       Wayland
-          │
-          ▼
-        MyWM
-          │
-          ▼
-    fullscreen window
-```
+* The panel stays at the top; the overview covers the rest of the output.
+* Under the panel: a search field, then the open windows as live previews laid out in a grid, most recently used first, each with its application icon and title. The previews are the windows' own textures scaled down; the windows stay where they are underneath.
+* The arrow keys, Tab and the pointer move the highlight. Return or a click focuses the highlighted window.
+* Typing searches installed applications by name, generic name and keywords (a substring match over desktop files, best matches first) and files through an outside command configured in `[overview]`, `plocate` by default. Return or a click starts the application with `gio launch` or opens the file with `xdg-open`.
+* The search field edits like a text field, with a blinking caret: Left and Right move it (Ctrl for words), Home and End, Backspace and Delete (Ctrl for words), Ctrl+w and Ctrl+u as in a shell. Held keys repeat at the keyboard's repeat rate.
+* Escape clears the text, or closes the overview when there is none; so does another `Super` tap.
+* No key reaches a window while the overview is open, except the ones that work everywhere: the brightness and volume keys, `Ctrl+Alt+Backspace` and the virtual terminal keys.
+* Locking the screen closes the overview.
 
 Do not implement:
 
-* `.desktop` parsing
-* application indexing
 * fuzzy matching
-* icons
-* application categories
-* favorites
-* recent applications
-* file search
-* web search
-* calculator
-* command execution
-* plugins
-
-The launcher should remain completely independent of the compositor.
-
-Fuzzel should be configurable independently through its normal configuration mechanism.
-
-The compositor should simply invoke the configured Fuzzel executable.
+* application categories, favorites or recent applications
+* web search, a calculator, command execution or plugins
+* a file index of its own; the file search is an outside command
 
 ---
 
@@ -618,8 +571,8 @@ The configuration file is applied again whenever it is saved, without restarting
 A future configuration file may look like:
 
 ```toml
-[launcher]
-command = "fuzzel"
+[overview]
+file_search = "plocate -i -- \"$HOME/\" \"$1\" | head -20"
 
 [keybindings]
 next_window = "Alt+Tab"
@@ -939,7 +892,7 @@ mywm/
 │   ├── window.rs
 │   ├── layout.rs
 │   ├── output.rs
-│   └── launcher.rs
+│   └── overview.rs
 └── tests/
 ```
 
@@ -1017,9 +970,8 @@ In particular, do not spontaneously implement:
 * audio controls
 * settings UI
 * built-in terminal
-* custom launcher
-* application indexing
-* desktop search
+* application indexing beyond reading desktop files for the overview's search
+* desktop search beyond the overview's outside file search command
 
 The one exception to power and audio controls: the brightness and volume keys (`XF86MonBrightnessUp`/`Down`, `XF86AudioRaiseVolume`/`LowerVolume`/`Mute`, `XF86AudioMicMute`) are bound to configurable outside commands, by default `brightnessctl` and `wpctl`. The compositor only runs the command; it contains no brightness or audio logic. After the command finishes it may read the level back with `wpctl get-volume` or `brightnessctl -m` and show it briefly in a small on-screen indicator (an icon and a level bar, muted state included), which the configuration can turn off.
 
@@ -1027,7 +979,7 @@ Screen locking is also an exception, since it is security rather than desktop fu
 
 Screen capture is supported so that outside tools work: the compositor implements the wlr-screencopy and ext-image-copy-capture protocols, which `grim` uses for screenshots and `xdg-desktop-portal-wlr` for screen sharing. The Print key runs a configurable command, by default `grim`. There is no capture interface in the compositor itself.
 
-A panel is an outside layer-shell program, Waybar by default, started by the compositor with a shipped config. The compositor draws nothing for it. Its only panel logic is position and visibility from the configuration: always shown with windows laid out beside it, or auto-hidden, where the bar's surface is unmapped until the pointer touches its screen edge and unmapped again shortly after the pointer leaves it.
+A panel is an outside layer-shell program, Waybar by default, started by the compositor with a shipped config. The compositor draws nothing for it. Its only panel logic is position and visibility from the configuration: always shown, or auto-hidden, where the bar slides in when the pointer touches its screen edge and out again shortly after the pointer leaves it. While it slides, the compositor draws the bar's surface where it is along the way and maps it only when it has arrived. Whenever the panel is on screen the windows are laid out beside it, so it pushes them aside rather than covering them. It stays on screen while the overview is open.
 
 The purpose of the project is to have an extremely small and predictable Wayland environment.
 
@@ -1047,8 +999,8 @@ The first usable release is complete when:
 8. ~~`Super+Up` moves it to the top half.~~
 9. ~~`Super+Down` moves it to the bottom half.~~
 10. ~~Direction combinations can place a window in all four quarters.~~
-11. ~~Standalone `Super` launches Fuzzel.~~
-12. ~~Fuzzel can launch applications normally.~~
+11. ~~Standalone `Super` opens the overview.~~
+12. ~~The overview can start applications normally.~~
 13. ~~Newly launched applications automatically become focused and fullscreen.~~
 14. ~~Applications can close without crashing the compositor.~~
 15. ~~Layout calculations have unit tests.~~
