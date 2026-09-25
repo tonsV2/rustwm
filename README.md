@@ -193,6 +193,7 @@ Settings live in `~/.config/rustwm/config.toml`. Copy [resources/config.toml](re
 | `input.pointer_speed` | `0.0` | Pointer acceleration, `-1.0` to `1.0` |
 | `input.natural_scroll` | `false` | Touchpad content follows the fingers |
 | `input.tap_to_click` | `true` | Tap the touchpad to click |
+| `input.click_method` | `"fingers"` | `"fingers"`: pressing the touchpad with two fingers right-clicks, three middle-clicks. `"areas"`: the bottom-right corner right-clicks |
 | `keyboard.layout`, `variant`, `model`, `options` | the system keyboard (`localectl`) | XKB keymap, e.g. `layout = "us,dk"`, `options = "grp:alt_shift_toggle"` |
 | `keyboard.repeat_delay`, `repeat_rate` | `500`, `25` | Milliseconds before a held key repeats, and repeats per second |
 | `shortcuts.brightness_up`, `brightness_down` | `brightnessctl set +5%`, `… 5%-` | Brightness keys |

@@ -41,6 +41,19 @@ pub struct InputConfig {
     /// Content follows the fingers when scrolling on a touchpad.
     pub natural_scroll: bool,
     pub tap_to_click: bool,
+    /// How a touchpad press picks the button: by the number of fingers,
+    /// as GNOME does, or by where on the pad it lands.
+    pub click_method: ClickMethod,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ClickMethod {
+    /// One finger is a left click, two a right click, three a middle click.
+    Fingers,
+    /// The bottom-right corner is a right click, the bottom middle a middle
+    /// click, anywhere else a left click.
+    Areas,
 }
 
 impl Default for InputConfig {
@@ -49,6 +62,7 @@ impl Default for InputConfig {
             pointer_speed: 0.0,
             natural_scroll: false,
             tap_to_click: true,
+            click_method: ClickMethod::Fingers,
         }
     }
 }
@@ -336,13 +350,14 @@ mod tests {
     #[test]
     fn full_file_parses() {
         let config = Config::parse(
-            "[output]\nscale = 1.25\n\n[input]\npointer_speed = 0.5\nnatural_scroll = true\ntap_to_click = false\n",
+            "[output]\nscale = 1.25\n\n[input]\npointer_speed = 0.5\nnatural_scroll = true\ntap_to_click = false\nclick_method = \"areas\"\n",
         )
         .unwrap();
         assert_eq!(config.output.scale, Some(1.25));
         assert_eq!(config.input.pointer_speed, 0.5);
         assert!(config.input.natural_scroll);
         assert!(!config.input.tap_to_click);
+        assert_eq!(config.input.click_method, ClickMethod::Areas);
     }
 
     #[test]
@@ -350,6 +365,7 @@ mod tests {
         let config = Config::parse("[input]\nnatural_scroll = true\n").unwrap();
         assert_eq!(config.output.scale, None);
         assert!(config.input.tap_to_click);
+        assert_eq!(config.input.click_method, ClickMethod::Fingers);
         assert_eq!(config.shortcuts, ShortcutsConfig::default());
     }
 

@@ -43,7 +43,7 @@ use smithay::{
             timer::{TimeoutAction, Timer},
         },
         drm::control::{Device as ControlDevice, ModeTypeFlags, connector, crtc},
-        input::Libinput,
+        input::{self, Libinput},
         rustix::fs::OFlags,
         wayland_server::{DisplayHandle, backend::GlobalId},
     },
@@ -56,7 +56,7 @@ use smithay::{
 use tracing::{error, info, warn};
 
 use crate::{
-    config::{InputConfig, OutputConfig, auto_scale},
+    config::{ClickMethod, InputConfig, OutputConfig, auto_scale},
     cursor::Cursors,
     handlers::LOCKED_BACKGROUND,
     state::{Backend, State},
@@ -736,9 +736,16 @@ pub fn set_power(state: &mut State, output: &Output, on: bool) {
 
 /// Applies the input settings to a newly connected mouse, touchpad or
 /// keyboard. Settings a device does not support are skipped.
-fn configure_device(device: &mut smithay::reexports::input::Device, config: &InputConfig) {
+fn configure_device(device: &mut input::Device, config: &InputConfig) {
     if device.config_tap_finger_count() > 0 {
         let _ = device.config_tap_set_enabled(config.tap_to_click);
+    }
+    let method = match config.click_method {
+        ClickMethod::Fingers => input::ClickMethod::Clickfinger,
+        ClickMethod::Areas => input::ClickMethod::ButtonAreas,
+    };
+    if device.config_click_methods().contains(&method) {
+        let _ = device.config_click_set_method(method);
     }
     if device.config_scroll_has_natural_scroll() {
         let _ = device.config_scroll_set_natural_scroll_enabled(config.natural_scroll);
