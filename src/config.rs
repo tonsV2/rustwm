@@ -18,7 +18,9 @@ pub struct Config {
     pub output: OutputConfig,
     pub input: InputConfig,
     pub keyboard: KeyboardConfig,
-    pub shortcuts: ShortcutsConfig,
+    /// Still accepted under its old name, `[shortcuts]`.
+    #[serde(alias = "shortcuts")]
+    pub commands: CommandsConfig,
     pub osd: OsdConfig,
     pub autostart: AutostartConfig,
     pub panel: PanelConfig,
@@ -103,10 +105,10 @@ impl Default for KeyboardConfig {
     }
 }
 
-/// What each shortcut runs, as a shell command run with `sh -c`. An empty string leaves the key to the focused application.
+/// The command each key runs, with `sh -c`. An empty string leaves the key to the focused application.
 #[derive(Debug, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
-pub struct ShortcutsConfig {
+pub struct CommandsConfig {
     pub brightness_up: String,
     pub brightness_down: String,
     pub volume_up: String,
@@ -133,7 +135,7 @@ const SCREENSHOT: &str = "mkdir -p ~/Pictures/Screenshots && \
 const SCREENSHOT_AREA: &str = "area=\"$(slurp)\" && mkdir -p ~/Pictures/Screenshots && \
     grim -g \"$area\" ~/Pictures/Screenshots/Screenshot-$(date +%Y-%m-%d-%H%M%S).png";
 
-impl Default for ShortcutsConfig {
+impl Default for CommandsConfig {
     fn default() -> Self {
         Self {
             brightness_up: "brightnessctl set +5%".into(),
@@ -152,7 +154,7 @@ impl Default for ShortcutsConfig {
     }
 }
 
-impl ShortcutsConfig {
+impl CommandsConfig {
     pub fn get(&self, command: Command) -> &str {
         match command {
             Command::BrightnessUp => &self.brightness_up,
@@ -395,26 +397,29 @@ mod tests {
         assert_eq!(config.output.scale, None);
         assert!(config.input.tap_to_click);
         assert_eq!(config.input.click_method, ClickMethod::Fingers);
-        assert_eq!(config.shortcuts, ShortcutsConfig::default());
+        assert_eq!(config.commands, CommandsConfig::default());
     }
 
     #[test]
     fn commands_parse() {
         let config = Config::parse(
-            "[shortcuts]\nvolume_up = \"wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%+\"\nmic_mute = \"\"\n",
+            "[commands]\nvolume_up = \"wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%+\"\nmic_mute = \"\"\n",
         )
         .unwrap();
         assert_eq!(
-            config.shortcuts.get(Command::VolumeUp),
+            config.commands.get(Command::VolumeUp),
             "wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%+"
         );
-        assert_eq!(config.shortcuts.get(Command::MicMute), "");
-        assert_eq!(config.shortcuts.get(Command::Screenshot), SCREENSHOT);
+        assert_eq!(config.commands.get(Command::MicMute), "");
+        assert_eq!(config.commands.get(Command::Screenshot), SCREENSHOT);
         assert_eq!(
-            config.shortcuts.get(Command::BrightnessUp),
+            config.commands.get(Command::BrightnessUp),
             "brightnessctl set +5%"
         );
-        assert!(Config::parse("[shortcuts]\nvolume_raise = \"true\"\n").is_err());
+        assert!(Config::parse("[commands]\nvolume_raise = \"true\"\n").is_err());
+        // The section's old name still works.
+        let config = Config::parse("[shortcuts]\nmic_mute = \"\"\n").unwrap();
+        assert_eq!(config.commands.get(Command::MicMute), "");
     }
 
     #[test]
@@ -444,11 +449,8 @@ mod tests {
     fn sample_config_parses() {
         let sample = include_str!("../resources/config.toml");
         let config = Config::parse(sample).unwrap();
-        assert_eq!(config.shortcuts.app(App::Lock), "swaylock -f -c 000000");
-        assert_eq!(
-            config.shortcuts.terminal,
-            ShortcutsConfig::default().terminal
-        );
+        assert_eq!(config.commands.app(App::Lock), "swaylock -f -c 000000");
+        assert_eq!(config.commands.terminal, CommandsConfig::default().terminal);
     }
 
     #[test]

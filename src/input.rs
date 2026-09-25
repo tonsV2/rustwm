@@ -79,11 +79,11 @@ impl State {
             |state, mods, handle| {
                 let key = match classify(handle.modified_sym()) {
                     // An empty command leaves the key to the client.
-                    Key::Command(command) if state.config.shortcuts.get(command).is_empty() => {
+                    Key::Command(command) if state.config.commands.get(command).is_empty() => {
                         Key::Other
                     }
                     key if App::for_key(key, mods.shift)
-                        .is_some_and(|app| state.config.shortcuts.app(app).is_empty()) =>
+                        .is_some_and(|app| state.config.commands.app(app).is_empty()) =>
                     {
                         Key::Other
                     }
@@ -191,7 +191,7 @@ impl State {
             Action::Run(command) => self.run_command(command),
             Action::Spawn(app) => {
                 info!(?app, "starting from shortcut");
-                commands::run(self.config.shortcuts.app(app), &self.child_env(), || {});
+                commands::run(self.config.commands.app(app), &self.child_env(), || {});
             }
             Action::Close => {
                 let focused = self.focus.current().and_then(|id| self.window(id));
