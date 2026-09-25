@@ -44,7 +44,9 @@ Dialogs (windows with a parent, such as file pickers) open centred at their own 
 
 ## Overview
 
-A Super tap shows what GNOME's overview shows without the dock and the app grid: the panel stays at the top, under it are the date and a search field, and the open windows are laid out as live previews, most recently used first. The arrow keys or the pointer move the highlight; Return or a click brings that window to the front. Typing searches the installed applications by name, generic name and keywords, and files through an outside command (`plocate` over your home directory by default, see `overview.file_search` in the [configuration](#configuration)). Return or a click starts the highlighted application with `gio launch`, or opens the file with `xdg-open`. Backspace edits the search, Escape or another Super tap closes the overview. While it is open, no key reaches a window; the brightness and volume keys, `Ctrl+Alt+Backspace` and the virtual terminal keys still work.
+A Super tap shows what GNOME's overview shows without the dock and the app grid: the panel stays at the top, under it is a search field, and the open windows are laid out as live previews, most recently used first. The arrow keys, Tab or the pointer move the highlight; Return or a click brings that window to the front. Typing searches the installed applications by name, generic name and keywords, and files through an outside command (`plocate` over your home directory by default, see `overview.file_search` in the [configuration](#configuration)). Return or a click starts the highlighted application with `gio launch`, or opens the file with `xdg-open`.
+
+The search field edits like any text field, with a blinking caret: Left and Right move it, `Ctrl+Left` and `Ctrl+Right` by a word, Home and End to the ends, Backspace and Delete remove a character, `Ctrl+Backspace`, `Ctrl+w` and `Ctrl+Delete` a word, `Ctrl+u` the whole line. Escape clears the text, or closes the overview when there is none; another Super tap closes it too. Held keys repeat at the keyboard's repeat rate, so holding Down walks the results. While the overview is open, no key reaches a window; the brightness and volume keys, `Ctrl+Alt+Backspace` and the virtual terminal keys still work.
 
 The windows stay where they are underneath; the overview is only a picture of them, drawn by the compositor from the same textures it shows the windows with, so nothing is copied and no other program is involved.
 
@@ -61,7 +63,7 @@ Done:
 - Super tap opens the overview: window previews, the date and a search for applications and files; Super used with another key or a click does not
 - X11-only apps through [xwayland-satellite](https://github.com/Supreeeme/xwayland-satellite): rustwm starts it on a free display when it is installed, stops it on exit, and gives apps started from the overview that display as `DISPLAY`
 - xdg-activation: an application can bring another forward, for example a terminal opening a link in the running browser, or a clicked notification bringing up the app that sent it. Only the focused application, or the one just clicked, can hand out a request, right after that input event, and it expires after 10 seconds
-- A panel (Waybar) with the time, tray, volume, brightness, network and battery, at the top or bottom, auto-hidden until the pointer touches that edge or always shown. Windows are laid out beside it whenever it is on screen, so it pushes them aside rather than covering them
+- A panel (Waybar) with the time, tray, volume, brightness, network and battery, at the top or bottom, auto-hidden until the pointer touches that edge or always shown. Auto-hidden, it slides in and out. Windows are laid out beside it whenever it is on screen, so it pushes them aside rather than covering them
 - [Notifications](#notifications) through mako, styled like the switcher and panel
 - Screen locking and idle: ext-session-lock (swaylock), ext-idle-notify and idle-inhibit (swayidle, video players keeping the screen on), and wlr-output-power-management (`wlopm` turns the monitor off). See [Locking the screen](#locking-the-screen)
 - [Screenshots and screen sharing](#screenshots-and-screen-sharing): wlr-screencopy and ext-image-copy-capture, into shared memory or dmabuf buffers, for `grim` and `xdg-desktop-portal-wlr`
@@ -215,7 +217,7 @@ Settings live in `~/.config/rustwm/config.toml`. Copy [resources/config.toml](re
 | `osd.enabled` | `true` | Show the brightness and volume level after a key press; turn off if you run your own indicator (swayosd, wob) |
 | `autostart.commands` | none | Commands started once rustwm is ready, such as swayidle; they stop when rustwm exits |
 | `panel.position` | `"top"` | `"top"` or `"bottom"` |
-| `panel.mode` | `"auto-hide"` | `"auto-hide"`: hidden until the pointer touches the panel's screen edge, pushing the windows aside while it shows. `"always"`: always shown, windows laid out beside it |
+| `panel.mode` | `"auto-hide"` | `"auto-hide"`: slides in when the pointer touches the panel's screen edge and out again after it leaves, pushing the windows aside while it shows. `"always"`: always shown, windows laid out beside it |
 | `panel.command` | `rustwm-panel` | The bar to start; `""` for no panel. `rustwm-panel` runs Waybar with the config in `resources/waybar/`, or `~/.config/rustwm/waybar/` if you copy it there |
 | `panel.hide_delay_ms` | `1000` | In auto-hide mode, how long the panel stays after the pointer leaves it, in milliseconds |
 | `panel.namespace` | `"waybar"` | The layer-shell namespace of the bar's surface, for auto-hide with another bar |
@@ -325,7 +327,7 @@ rustwm puts `WAYLAND_DISPLAY` and `XDG_CURRENT_DESKTOP=rustwm` in the D-Bus acti
 | `src/capture/` | Screen capture protocols (wlr-screencopy, ext-image-copy-capture) for screenshots and screen sharing; drawn in `src/handlers/capture.rs` |
 | `src/osd.rs` | On-screen brightness and volume indicator |
 | `src/reload.rs` | Applies the config file again when it is saved |
-| `src/panel.rs` | Starts the panel, auto-hides it and lays windows out beside it while it shows |
+| `src/panel.rs` | Starts the panel, slides it in and out in auto-hide mode and lays windows out beside it while it shows |
 | `src/winit.rs` | Nested backend and rendering |
 | `src/udev.rs` | Hardware backend: session, GPU, monitor, libinput, rendering |
 | `src/cursor.rs` | Cursor images from the theme for the hardware backend |

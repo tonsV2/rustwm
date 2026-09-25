@@ -348,10 +348,11 @@ Do not implement a separate raw keyboard subsystem.
 A standalone `Super` opens an overview modelled on GNOME's, without the dock and the app grid. It replaces the external launcher (Fuzzel) the first version used.
 
 * The panel stays at the top; the overview covers the rest of the output.
-* Under the panel: the date, then a search field, then the open windows as live previews laid out in a grid, most recently used first, each with its application icon and title. The previews are the windows' own textures scaled down; the windows stay where they are underneath.
+* Under the panel: a search field, then the open windows as live previews laid out in a grid, most recently used first, each with its application icon and title. The previews are the windows' own textures scaled down; the windows stay where they are underneath.
 * The arrow keys, Tab and the pointer move the highlight. Return or a click focuses the highlighted window.
 * Typing searches installed applications by name, generic name and keywords (a substring match over desktop files, best matches first) and files through an outside command configured in `[overview]`, `plocate` by default. Return or a click starts the application with `gio launch` or opens the file with `xdg-open`.
-* Backspace edits the search. Escape or another `Super` tap closes the overview.
+* The search field edits like a text field, with a blinking caret: Left and Right move it (Ctrl for words), Home and End, Backspace and Delete (Ctrl for words), Ctrl+w and Ctrl+u as in a shell. Held keys repeat at the keyboard's repeat rate.
+* Escape clears the text, or closes the overview when there is none; so does another `Super` tap.
 * No key reaches a window while the overview is open, except the ones that work everywhere: the brightness and volume keys, `Ctrl+Alt+Backspace` and the virtual terminal keys.
 * Locking the screen closes the overview.
 
@@ -978,7 +979,7 @@ Screen locking is also an exception, since it is security rather than desktop fu
 
 Screen capture is supported so that outside tools work: the compositor implements the wlr-screencopy and ext-image-copy-capture protocols, which `grim` uses for screenshots and `xdg-desktop-portal-wlr` for screen sharing. The Print key runs a configurable command, by default `grim`. There is no capture interface in the compositor itself.
 
-A panel is an outside layer-shell program, Waybar by default, started by the compositor with a shipped config. The compositor draws nothing for it. Its only panel logic is position and visibility from the configuration: always shown, or auto-hidden, where the bar's surface is unmapped until the pointer touches its screen edge and unmapped again shortly after the pointer leaves it. Whenever the panel is on screen the windows are laid out beside it, so it pushes them aside rather than covering them. It stays on screen while the overview is open.
+A panel is an outside layer-shell program, Waybar by default, started by the compositor with a shipped config. The compositor draws nothing for it. Its only panel logic is position and visibility from the configuration: always shown, or auto-hidden, where the bar slides in when the pointer touches its screen edge and out again shortly after the pointer leaves it. While it slides, the compositor draws the bar's surface where it is along the way and maps it only when it has arrived. Whenever the panel is on screen the windows are laid out beside it, so it pushes them aside rather than covering them. It stays on screen while the overview is open.
 
 The purpose of the project is to have an extremely small and predictable Wayland environment.
 

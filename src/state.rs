@@ -147,8 +147,7 @@ pub struct State {
     /// The focused window and its layout when the current Super hold started, so a group member zoomed to full screen can go back to that tile.
     pub snap_hold: Option<(WindowId, Layout)>,
     pub bindings: Bindings,
-    /// The held brightness or volume key and the timer repeating its
-    /// command. Clients repeat keys themselves, but these never reach one.
+    /// The held key whose action repeats, and the timer repeating it.
     pub key_repeat: Option<(u32, RegistrationToken)>,
     /// When a click on a layer surface, such as a notification, last got
     /// an activation token, and the client that got it. The next token

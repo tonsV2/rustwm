@@ -1,8 +1,9 @@
-//! The panel is an outside layer-shell bar (Waybar through `rustwm-panel`). rustwm only starts it and, in auto-hide mode, keeps it off screen until the pointer touches the screen edge it sits on. While it is on screen the windows are laid out beside it, as they always are in the always shown mode, so it pushes them aside rather than covering them. It also stays on screen while the overview is open.
+//! The panel is an outside layer-shell bar (Waybar through `rustwm-panel`). rustwm only starts it and, in auto-hide mode, keeps it off screen until the pointer touches the screen edge it sits on. It slides in and out over [`SLIDE`]: while sliding in, the bar's surface is not in the layer map yet and the compositor draws it where it is along the way, then maps it when it arrives; while sliding out, it was unmapped when the slide began. While it is on screen the windows are laid out beside it, as they always are in the always shown mode, so it pushes them aside rather than covering them. It also stays on screen while the overview is open.
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use smithay::{
+    backend::renderer::element::{Kind, surface::render_elements_from_surface_tree},
     desktop::{LayerSurface, PopupManager, layer_map_for_output},
     output::Output,
     reexports::{
@@ -20,13 +21,48 @@ use crate::{
     commands,
     config::{PanelMode, PanelPosition},
     state::State,
+    switcher::SwitcherElement,
 };
+
+/// How long the panel takes to slide all the way in or out.
+const SLIDE: Duration = Duration::from_millis(200);
 
 #[derive(Default)]
 pub struct Panel {
     surface: Option<(Output, LayerSurface)>,
+    /// Whether the panel is meant to be on screen: mapped, or sliding in.
     shown: bool,
+    /// Whether the surface is in the layer map, where it gets input and
+    /// pushes windows aside.
+    mapped: bool,
     hide_timer: Option<RegistrationToken>,
+    slide: Option<Slide>,
+}
+
+/// The panel sliding in or out.
+struct Slide {
+    start: Instant,
+    /// How much of the panel was on screen when the slide began, 0 to 1.
+    from: f64,
+    showing: bool,
+}
+
+impl Slide {
+    /// How much of the panel is on screen at `now`, 0 to 1, and whether
+    /// the slide is over.
+    fn visible(&self, now: Instant) -> (f64, bool) {
+        let target = if self.showing { 1.0 } else { 0.0 };
+        let length = SLIDE.as_secs_f64() * (target - self.from).abs();
+        let elapsed = now.saturating_duration_since(self.start).as_secs_f64();
+        let t = if length > 0.0 {
+            (elapsed / length).clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
+        // Quick at first, settling at the end.
+        let eased = 1.0 - (1.0 - t).powi(3);
+        (self.from + (target - self.from) * eased, t >= 1.0)
+    }
 }
 
 impl State {
@@ -54,6 +90,7 @@ impl State {
     pub fn panel_created(&mut self, output: Output, layer: LayerSurface) {
         self.panel.surface = Some((output, layer));
         self.panel.shown = true;
+        self.panel.mapped = true;
     }
 
     /// Takes the panel off screen once it has drawn its first frame, so it starts hidden.
@@ -69,7 +106,7 @@ impl State {
             && self.panel.hide_timer.is_none()
             && !self.panel_in_use()
         {
-            self.hide_panel();
+            self.hide_panel(false);
         }
     }
 
@@ -100,7 +137,7 @@ impl State {
                     PanelPosition::Bottom => pos.y >= (geo.loc.y + geo.size.h - 1) as f64,
                 };
                 if at_edge {
-                    self.show_panel();
+                    self.show_panel(true);
                 }
             }
         } else if self.panel_in_use_at(pos) {
@@ -112,7 +149,7 @@ impl State {
                     .insert_source(Timer::from_duration(delay), |_, _, state| {
                         state.panel.hide_timer = None;
                         if !state.panel_in_use() {
-                            state.hide_panel();
+                            state.hide_panel(true);
                         }
                         TimeoutAction::Drop
                     });
@@ -123,11 +160,28 @@ impl State {
         }
     }
 
-    fn panel_geometry(&self) -> Option<Rectangle<i32, Logical>> {
+    /// Where the panel is when fully on screen, relative to its output.
+    /// While it is not in the layer map its size comes from its buffer and
+    /// its place from the configured edge.
+    fn panel_rect(&self) -> Option<Rectangle<i32, Logical>> {
         let (output, layer) = self.panel.surface.as_ref()?;
+        if self.panel.mapped {
+            return layer_map_for_output(output).layer_geometry(layer);
+        }
+        let geo = self.space.output_geometry(output)?;
+        let size = layer.bbox().size;
+        let y = match self.config.panel.position {
+            PanelPosition::Top => 0,
+            PanelPosition::Bottom => geo.size.h - size.h,
+        };
+        Some(Rectangle::new(((geo.size.w - size.w) / 2, y).into(), size))
+    }
+
+    fn panel_geometry(&self) -> Option<Rectangle<i32, Logical>> {
+        let (output, _) = self.panel.surface.as_ref()?;
         let output_loc = self.space.output_geometry(output)?.loc;
-        let geometry = layer_map_for_output(output).layer_geometry(layer)?;
-        Some(Rectangle::new(geometry.loc + output_loc, geometry.size))
+        let rect = self.panel_rect()?;
+        Some(Rectangle::new(rect.loc + output_loc, rect.size))
     }
 
     fn panel_in_use(&self) -> bool {
@@ -163,8 +217,8 @@ impl State {
         }
         if open {
             self.cancel_panel_hide();
-            if !self.panel.shown {
-                self.show_panel();
+            if !self.panel.mapped {
+                self.show_panel(false);
             }
         } else if self.panel.shown {
             if self.panel_in_use() {
@@ -172,14 +226,32 @@ impl State {
                     self.relayout_output(&output);
                 }
             } else {
-                self.hide_panel();
+                self.hide_panel(true);
             }
         }
     }
 
-    /// Shows the panel and, unless the overview is open, lays the windows
-    /// out beside it.
-    fn show_panel(&mut self) {
+    /// Brings the panel on screen, sliding it in if `animate`, else at once.
+    fn show_panel(&mut self, animate: bool) {
+        if self.panel.surface.is_none() || self.panel.mapped {
+            return;
+        }
+        self.panel.shown = true;
+        if !animate {
+            self.map_panel();
+            return;
+        }
+        let from = self.panel_visible();
+        self.panel.slide = Some(Slide {
+            start: Instant::now(),
+            from,
+            showing: true,
+        });
+    }
+
+    /// Puts the panel in the layer map, where it gets input, and lays the
+    /// windows out beside it unless the overview is open.
+    fn map_panel(&mut self) {
         let Some((output, layer)) = self.panel.surface.clone() else {
             return;
         };
@@ -190,24 +262,44 @@ impl State {
         }
         map.arrange();
         drop(map);
-        self.panel.shown = true;
+        self.panel.mapped = true;
+        self.panel.slide = None;
         if !self.overview.open {
             self.relayout_output(&output);
         }
     }
 
-    /// Hides the panel and gives the windows its room back.
-    fn hide_panel(&mut self) {
+    /// Takes the panel out of the layer map, giving the windows its room
+    /// back, and slides it out if `animate`.
+    fn hide_panel(&mut self, animate: bool) {
         let Some((output, layer)) = self.panel.surface.clone() else {
             return;
         };
-        let mut map = layer_map_for_output(&output);
-        map.unmap_layer(&layer);
-        map.arrange();
-        drop(map);
+        let from = self.panel_visible();
+        if self.panel.mapped {
+            let mut map = layer_map_for_output(&output);
+            map.unmap_layer(&layer);
+            map.arrange();
+            drop(map);
+            self.panel.mapped = false;
+            if !self.overview.open {
+                self.relayout_output(&output);
+            }
+        }
         self.panel.shown = false;
-        if !self.overview.open {
-            self.relayout_output(&output);
+        self.panel.slide = animate.then(|| Slide {
+            start: Instant::now(),
+            from,
+            showing: false,
+        });
+    }
+
+    /// How much of the panel is on screen right now, 0 to 1.
+    fn panel_visible(&self) -> f64 {
+        match &self.panel.slide {
+            Some(slide) => slide.visible(Instant::now()).0,
+            None if self.panel.mapped => 1.0,
+            None => 0.0,
         }
     }
 
@@ -215,5 +307,80 @@ impl State {
         if let Some(token) = self.panel.hide_timer.take() {
             self.loop_handle.remove(token);
         }
+    }
+
+    /// The panel while it slides in or out, drawn where it is along the way.
+    /// Empty otherwise. A slide that has arrived maps the panel.
+    pub fn panel_slide_elements(&mut self, output: &Output) -> Vec<SwitcherElement> {
+        let Some(slide) = &self.panel.slide else {
+            return Vec::new();
+        };
+        let (visible, done) = slide.visible(Instant::now());
+        if done {
+            if slide.showing {
+                self.map_panel();
+            } else {
+                self.panel.slide = None;
+            }
+            return Vec::new();
+        }
+        let Some((panel_output, layer)) = self.panel.surface.clone() else {
+            return Vec::new();
+        };
+        if &panel_output != output {
+            return Vec::new();
+        }
+        let Some(rect) = self.panel_rect() else {
+            return Vec::new();
+        };
+        let offset = (1.0 - visible) * rect.size.h as f64;
+        let y = match self.config.panel.position {
+            PanelPosition::Top => rect.loc.y as f64 - offset,
+            PanelPosition::Bottom => rect.loc.y as f64 + offset,
+        };
+        let scale = output.current_scale().fractional_scale();
+        let location = Point::<f64, Logical>::from((rect.loc.x as f64, y))
+            .to_physical(scale)
+            .to_i32_round::<i32>();
+        render_elements_from_surface_tree(
+            self.backend.renderer(),
+            layer.wl_surface(),
+            location,
+            scale,
+            1.0,
+            Kind::Unspecified,
+        )
+        .into_iter()
+        .map(SwitcherElement::Surface)
+        .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn slide_eases_from_where_it_started_and_ends_on_time() {
+        let start = Instant::now();
+        let slide = Slide {
+            start,
+            from: 0.0,
+            showing: true,
+        };
+        assert_eq!(slide.visible(start), (0.0, false));
+        let (half, done) = slide.visible(start + SLIDE / 2);
+        assert!(half > 0.5 && half < 1.0 && !done);
+        assert_eq!(slide.visible(start + SLIDE), (1.0, true));
+
+        // Sliding out from half way takes half the time.
+        let slide = Slide {
+            start,
+            from: 0.5,
+            showing: false,
+        };
+        let (visible, done) = slide.visible(start + SLIDE / 4);
+        assert!(visible < 0.5 && visible > 0.0 && !done);
+        assert_eq!(slide.visible(start + SLIDE / 2), (0.0, true));
     }
 }

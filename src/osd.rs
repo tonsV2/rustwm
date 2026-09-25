@@ -274,10 +274,11 @@ impl State {
     }
 
     /// Everything drawn over the windows on `output`, front to back: the
-    /// brightness and volume indicator, the Alt+Tab switcher, then the
-    /// overview.
+    /// panel while it slides, the brightness and volume indicator, the
+    /// Alt+Tab switcher, then the overview.
     pub fn overlay_elements(&mut self, output: &Output) -> Vec<SwitcherElement> {
-        let mut elements = self.osd_elements(output);
+        let mut elements = self.panel_slide_elements(output);
+        elements.extend(self.osd_elements(output));
         elements.extend(self.switcher_elements(output));
         elements.extend(self.overview_elements(output));
         elements

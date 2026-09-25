@@ -1,6 +1,6 @@
 //! The overview, opened with a Super tap and modelled on GNOME's: the panel
-//! stays at the top, and under it are the date, a search field and the open
-//! windows as live previews in a grid. Typing searches the installed
+//! stays at the top, and under it are a search field and the open windows
+//! as live previews in a grid. Typing searches the installed
 //! applications and, through an outside command, files. The arrow keys or
 //! the pointer pick a window or a result, Return or a click takes it, and
 //! Escape or another Super tap closes the overview.
@@ -13,6 +13,7 @@ use std::{
     path::{Path, PathBuf},
     process::{Command, Stdio},
     thread,
+    time::Duration,
 };
 
 use fontdue::Font;
@@ -33,8 +34,9 @@ use smithay::{
     desktop::layer_map_for_output,
     output::Output,
     reexports::calloop::{
-        LoopHandle,
+        LoopHandle, RegistrationToken,
         channel::{self, Sender},
+        timer::{TimeoutAction, Timer},
     },
     utils::{Logical, Point, Rectangle, Transform},
 };
@@ -44,25 +46,27 @@ use crate::{
     apps::{self, AppInfo, DesktopApp},
     commands,
     focus::WindowId,
+    keyboard::Edit,
     layout::Direction,
     session::ChildEnv,
     state::State,
     switcher::{
         BACKGROUND, Canvas, HIGHLIGHT, Image, NAME_COLOR, PLACEHOLDER, SwitcherElement, TEXT_COLOR,
-        TextStyle, app_id_and_title, fit, image_src, load_font,
+        TextStyle, app_id_and_title, fit, image_src, load_font, text_width,
     },
 };
 
 // Sizes in logical pixels.
 const MARGIN: i32 = 48;
-const DATE_SIZE: f32 = 24.0;
-/// From the top of the area to the middle of the date line.
-const DATE_MIDDLE: i32 = 40;
-const SEARCH_TOP: i32 = 72;
+const SEARCH_TOP: i32 = 40;
 const SEARCH_WIDTH: i32 = 640;
 const SEARCH_HEIGHT: i32 = 48;
 const SEARCH_PADDING: i32 = 20;
 const SEARCH_SIZE: f32 = 17.0;
+const CARET_WIDTH: i32 = 2;
+const CARET_HEIGHT: i32 = 22;
+/// How long the caret is on, then off.
+const BLINK: Duration = Duration::from_millis(530);
 /// Between the search field and the windows or results.
 const CONTENT_GAP: i32 = 40;
 const GRID_GAP: i32 = 28;
@@ -95,10 +99,15 @@ const THUMB_BACKGROUND: [f32; 4] = [0.0, 0.0, 0.0, 0.5];
 pub struct Overview {
     pub open: bool,
     query: String,
+    /// Where typing goes, as a character index into the query.
+    caret: usize,
+    /// Whether the caret is in the on phase of its blink.
+    caret_on: bool,
+    blink_timer: Option<RegistrationToken>,
+    /// The caret image for the current scale.
+    caret_image: Option<(u64, MemoryRenderBuffer)>,
     /// The highlighted window or result.
     selected: usize,
-    /// Today, as `date` prints it, read when the overview opens.
-    date: String,
     /// The installed applications, read when the overview opens.
     apps: Vec<DesktopApp>,
     /// The last file search's results.
@@ -149,9 +158,10 @@ struct Scene {
     output: Point<i32, Logical>,
     /// The overview's area: the output minus the panel.
     area: Rectangle<i32, Logical>,
-    date: String,
     query: String,
     search: Rectangle<i32, Logical>,
+    /// Where the caret goes, from the left of the output.
+    caret_x: i32,
     /// Where the windows or results go.
     content: Rectangle<i32, Logical>,
     items: Vec<Placed>,
@@ -205,8 +215,11 @@ impl Overview {
         Ok(Self {
             open: false,
             query: String::new(),
+            caret: 0,
+            caret_on: true,
+            blink_timer: None,
+            caret_image: None,
             selected: 0,
-            date: String::new(),
             apps: Vec::new(),
             files: Vec::new(),
             search_seq: 0,
@@ -217,6 +230,10 @@ impl Overview {
             scene: None,
             cache: None,
         })
+    }
+
+    pub fn has_text(&self) -> bool {
+        !self.query.is_empty()
     }
 
     fn app_info(&mut self, app_id: &str) -> AppInfo {
@@ -323,6 +340,31 @@ impl Overview {
         &self.cache.as_ref().expect("cache was just filled").2
     }
 
+    /// The caret, a bar in the text colour, drawn once per scale.
+    fn caret_image(&mut self, scale: f64) -> &MemoryRenderBuffer {
+        if self
+            .caret_image
+            .as_ref()
+            .is_none_or(|(cached, _)| *cached != scale.to_bits())
+        {
+            let width = (CARET_WIDTH as f64 * scale).round() as i32;
+            let height = (CARET_HEIGHT as f64 * scale).round() as i32;
+            let mut canvas = Canvas::new(width, height);
+            canvas.fill(TEXT_COLOR);
+            let image = canvas.into_image();
+            let buffer = MemoryRenderBuffer::from_slice(
+                &image.pixels,
+                Fourcc::Argb8888,
+                (image.width, image.height),
+                1,
+                Transform::Normal,
+                None,
+            );
+            self.caret_image = Some((scale.to_bits(), buffer));
+        }
+        &self.caret_image.as_ref().expect("cache was just filled").1
+    }
+
     /// The item under `pos`.
     fn item_at(&self, pos: Point<f64, Logical>) -> Option<usize> {
         let scene = self.scene.as_ref()?;
@@ -353,11 +395,12 @@ impl State {
         self.switcher.hide();
         self.overview.open = true;
         self.overview.query.clear();
+        self.overview.caret = 0;
         self.overview.selected = 0;
         self.overview.files.clear();
-        self.overview.date = today();
         self.overview.apps = apps::all_apps();
         self.overview.cache = None;
+        self.restart_blink();
         self.overview_panel(true);
         // Windows get no keys while the overview is open.
         self.set_keyboard_focus(None);
@@ -371,7 +414,9 @@ impl State {
         info!("overview closed");
         self.overview.open = false;
         self.overview.query.clear();
+        self.overview.caret = 0;
         self.overview.selected = 0;
+        self.stop_blink();
         self.overview.files.clear();
         self.overview.search_seq += 1;
         self.overview.scene = None;
@@ -382,22 +427,54 @@ impl State {
     }
 
     pub fn overview_type(&mut self, c: char) {
-        if c.is_control() {
+        if !self.overview.open || c.is_control() {
             return;
         }
-        self.overview.query.push(c);
+        let overview = &mut self.overview;
+        let at = char_to_byte(&overview.query, overview.caret);
+        overview.query.insert(at, c);
+        overview.caret += 1;
         self.query_changed();
     }
 
-    pub fn overview_backspace(&mut self) {
-        if self.overview.query.pop().is_some() {
+    pub fn overview_edit(&mut self, edit: Edit) {
+        if !self.overview.open {
+            return;
+        }
+        let overview = &mut self.overview;
+        if apply_edit(&mut overview.query, &mut overview.caret, edit) {
             self.query_changed();
+        } else {
+            self.restart_blink();
         }
     }
 
     fn query_changed(&mut self) {
         self.overview.selected = 0;
+        self.restart_blink();
         self.search_files();
+    }
+
+    /// Shows the caret and starts its blinking over, so it is on right
+    /// after typing.
+    fn restart_blink(&mut self) {
+        self.stop_blink();
+        self.overview.caret_on = true;
+        let timer = Timer::from_duration(BLINK);
+        let inserted = self.loop_handle.insert_source(timer, |_, _, state| {
+            state.overview.caret_on = !state.overview.caret_on;
+            TimeoutAction::ToDuration(BLINK)
+        });
+        match inserted {
+            Ok(token) => self.overview.blink_timer = Some(token),
+            Err(err) => warn!(%err, "failed to schedule the caret blinking"),
+        }
+    }
+
+    fn stop_blink(&mut self) {
+        if let Some(token) = self.overview.blink_timer.take() {
+            self.loop_handle.remove(token);
+        }
     }
 
     /// Runs the configured file search command with the query as `$1` on a
@@ -601,19 +678,30 @@ impl State {
             (items, 1, empty)
         };
         let search_width = SEARCH_WIDTH.min(area.size.w - 2 * MARGIN).max(0);
+        let search = Rectangle::new(
+            (
+                area.loc.x + (area.size.w - search_width) / 2,
+                area.loc.y + SEARCH_TOP,
+            )
+                .into(),
+            (search_width, SEARCH_HEIGHT).into(),
+        );
+        // The text is drawn at the output's scale, so the caret's place is
+        // measured there too.
+        let scale = output.current_scale().fractional_scale() as f32;
+        let before: String = query.chars().take(self.overview.caret).collect();
+        let typed = match self.overview.font.get_or_insert_with(load_font) {
+            Some(font) => text_width(font, &before, SEARCH_SIZE * scale) / scale,
+            None => 0.0,
+        };
+        let caret_x = (search.loc.x + SEARCH_PADDING + typed.round() as i32)
+            .min(search.loc.x + search.size.w - SEARCH_PADDING);
         Some(Scene {
             output: geometry.loc,
             area,
-            date: self.overview.date.clone(),
             query,
-            search: Rectangle::new(
-                (
-                    area.loc.x + (area.size.w - search_width) / 2,
-                    area.loc.y + SEARCH_TOP,
-                )
-                    .into(),
-                (search_width, SEARCH_HEIGHT).into(),
-            ),
+            search,
+            caret_x,
             content: content_area(area),
             selected: self.overview.selected.min(items.len().saturating_sub(1)),
             items,
@@ -662,7 +750,29 @@ impl State {
             return Vec::new();
         };
 
-        let mut elements = vec![SwitcherElement::Image(above)];
+        let mut elements = Vec::new();
+        if self.overview.caret_on {
+            let caret = self.overview.caret_image(scale);
+            let caret_top = scene.search.loc.y + (SEARCH_HEIGHT - CARET_HEIGHT) / 2;
+            let location = Point::<i32, Logical>::from((scene.caret_x, caret_top))
+                .to_f64()
+                .to_physical(scale)
+                .to_i32_round::<i32>();
+            let element = MemoryRenderBufferRenderElement::from_buffer(
+                renderer,
+                location.to_f64(),
+                caret,
+                None,
+                Some(image_src((CARET_WIDTH, CARET_HEIGHT).into(), scale)),
+                Some((CARET_WIDTH, CARET_HEIGHT).into()),
+                Kind::Unspecified,
+            );
+            match element {
+                Ok(element) => elements.push(SwitcherElement::Image(element)),
+                Err(err) => warn!(?err, "failed to draw the caret"),
+            }
+        }
+        elements.push(SwitcherElement::Image(above));
         for placed in &scene.items {
             let Item::Window { id, thumb, .. } = &placed.item else {
                 continue;
@@ -771,7 +881,7 @@ fn grid(
     (boxes, columns)
 }
 
-/// Draws the backdrop, date, search field, highlight, names and row icons,
+/// Draws the backdrop, search field, highlight, names and row icons,
 /// and separately the icons that go over the window thumbnails. `icons` has
 /// one entry per item.
 fn draw(
@@ -802,17 +912,6 @@ fn draw(
 
     below.fill(BACKDROP);
 
-    if let Some(font) = font {
-        below.centred_text(
-            font,
-            &scene.date,
-            style(DATE_SIZE, TEXT_COLOR),
-            width as f32 / 2.0,
-            width as f32 - 2.0 * MARGIN as f32 * s,
-            DATE_MIDDLE as f32 * s,
-        );
-    }
-
     let search = rect(scene.search);
     below.rounded_rect(search, search.3 / 2.0, FIELD);
     if let Some(font) = font {
@@ -829,24 +928,13 @@ fn draw(
                 middle,
             );
         } else {
-            let typed = below.left_text(
+            below.left_text(
                 font,
                 &scene.query,
                 style(SEARCH_SIZE, TEXT_COLOR),
                 left,
                 max_width,
                 middle,
-            );
-            let caret_height = SEARCH_SIZE * 1.3 * s;
-            below.rounded_rect(
-                (
-                    left + typed + 2.0 * s,
-                    middle - caret_height / 2.0,
-                    2.0 * s,
-                    caret_height,
-                ),
-                1.0 * s,
-                TEXT_COLOR,
             );
         }
     }
@@ -1061,16 +1149,83 @@ fn file_hit(path: &Path, home: &str) -> FileHit {
     }
 }
 
-/// Today's date in the user's language, such as "Friday 25 September 2026".
-fn today() -> String {
-    Command::new("date")
-        .arg("+%A %-d %B %Y")
-        .stdin(Stdio::null())
-        .output()
-        .ok()
-        .filter(|output| output.status.success())
-        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
-        .unwrap_or_default()
+/// The byte index of character `index` in `text`, or the end.
+fn char_to_byte(text: &str, index: usize) -> usize {
+    text.char_indices()
+        .nth(index)
+        .map(|(byte, _)| byte)
+        .unwrap_or(text.len())
+}
+
+/// Applies `edit` to `text` at `caret`, a character index, which it moves.
+/// Returns whether the text changed.
+fn apply_edit(text: &mut String, caret: &mut usize, edit: Edit) -> bool {
+    let chars: Vec<char> = text.chars().collect();
+    let len = chars.len();
+    *caret = (*caret).min(len);
+    let (start, end) = match edit {
+        Edit::Left => {
+            *caret = caret.saturating_sub(1);
+            return false;
+        }
+        Edit::Right => {
+            *caret = (*caret + 1).min(len);
+            return false;
+        }
+        Edit::Home => {
+            *caret = 0;
+            return false;
+        }
+        Edit::End => {
+            *caret = len;
+            return false;
+        }
+        Edit::WordLeft => {
+            *caret = word_start(&chars, *caret);
+            return false;
+        }
+        Edit::WordRight => {
+            *caret = word_end(&chars, *caret);
+            return false;
+        }
+        Edit::Backspace => (caret.saturating_sub(1), *caret),
+        Edit::Delete => (*caret, (*caret + 1).min(len)),
+        Edit::DeleteWordBack => (word_start(&chars, *caret), *caret),
+        Edit::DeleteWordForward => (*caret, word_end(&chars, *caret)),
+        Edit::Clear => (0, len),
+    };
+    if start == end {
+        return false;
+    }
+    *text = chars[..start].iter().chain(&chars[end..]).collect();
+    *caret = start;
+    true
+}
+
+/// The start of the word before `index`: back over spaces, then over the
+/// word.
+fn word_start(chars: &[char], index: usize) -> usize {
+    let mut i = index;
+    while i > 0 && chars[i - 1].is_whitespace() {
+        i -= 1;
+    }
+    while i > 0 && !chars[i - 1].is_whitespace() {
+        i -= 1;
+    }
+    i
+}
+
+/// The end of the word after `index`: forward over spaces, then over the
+/// word.
+fn word_end(chars: &[char], index: usize) -> usize {
+    let mut i = index;
+    while i < chars.len() && chars[i].is_whitespace() {
+        i += 1;
+    }
+    while i < chars.len() && !chars[i].is_whitespace() {
+        i += 1;
+    }
+    i
 }
 
 /// `path` quoted for `sh -c`.
@@ -1145,6 +1300,41 @@ mod tests {
     }
 
     #[test]
+    fn edits_work_on_characters_and_words() {
+        let mut text = String::from("héllo wörld  x");
+        let mut caret = text.chars().count();
+        assert!(!apply_edit(&mut text, &mut caret, Edit::Left));
+        assert_eq!(caret, 13);
+        assert!(apply_edit(&mut text, &mut caret, Edit::Backspace));
+        assert_eq!((text.as_str(), caret), ("héllo wörld x", 12));
+        // The space before the caret goes with the word.
+        assert!(apply_edit(&mut text, &mut caret, Edit::DeleteWordBack));
+        assert_eq!((text.as_str(), caret), ("héllo x", 6));
+        assert!(!apply_edit(&mut text, &mut caret, Edit::WordLeft));
+        assert_eq!(caret, 0);
+        assert!(!apply_edit(&mut text, &mut caret, Edit::Backspace));
+        assert!(!apply_edit(&mut text, &mut caret, Edit::WordRight));
+        assert_eq!(caret, 5);
+        assert!(apply_edit(&mut text, &mut caret, Edit::DeleteWordForward));
+        assert_eq!((text.as_str(), caret), ("héllo", 5));
+        assert!(!apply_edit(&mut text, &mut caret, Edit::Delete));
+        assert!(!apply_edit(&mut text, &mut caret, Edit::Left));
+        assert_eq!(caret, 4);
+        assert!(apply_edit(&mut text, &mut caret, Edit::Delete));
+        assert_eq!((text.as_str(), caret), ("héll", 4));
+        assert!(!apply_edit(&mut text, &mut caret, Edit::Home));
+        assert!(!apply_edit(&mut text, &mut caret, Edit::Right));
+        assert_eq!(caret, 1);
+        assert!(!apply_edit(&mut text, &mut caret, Edit::End));
+        assert_eq!(caret, 4);
+        assert!(apply_edit(&mut text, &mut caret, Edit::Clear));
+        assert_eq!((text.as_str(), caret), ("", 0));
+        assert!(!apply_edit(&mut text, &mut caret, Edit::Clear));
+        assert_eq!(char_to_byte("héllo", 2), 3);
+        assert_eq!(char_to_byte("héllo", 9), 6);
+    }
+
+    #[test]
     fn quoting_survives_apostrophes() {
         assert_eq!(quote(Path::new("/a b/c'd")), "'/a b/c'\\''d'");
     }
@@ -1154,9 +1344,9 @@ mod tests {
         let scene = Scene {
             output: (0, 0).into(),
             area: area(800, 600),
-            date: String::new(),
             query: "fi".into(),
             search: Rectangle::new((80, SEARCH_TOP).into(), (640, SEARCH_HEIGHT).into()),
+            caret_x: 120,
             content: content_area(area(800, 600)),
             items: vec![Placed {
                 tile: Rectangle::new((40, 160).into(), (720, ROW_HEIGHT).into()),

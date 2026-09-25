@@ -80,6 +80,8 @@ render_elements! {
     pub SwitcherElement<=GlesRenderer>;
     Image=MemoryRenderBufferRenderElement<GlesRenderer>,
     Thumbnail=CropRenderElement<RescaleRenderElement<WaylandSurfaceRenderElement<GlesRenderer>>>,
+    /// A surface drawn as it is, such as the panel sliding in.
+    Surface=WaylandSurfaceRenderElement<GlesRenderer>,
 }
 
 /// One window or group in the switcher.

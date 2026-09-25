@@ -57,8 +57,7 @@ impl State {
         let serial = SERIAL_COUNTER.next_serial();
         let time = Event::time_msec(&event);
 
-        // Any other key, or releasing the held one, stops a repeating
-        // brightness or volume key.
+        // Any other key, or releasing the held one, stops a repeating key.
         if pressed
             || self
                 .key_repeat
@@ -103,6 +102,7 @@ impl State {
                     .is_some_and(|id| state.groups.group_of(id).is_some());
                 state.bindings.locked = state.is_locked();
                 state.bindings.overview = state.overview.open;
+                state.bindings.overview_text = state.overview.has_text();
                 let outcome = state.bindings.key(keycode.raw(), key, pressed, mods);
                 action = outcome.action;
                 if action == Some(Action::OverviewType) {
@@ -116,26 +116,33 @@ impl State {
             },
         );
 
-        if let Some(c) = typed {
-            self.overview_type(c);
-        } else if let Some(action) = action {
-            self.run_action(action);
-            if let Action::Run(command) = action
-                && command.repeats()
-            {
-                self.start_key_repeat(keycode.raw(), command);
+        if let Some(action) = action {
+            self.perform(action, typed);
+            if action.repeats() {
+                self.start_key_repeat(keycode.raw(), action, typed);
             }
         }
     }
 
-    /// Runs `command` again at the key repeat rate while its key is held,
-    /// after the usual repeat delay.
-    fn start_key_repeat(&mut self, keycode: u32, command: Command) {
+    /// Runs `action`; `typed` is the character of a key typed into the
+    /// overview's search.
+    fn perform(&mut self, action: Action, typed: Option<char>) {
+        match (action, typed) {
+            (Action::OverviewType, Some(c)) => self.overview_type(c),
+            (Action::OverviewType, None) => {}
+            (action, _) => self.run_action(action),
+        }
+    }
+
+    /// Runs `action` again at the key repeat rate while its key is held,
+    /// after the usual repeat delay. Clients repeat keys themselves, but
+    /// these never reach one.
+    fn start_key_repeat(&mut self, keycode: u32, action: Action, typed: Option<char>) {
         let delay = Duration::from_millis(self.config.keyboard.repeat_delay as u64);
         let interval = Duration::from_millis(1000 / self.config.keyboard.repeat_rate as u64);
         let timer = Timer::from_duration(delay);
         let inserted = self.loop_handle.insert_source(timer, move |_, _, state| {
-            state.run_command(command);
+            state.perform(action, typed);
             TimeoutAction::ToDuration(interval)
         });
         match inserted {
@@ -144,7 +151,7 @@ impl State {
         }
     }
 
-    /// Stops repeating a held brightness or volume key, if one repeats.
+    /// Stops repeating a held key, if one repeats.
     pub fn stop_key_repeat(&mut self) {
         if let Some((_, token)) = self.key_repeat.take() {
             self.loop_handle.remove(token);
@@ -157,7 +164,7 @@ impl State {
             Action::CloseOverview => self.close_overview(),
             Action::OverviewActivate => self.overview_activate(),
             Action::OverviewMove(direction) => self.overview_move(direction),
-            Action::OverviewBackspace => self.overview_backspace(),
+            Action::OverviewEdit(edit) => self.overview_edit(edit),
             // Handled above, where the key's character is known.
             Action::OverviewType => {}
             Action::Snap {
@@ -395,6 +402,9 @@ fn classify(sym: Keysym) -> Key {
         Keysym::Up => Key::Arrow(Direction::Up),
         Keysym::Down => Key::Arrow(Direction::Down),
         Keysym::BackSpace => Key::Backspace,
+        Keysym::Delete | Keysym::KP_Delete => Key::Delete,
+        Keysym::Home | Keysym::KP_Home => Key::Home,
+        Keysym::End | Keysym::KP_End => Key::End,
         Keysym::F4 => Key::F4,
         Keysym::Return | Keysym::KP_Enter => Key::Return,
         // Letters as lowercase, so Caps Lock makes no difference.
