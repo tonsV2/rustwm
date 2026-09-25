@@ -1,5 +1,5 @@
 //! wlr-layer-shell: surfaces anchored to an output rather than managed as
-//! windows. Fuzzel draws itself as one of these.
+//! windows. The panel and notifications draw themselves as these.
 
 use smithay::{
     backend::renderer::utils::with_renderer_surface_state,
@@ -101,7 +101,7 @@ pub fn handle_commit(state: &mut State, surface: &WlSurface) {
         state.relayout_output(&output);
     }
 
-    // A launcher on the top or overlay layer that wants the keyboard gets it
+    // A surface on the top or overlay layer that wants the keyboard gets it
     // as soon as it is visible, and keeps it until it goes away.
     let mapped = with_renderer_surface_state(surface, |s| s.buffer().is_some()).unwrap_or(false);
     state.panel_committed(surface, mapped);

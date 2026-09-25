@@ -12,7 +12,7 @@ use std::{
 
 use tracing::{info, warn};
 
-use crate::launcher::is_on_path;
+use crate::session::is_on_path;
 
 const COMMAND: &str = "xwayland-satellite";
 

@@ -1,4 +1,4 @@
-//! The panel is an outside layer-shell bar (Waybar through `rustwm-panel`). rustwm only starts it and, in auto-hide mode, keeps it off screen until the pointer touches the screen edge it sits on.
+//! The panel is an outside layer-shell bar (Waybar through `rustwm-panel`). rustwm only starts it and, in auto-hide mode, keeps it off screen until the pointer touches the screen edge it sits on. While it is on screen the windows are laid out beside it, as they always are in the always shown mode, so it pushes them aside rather than covering them. It also stays on screen while the overview is open.
 
 use std::time::Duration;
 
@@ -90,7 +90,7 @@ impl State {
         let Some((output, _)) = self.panel.surface.clone() else {
             return;
         };
-        if self.is_locked() {
+        if self.is_locked() || self.overview.open {
             return;
         }
         if !self.panel.shown {
@@ -152,6 +152,33 @@ impl State {
                 .is_some_and(|geo| geo.to_f64().contains(pos))
     }
 
+    /// Keeps the panel on screen while the overview is open, as part of the
+    /// picture, and lets it hide again afterwards. Windows are not pushed
+    /// aside for it meanwhile, since the overview covers them; if the panel
+    /// stays because the pointer is on it, they are pushed once the overview
+    /// closes.
+    pub fn overview_panel(&mut self, open: bool) {
+        if !self.auto_hide() {
+            return;
+        }
+        if open {
+            self.cancel_panel_hide();
+            if !self.panel.shown {
+                self.show_panel();
+            }
+        } else if self.panel.shown {
+            if self.panel_in_use() {
+                if let Some((output, _)) = self.panel.surface.clone() {
+                    self.relayout_output(&output);
+                }
+            } else {
+                self.hide_panel();
+            }
+        }
+    }
+
+    /// Shows the panel and, unless the overview is open, lays the windows
+    /// out beside it.
     fn show_panel(&mut self) {
         let Some((output, layer)) = self.panel.surface.clone() else {
             return;
@@ -162,15 +189,26 @@ impl State {
             return;
         }
         map.arrange();
+        drop(map);
         self.panel.shown = true;
+        if !self.overview.open {
+            self.relayout_output(&output);
+        }
     }
 
+    /// Hides the panel and gives the windows its room back.
     fn hide_panel(&mut self) {
         let Some((output, layer)) = self.panel.surface.clone() else {
             return;
         };
-        layer_map_for_output(&output).unmap_layer(&layer);
+        let mut map = layer_map_for_output(&output);
+        map.unmap_layer(&layer);
+        map.arrange();
+        drop(map);
         self.panel.shown = false;
+        if !self.overview.open {
+            self.relayout_output(&output);
+        }
     }
 
     fn cancel_panel_hide(&mut self) {

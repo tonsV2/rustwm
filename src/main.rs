@@ -9,11 +9,12 @@ mod handlers;
 mod input;
 mod keyboard;
 mod keymap;
-mod launcher;
 mod layout;
 mod osd;
+mod overview;
 mod panel;
 mod reload;
+mod session;
 mod state;
 mod switcher;
 mod udev;
@@ -89,7 +90,7 @@ fn main() -> anyhow::Result<()> {
     state.xwayland = xwayland::Satellite::start(&state.socket_name);
     let x_display = state.xwayland.as_ref().map(|s| s.display.clone());
     let graphical_session =
-        launcher::export_to_dbus(&state.socket_name, x_display.as_deref(), nested);
+        session::export_to_dbus(&state.socket_name, x_display.as_deref(), nested);
     let notifications = &state.config.notifications.command;
     if !notifications.is_empty() {
         info!(command = notifications, "starting notifications");
@@ -107,7 +108,7 @@ fn main() -> anyhow::Result<()> {
         .context("event loop failed");
 
     if graphical_session {
-        launcher::stop_session_target();
+        session::stop_session_target();
     }
     info!("rustwm exiting");
     result

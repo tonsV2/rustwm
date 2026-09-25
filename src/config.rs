@@ -23,6 +23,7 @@ pub struct Config {
     pub autostart: AutostartConfig,
     pub panel: PanelConfig,
     pub notifications: NotificationsConfig,
+    pub overview: OverviewConfig,
 }
 
 #[derive(Debug, Default, Deserialize, PartialEq)]
@@ -205,6 +206,28 @@ impl Default for NotificationsConfig {
         }
     }
 }
+
+/// The Super tap overview.
+#[derive(Debug, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct OverviewConfig {
+    /// The command the overview's search runs for files, with `sh -c` and
+    /// the typed text as `$1`. It prints one path per line. Empty means
+    /// applications only.
+    pub file_search: String,
+}
+
+impl Default for OverviewConfig {
+    fn default() -> Self {
+        Self {
+            file_search: FILE_SEARCH.into(),
+        }
+    }
+}
+
+/// Files under the home directory whose path contains the text, leaving
+/// out hidden directories, from the plocate database.
+const FILE_SEARCH: &str = "plocate -i -- \"$HOME/\" \"$1\" | grep -v '/\\.' | head -20";
 
 /// Programs started once the Wayland socket is ready, such as swayidle.
 #[derive(Debug, Default, Deserialize, PartialEq)]
@@ -456,6 +479,13 @@ mod tests {
         );
         let config = Config::parse("[notifications]\ncommand = \"\"\n").unwrap();
         assert!(config.notifications.command.is_empty());
+    }
+
+    #[test]
+    fn overview_parses() {
+        assert_eq!(Config::default().overview.file_search, FILE_SEARCH);
+        let config = Config::parse("[overview]\nfile_search = \"\"\n").unwrap();
+        assert!(config.overview.file_search.is_empty());
     }
 
     #[test]

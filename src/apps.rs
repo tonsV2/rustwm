@@ -1,7 +1,9 @@
-//! Application names and icons, looked up from desktop files and icon
-//! themes by a window's app id.
+//! Applications as the desktop knows them: names and icons looked up from
+//! desktop files and icon themes by a window's app id, and the list of
+//! installed applications for the overview's search.
 
 use std::{
+    collections::HashSet,
     env, fs,
     path::{Path, PathBuf},
 };
@@ -61,11 +63,110 @@ fn render_found_icon(path: &Path, size: u32) -> Option<tiny_skia::Pixmap> {
     pixmap
 }
 
+/// An installed application, from its desktop file, as the overview's
+/// search shows and starts it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DesktopApp {
+    /// The desktop file, which `gio launch` starts.
+    pub path: PathBuf,
+    pub name: String,
+    /// What the application is, such as "Web Browser", from its generic
+    /// name or comment.
+    pub detail: String,
+    pub icon: Option<String>,
+    /// Everything else a search may match, lowercased: keywords and the
+    /// generic name.
+    keywords: String,
+}
+
+impl DesktopApp {
+    /// How well the app matches `query` (lowercased, not empty): 0 for a
+    /// name starting with it, 1 for a word of the name, 2 for anywhere in
+    /// the name, 3 for the keywords or generic name, `None` for no match.
+    pub fn score(&self, query: &str) -> Option<u8> {
+        let name = self.name.to_lowercase();
+        if name.starts_with(query) {
+            Some(0)
+        } else if name.split_whitespace().any(|word| word.starts_with(query)) {
+            Some(1)
+        } else if name.contains(query) {
+            Some(2)
+        } else if self.keywords.contains(query) {
+            Some(3)
+        } else {
+            None
+        }
+    }
+}
+
+/// Every application with a desktop file that is meant to be shown in
+/// menus, sorted by name. A desktop file in an earlier data directory hides
+/// one of the same name later on, as the desktop file specification says.
+pub fn all_apps() -> Vec<DesktopApp> {
+    let mut seen = HashSet::new();
+    let mut apps = Vec::new();
+    for dir in data_dirs().map(|dir| dir.join("applications")) {
+        let Ok(entries) = fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.filter_map(Result::ok) {
+            let path = entry.path();
+            if path.extension().is_none_or(|ext| ext != "desktop") {
+                continue;
+            }
+            let Some(file) = path.file_name().map(|f| f.to_os_string()) else {
+                continue;
+            };
+            if !seen.insert(file) {
+                continue;
+            }
+            let Ok(text) = fs::read_to_string(&path) else {
+                continue;
+            };
+            if let Some(app) = desktop_app(path, &parse_desktop_entry(&text)) {
+                apps.push(app);
+            }
+        }
+    }
+    apps.sort_by_key(|app| app.name.to_lowercase());
+    apps
+}
+
+fn desktop_app(path: PathBuf, entry: &DesktopEntry) -> Option<DesktopApp> {
+    if entry.no_display || entry.hidden || entry.kind.as_deref().is_some_and(|k| k != "Application")
+    {
+        return None;
+    }
+    let name = entry.name.clone()?;
+    let generic = entry.generic_name.clone().unwrap_or_default();
+    let keywords =
+        format!("{} {}", entry.keywords.as_deref().unwrap_or(""), generic).to_lowercase();
+    Some(DesktopApp {
+        path,
+        detail: if generic.is_empty() {
+            entry.comment.clone().unwrap_or_default()
+        } else {
+            generic
+        },
+        name,
+        icon: entry.icon.clone(),
+        keywords,
+    })
+}
+
 #[derive(Debug, Default, PartialEq, Eq)]
 struct DesktopEntry {
     name: Option<String>,
+    generic_name: Option<String>,
+    comment: Option<String>,
     icon: Option<String>,
     wm_class: Option<String>,
+    /// Semicolon separated.
+    keywords: Option<String>,
+    /// The `Type` key: only "Application" entries can be started.
+    kind: Option<String>,
+    no_display: bool,
+    hidden: bool,
 }
 
 fn find_desktop_entry(app_id: &str) -> Option<DesktopEntry> {
@@ -116,14 +217,27 @@ fn parse_desktop_entry(text: &str) -> DesktopEntry {
         let Some((key, value)) = line.split_once('=') else {
             continue;
         };
+        let value = value.trim();
         let field = match key.trim() {
             "Name" => &mut entry.name,
+            "GenericName" => &mut entry.generic_name,
+            "Comment" => &mut entry.comment,
             "Icon" => &mut entry.icon,
             "StartupWMClass" => &mut entry.wm_class,
+            "Keywords" => &mut entry.keywords,
+            "Type" => &mut entry.kind,
+            "NoDisplay" => {
+                entry.no_display = value == "true";
+                continue;
+            }
+            "Hidden" => {
+                entry.hidden = value == "true";
+                continue;
+            }
             _ => continue,
         };
-        if field.is_none() && !value.trim().is_empty() {
-            *field = Some(value.trim().to_string());
+        if field.is_none() && !value.is_empty() {
+            *field = Some(value.to_string());
         }
     }
     entry
@@ -280,12 +394,40 @@ mod tests {
                 name: Some("Ghostty".into()),
                 icon: Some("com.mitchellh.ghostty".into()),
                 wm_class: Some("com.mitchellh.ghostty".into()),
+                kind: Some("Application".into()),
+                ..DesktopEntry::default()
             }
         );
         assert_eq!(
             parse_desktop_entry("[Other]\nName=X\n"),
             DesktopEntry::default()
         );
+    }
+
+    #[test]
+    fn hidden_and_non_application_entries_are_not_apps() {
+        let path = PathBuf::from("/usr/share/applications/x.desktop");
+        let app = |text: &str| desktop_app(path.clone(), &parse_desktop_entry(text));
+        let firefox = app("[Desktop Entry]\nType=Application\nName=Firefox\nGenericName=Web Browser\nKeywords=Internet;WWW;\nIcon=firefox\n").unwrap();
+        assert_eq!(firefox.name, "Firefox");
+        assert_eq!(firefox.detail, "Web Browser");
+        assert_eq!(firefox.icon.as_deref(), Some("firefox"));
+        assert_eq!(firefox.score("fire"), Some(0));
+        assert_eq!(firefox.score("www"), Some(3));
+        assert_eq!(firefox.score("browser"), Some(3));
+        assert_eq!(firefox.score("chrome"), None);
+
+        let comment =
+            app("[Desktop Entry]\nType=Application\nName=Text Editor\nComment=Edit text files\n")
+                .unwrap();
+        assert_eq!(comment.detail, "Edit text files");
+        assert_eq!(comment.score("edit"), Some(1));
+        assert_eq!(comment.score("xt ed"), Some(2));
+
+        assert!(app("[Desktop Entry]\nType=Application\nName=X\nNoDisplay=true\n").is_none());
+        assert!(app("[Desktop Entry]\nType=Application\nName=X\nHidden=true\n").is_none());
+        assert!(app("[Desktop Entry]\nType=Link\nName=X\n").is_none());
+        assert!(app("[Desktop Entry]\nType=Application\n").is_none());
     }
 
     #[test]

@@ -13,11 +13,12 @@ for dir in "${XDG_CONFIG_HOME:-$HOME/.config}/rustwm/waybar" "$here/waybar" "$he
 done
 [[ -r "$dir/config.jsonc" ]] || { echo "rustwm-panel: no waybar config found" >&2; exit 1; }
 
-# Auto-hide shows the panel over windows; always keeps room for it.
+# Windows are laid out beside the panel whenever it is on screen. Auto-hide puts it on the overlay layer, above everything, for the moments it shows.
+exclusive=true
 if [[ "$mode" == always ]]; then
-    layer=top exclusive=true
+    layer=top
 else
-    layer=overlay exclusive=false
+    layer=overlay
 fi
 
 runtime="${XDG_RUNTIME_DIR:-/tmp}/rustwm"
