@@ -50,8 +50,12 @@ screenshot_area = 'area="$(slurp)" && mkdir -p ~/Pictures/Screenshots && grim -g
 terminal = "rustwm-terminal"
 file_manager = 'xdg-open "$HOME"'
 browser = 'gtk-launch "$(xdg-settings get default-web-browser)"'
-# `-f` returns once the screen is locked, `-c` sets the colour.
-lock = "swaylock -f -c 000000"
+# `-f` returns once the screen is locked, `-c` sets the colour, and the ring is shown all along rather than only while typing, so the lock screen is visibly lit when a key or the touchpad brings it up.
+lock = "swaylock -f -c 000000 --indicator-idle-visible"
+
+[lock]
+# How long the screen takes to fade to black before an idle timeout longer than that (swayidle's lock below) fires, in milliseconds. Any key or pointer movement during the fade brings the screen back. 0 leaves the screen as it is until the lock.
+fade_ms = 10000
 
 [osd]
 # After a brightness or volume key, show the new level near the bottom of
@@ -82,6 +86,6 @@ command = "rustwm-notifications"
 [autostart]
 # Started once when rustwm is ready, each with `sh -c`, with the same environment as apps started from the overview. They stop on their own when rustwm exits and its Wayland socket goes away. swayidle locks after 5 minutes without input, turns the monitor off after 10, and locks before suspend. nm-applet puts NetworkManager in the panel's tray, for picking a wifi network.
 commands = [
-    "swayidle -w timeout 300 'swaylock -f -c 000000' timeout 600 'wlopm --off \"*\"' resume 'wlopm --on \"*\"' before-sleep 'swaylock -f -c 000000'",
+    "swayidle -w timeout 300 'swaylock -f -c 000000 --indicator-idle-visible' timeout 600 'wlopm --off \"*\"' resume 'wlopm --on \"*\"' before-sleep 'swaylock -f -c 000000 --indicator-idle-visible'",
     "nm-applet --indicator",
 ]

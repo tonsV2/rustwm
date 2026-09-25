@@ -26,6 +26,7 @@ pub struct Config {
     pub panel: PanelConfig,
     pub notifications: NotificationsConfig,
     pub overview: OverviewConfig,
+    pub lock: LockConfig,
 }
 
 #[derive(Debug, Default, Deserialize, PartialEq)]
@@ -148,7 +149,7 @@ impl Default for CommandsConfig {
             terminal: "rustwm-terminal".into(),
             file_manager: "xdg-open \"$HOME\"".into(),
             browser: "gtk-launch \"$(xdg-settings get default-web-browser)\"".into(),
-            lock: "swaylock -f -c 000000".into(),
+            lock: "swaylock -f -c 000000 --indicator-idle-visible".into(),
             screenshot_area: SCREENSHOT_AREA.into(),
         }
     }
@@ -230,6 +231,22 @@ impl Default for OverviewConfig {
 /// Files under the home directory whose path contains the text, leaving
 /// out hidden directories, from the plocate database.
 const FILE_SEARCH: &str = "plocate -i -- \"$HOME/\" \"$1\" | grep -v '/\\.' | head -20";
+
+/// The screen lock's fade to black.
+#[derive(Debug, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct LockConfig {
+    /// How long the screen takes to fade to black before an idle timeout
+    /// longer than that, such as swayidle's lock, fires, in milliseconds.
+    /// 0 leaves the screen as it is until the lock.
+    pub fade_ms: u64,
+}
+
+impl Default for LockConfig {
+    fn default() -> Self {
+        Self { fade_ms: 10000 }
+    }
+}
 
 /// Programs started once the Wayland socket is ready, such as swayidle.
 #[derive(Debug, Default, Deserialize, PartialEq)]
@@ -449,7 +466,11 @@ mod tests {
     fn sample_config_parses() {
         let sample = include_str!("../resources/config.toml");
         let config = Config::parse(sample).unwrap();
-        assert_eq!(config.commands.app(App::Lock), "swaylock -f -c 000000");
+        assert_eq!(
+            config.commands.app(App::Lock),
+            "swaylock -f -c 000000 --indicator-idle-visible"
+        );
+        assert_eq!(config.lock, LockConfig::default());
         assert_eq!(config.commands.terminal, CommandsConfig::default().terminal);
     }
 
@@ -497,6 +518,14 @@ mod tests {
         assert_eq!(Config::default().overview.file_search, FILE_SEARCH);
         let config = Config::parse("[overview]\nfile_search = \"\"\n").unwrap();
         assert!(config.overview.file_search.is_empty());
+    }
+
+    #[test]
+    fn lock_parses() {
+        assert_eq!(Config::default().lock.fade_ms, 10000);
+        let config = Config::parse("[lock]\nfade_ms = 0\n").unwrap();
+        assert_eq!(config.lock.fade_ms, 0);
+        assert!(Config::parse("[lock]\nfade = 5\n").is_err());
     }
 
     #[test]

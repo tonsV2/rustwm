@@ -3,6 +3,7 @@ mod capture;
 mod commands;
 mod config;
 mod cursor;
+mod fade;
 mod focus;
 mod group;
 mod handlers;

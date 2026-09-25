@@ -38,7 +38,6 @@ use smithay::{
         dmabuf::DmabufState,
         fractional_scale::FractionalScaleManagerState,
         idle_inhibit::IdleInhibitManagerState,
-        idle_notify::IdleNotifierState,
         output::OutputManagerState,
         selection::{data_device::DataDeviceState, primary_selection::PrimarySelectionState},
         session_lock::SessionLockManagerState,
@@ -57,9 +56,10 @@ use tracing::{error, info, warn};
 use crate::{
     capture::{image_copy::ImageCopyState, screencopy::ScreencopyState},
     config::{Config, KeyboardConfig},
+    fade::Fade,
     focus::{FocusHistory, WindowId},
     group::Groups,
-    handlers::{OutputPowerState, ScreenLock},
+    handlers::{IdleNotifyState, OutputPowerState, ScreenLock},
     keyboard::Bindings,
     keymap,
     layout::{Layout, Rect},
@@ -121,7 +121,7 @@ pub struct State {
     pub screencopy_state: ScreencopyState,
     pub image_copy_state: ImageCopyState,
     pub session_lock_state: SessionLockManagerState,
-    pub idle_notifier_state: IdleNotifierState<State>,
+    pub idle_notify: IdleNotifyState,
     #[allow(dead_code)]
     pub idle_inhibit_state: IdleInhibitManagerState,
     pub output_power: OutputPowerState,
@@ -171,6 +171,8 @@ pub struct State {
     /// Surfaces whose clients asked to keep the session from going idle,
     /// such as a video player. Only visible ones count.
     pub idle_inhibitors: Vec<WlSurface>,
+    /// The screen fading to black before the lock and back on input.
+    pub fade: Fade,
 }
 
 impl State {
@@ -196,7 +198,7 @@ impl State {
         let screencopy_state = ScreencopyState::new::<Self>(&dh);
         let image_copy_state = ImageCopyState::new::<Self>(&dh);
         let session_lock_state = SessionLockManagerState::new::<Self, _>(&dh, |_| true);
-        let idle_notifier_state = IdleNotifierState::new(&dh, event_loop.handle());
+        let idle_notify = IdleNotifyState::new(&dh);
         let idle_inhibit_state = IdleInhibitManagerState::new::<Self>(&dh);
         let output_power = OutputPowerState::new(&dh);
         let data_device_state = DataDeviceState::new::<Self>(&dh);
@@ -232,7 +234,7 @@ impl State {
             screencopy_state,
             image_copy_state,
             session_lock_state,
-            idle_notifier_state,
+            idle_notify,
             idle_inhibit_state,
             output_power,
             seat_state,
@@ -259,6 +261,7 @@ impl State {
             layer_focus: None,
             screen_lock: ScreenLock::default(),
             idle_inhibitors: Vec::new(),
+            fade: Fade::default(),
         })
     }
 

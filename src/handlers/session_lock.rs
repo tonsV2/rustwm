@@ -28,7 +28,10 @@ use smithay::{
 };
 use tracing::{info, warn};
 
-use crate::state::State;
+use crate::{
+    fade::{LOCK_FADE, WAKE_FADE},
+    state::State,
+};
 
 /// Behind the lock screen, and all there is until the locker draws one.
 pub const LOCKED_BACKGROUND: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
@@ -60,6 +63,22 @@ pub struct ScreenLock {
 impl State {
     pub fn is_locked(&self) -> bool {
         !matches!(self.screen_lock.lock, Lock::Unlocked)
+    }
+
+    /// Whether a lock was asked for and is not yet confirmed.
+    pub fn is_locking(&self) -> bool {
+        matches!(self.screen_lock.lock, Lock::Locking(_))
+    }
+
+    /// Whether the lock has taken the windows off the screen: locked, or
+    /// locking once the fade to black is over. Until then the windows are
+    /// still drawn, darkening, and no frame counts as locked.
+    pub fn lock_hides_windows(&self) -> bool {
+        match self.screen_lock.lock {
+            Lock::Unlocked => false,
+            Lock::Locked => true,
+            Lock::Locking(_) => self.fade.is_dark(std::time::Instant::now()),
+        }
     }
 
     /// The lock surface shown on `output`, if the locker has made one.
@@ -158,10 +177,16 @@ impl SessionLockHandler for State {
         info!("locking session");
         self.screen_lock.lock = Lock::Locking(confirmation);
         self.start_lock();
-        // Nothing is on screen that could give away the session, such as
-        // while another VT is active or the monitor is off, so the next
-        // frame shown will be locked.
-        if !self.is_showing() {
+        if self.is_showing() {
+            // The windows fade to black; the first frame without them
+            // confirms the lock. The screen then stays black until input
+            // brings the lock screen up.
+            self.fade.fade_to(1.0, LOCK_FADE);
+        } else {
+            // Nothing is on screen that could give away the session, such as
+            // while another VT is active or the monitor is off, so the next
+            // frame shown will be locked.
+            self.fade.set(1.0);
             self.lock_frame_shown();
         }
     }
@@ -169,6 +194,9 @@ impl SessionLockHandler for State {
     fn unlock(&mut self) {
         info!("session unlocked");
         self.screen_lock = ScreenLock::default();
+        // Unlocked from elsewhere while the screen was black, the desktop
+        // fades in.
+        self.fade.fade_to(0.0, WAKE_FADE);
         // Focus returns to the window that had it.
         self.sync_focus();
         self.refresh_pointer_focus();

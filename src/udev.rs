@@ -530,7 +530,7 @@ fn on_vblank(state: &mut State, crtc: crtc::Handle) {
 /// When nothing changed no page flip happens, so no vblank will arrive to
 /// trigger the next frame; a timer at the refresh interval takes its place.
 pub fn render(state: &mut State) {
-    let locked = state.is_locked();
+    let hidden = state.lock_hides_windows();
     let output = match &state.backend {
         Backend::Udev(UdevData {
             active: true,
@@ -545,9 +545,10 @@ pub fn render(state: &mut State) {
         return;
     }
     let switcher = match &output {
-        Some(output) if !locked => state.overlay_elements(output),
+        Some(output) if !hidden => state.overlay_elements(output),
         _ => Vec::new(),
     };
+    let fade = output.as_ref().and_then(|o| state.fade.element(o));
     let lock_surface = output
         .as_ref()
         .and_then(|o| state.lock_surface(o))
@@ -576,7 +577,13 @@ pub fn render(state: &mut State) {
 
     let mut elements: Vec<OutputElements> = Vec::new();
 
-    // The cursor comes first: elements are ordered front to back.
+    // Elements are ordered front to back. The fade to black comes first,
+    // in front of the cursor too, then the cursor.
+    let fading = fade.is_some();
+    elements.extend(
+        fade.map(SwitcherElement::Solid)
+            .map(OutputElements::Switcher),
+    );
     let scale = Scale::from(screen.output.current_scale().fractional_scale());
     elements.extend(cursor_elements(
         &mut udev.renderer,
@@ -588,7 +595,7 @@ pub fn render(state: &mut State) {
 
     // While locked, the lock screen replaces windows, layer surfaces and
     // overlays. It has the same element type as a cursor surface.
-    if locked {
+    if hidden {
         if let Some(surface) = &lock_surface {
             elements.extend(render_elements_from_surface_tree(
                 &mut udev.renderer,
@@ -608,33 +615,39 @@ pub fn render(state: &mut State) {
         }
     }
 
-    let background = if locked {
+    let background = if hidden {
         LOCKED_BACKGROUND
     } else {
         BACKGROUND
     };
-    let (queued, unchanged) = match screen.drm_output.render_frame(
-        &mut udev.renderer,
-        &elements,
-        background,
-        FrameFlags::DEFAULT,
-    ) {
-        Ok(result) if !result.is_empty => match screen.drm_output.queue_frame(()) {
-            Ok(()) => (true, false),
+    // While fading, the cursor must not go on a plane of its own, which
+    // would leave it lit in front of the fade.
+    let flags = if fading {
+        FrameFlags::empty()
+    } else {
+        FrameFlags::DEFAULT
+    };
+    let (queued, unchanged) =
+        match screen
+            .drm_output
+            .render_frame(&mut udev.renderer, &elements, background, flags)
+        {
+            Ok(result) if !result.is_empty => match screen.drm_output.queue_frame(()) {
+                Ok(()) => (true, false),
+                Err(err) => {
+                    warn!(?err, "failed to queue frame");
+                    (false, false)
+                }
+            },
+            Ok(_) => (false, true),
             Err(err) => {
-                warn!(?err, "failed to queue frame");
+                warn!(?err, "failed to render frame");
                 (false, false)
             }
-        },
-        Ok(_) => (false, true),
-        Err(err) => {
-            warn!(?err, "failed to render frame");
-            (false, false)
-        }
-    };
+        };
 
     udev.render_pending = true;
-    udev.lock_frame_queued = locked && queued;
+    udev.lock_frame_queued = hidden && queued;
     if !queued {
         let _ = loop_handle.insert_source(Timer::from_duration(screen.refresh), |_, _, state| {
             if let Backend::Udev(udev) = &mut state.backend {
@@ -647,7 +660,7 @@ pub fn render(state: &mut State) {
 
     let output = screen.output.clone();
     // Nothing changed since a frame that was already drawn locked.
-    if locked && unchanged {
+    if hidden && unchanged {
         state.lock_frame_shown();
     }
     crate::capture::render_queued(state, &output);

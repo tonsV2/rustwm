@@ -159,17 +159,23 @@ fn render(state: &mut State) {
     };
     let output = winit.output.clone();
     // While locked (or with the output off) only the lock screen is drawn,
-    // over a solid colour: no windows, layer surfaces or overlays.
-    let hidden = state.is_locked() || state.is_powered_off(&output);
+    // over a solid colour: no windows, layer surfaces or overlays. A lock
+    // being put up hides them once its fade to black is over.
+    let hidden = state.lock_hides_windows() || state.is_powered_off(&output);
     let lock_surface = state
         .lock_surface(&output)
         .filter(|_| !state.is_powered_off(&output))
         .map(|s| s.wl_surface().clone());
-    let overlay = if hidden {
-        Vec::new()
-    } else {
-        state.overlay_elements(&output)
-    };
+    // The fade to black goes in front of everything else.
+    let mut overlay: Vec<SwitcherElement> = state
+        .fade
+        .element(&output)
+        .map(SwitcherElement::Solid)
+        .into_iter()
+        .collect();
+    if !hidden {
+        overlay.extend(state.overlay_elements(&output));
+    }
     let Backend::Winit(winit) = &mut state.backend else {
         return;
     };
@@ -178,8 +184,9 @@ fn render(state: &mut State) {
     let rendered = match winit.backend.bind() {
         Ok((renderer, mut framebuffer)) if hidden => {
             let scale = output.current_scale().fractional_scale();
-            let elements: Vec<WaylandSurfaceRenderElement<GlesRenderer>> = lock_surface
-                .map(|surface| {
+            let mut elements = overlay;
+            if let Some(surface) = lock_surface {
+                let surface: Vec<WaylandSurfaceRenderElement<GlesRenderer>> =
                     render_elements_from_surface_tree(
                         renderer,
                         &surface,
@@ -187,9 +194,9 @@ fn render(state: &mut State) {
                         scale,
                         1.0,
                         Kind::Unspecified,
-                    )
-                })
-                .unwrap_or_default();
+                    );
+                elements.extend(surface.into_iter().map(SwitcherElement::Surface));
+            }
             winit
                 .damage_tracker
                 .render_output(renderer, &mut framebuffer, 0, &elements, LOCKED_BACKGROUND)
