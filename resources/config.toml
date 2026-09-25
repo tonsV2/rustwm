@@ -15,6 +15,10 @@ pointer_speed = 0.0
 # Touchpad content follows the fingers when scrolling.
 natural_scroll = false
 tap_to_click = true
+# What a touchpad press clicks: "fingers" makes a two-finger press a right
+# click and three fingers a middle click, as in GNOME; "areas" uses the
+# bottom-right corner for right click instead.
+click_method = "fingers"
 
 [keyboard]
 # XKB keymap. Without these lines, rustwm uses the XKB_DEFAULT_* variables,
