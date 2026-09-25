@@ -1,4 +1,4 @@
-//! The panel is an outside layer-shell bar (Waybar through `rustwm-panel`). rustwm only starts it and, in auto-hide mode, keeps it off screen until the pointer touches the screen edge it sits on. It slides in and out over [`SLIDE`]: while sliding in, the bar's surface is not in the layer map yet and the compositor draws it where it is along the way, then maps it when it arrives; while sliding out, it was unmapped when the slide began. While it is on screen the windows are laid out beside it, as they always are in the always shown mode, so it pushes them aside rather than covering them. It also stays on screen while the overview is open.
+//! The panel is an outside layer-shell bar (Waybar through `rustwm-panel`). rustwm only starts it and, in auto-hide mode, keeps it off screen until the pointer touches the screen edge it sits on. It slides in and out over the configured times: while sliding in, the bar's surface is not in the layer map yet and the compositor draws it where it is along the way, then maps it when it arrives; while sliding out, it was unmapped when the slide began. While it is on screen the windows are laid out beside it, as they always are in the always shown mode, so it pushes them aside rather than covering them. It also stays on screen while the overview is open.
 
 use std::time::{Duration, Instant};
 
@@ -24,9 +24,6 @@ use crate::{
     switcher::SwitcherElement,
 };
 
-/// How long the panel takes to slide all the way in or out.
-const SLIDE: Duration = Duration::from_millis(200);
-
 #[derive(Default)]
 pub struct Panel {
     surface: Option<(Output, LayerSurface)>,
@@ -48,6 +45,8 @@ struct Slide {
     /// How much of the panel was on screen when the slide began, 0 to 1.
     from: f64,
     showing: bool,
+    /// How long a slide all the way in or out takes.
+    duration: Duration,
 }
 
 impl Slide {
@@ -55,7 +54,7 @@ impl Slide {
     /// the slide is over.
     fn visible(&self, now: Instant) -> (f64, bool) {
         let target = if self.showing { 1.0 } else { 0.0 };
-        let length = SLIDE.as_secs_f64() * (target - self.from).abs();
+        let length = self.duration.as_secs_f64() * (target - self.from).abs();
         let elapsed = now.saturating_duration_since(self.start).as_secs_f64();
         let t = if length > 0.0 {
             (elapsed / length).clamp(0.0, 1.0)
@@ -248,6 +247,7 @@ impl State {
             start: Instant::now(),
             from,
             showing: true,
+            duration: Duration::from_millis(self.config.panel.slide_in_ms),
         });
     }
 
@@ -293,6 +293,7 @@ impl State {
             start: Instant::now(),
             from,
             showing: false,
+            duration: Duration::from_millis(self.config.panel.slide_out_ms),
         });
     }
 
@@ -362,6 +363,8 @@ impl State {
 mod tests {
     use super::*;
 
+    const SLIDE: Duration = Duration::from_millis(200);
+
     #[test]
     fn slide_eases_from_where_it_started_and_ends_on_time() {
         let start = Instant::now();
@@ -369,6 +372,7 @@ mod tests {
             start,
             from: 0.0,
             showing: true,
+            duration: SLIDE,
         };
         assert_eq!(slide.visible(start), (0.0, false));
         let (half, done) = slide.visible(start + SLIDE / 2);
@@ -380,6 +384,7 @@ mod tests {
             start,
             from: 0.5,
             showing: false,
+            duration: SLIDE,
         };
         let (visible, done) = slide.visible(start + SLIDE / 4);
         assert!(visible < 0.5 && visible > 0.0 && !done);

@@ -248,6 +248,10 @@ pub struct PanelConfig {
     pub namespace: String,
     /// In auto-hide mode, how long the panel stays after the pointer leaves it, in milliseconds.
     pub hide_delay_ms: u64,
+    /// In auto-hide mode, how long the panel takes to slide in, in milliseconds. 0 shows it at once.
+    pub slide_in_ms: u64,
+    /// In auto-hide mode, how long the panel takes to slide out, in milliseconds. 0 hides it at once.
+    pub slide_out_ms: u64,
 }
 
 impl Default for PanelConfig {
@@ -258,6 +262,8 @@ impl Default for PanelConfig {
             mode: PanelMode::AutoHide,
             namespace: "waybar".into(),
             hide_delay_ms: 1000,
+            slide_in_ms: 200,
+            slide_out_ms: 200,
         }
     }
 }
@@ -456,10 +462,13 @@ mod tests {
     #[test]
     fn panel_parses() {
         let config = Config::parse(
-            "[panel]\nposition = \"bottom\"\nmode = \"always\"\nhide_delay_ms = 2500\n",
+            "[panel]\nposition = \"bottom\"\nmode = \"always\"\nhide_delay_ms = 2500\nslide_in_ms = 150\nslide_out_ms = 0\n",
         )
         .unwrap();
         assert_eq!(config.panel.hide_delay_ms, 2500);
+        assert_eq!(config.panel.slide_in_ms, 150);
+        assert_eq!(config.panel.slide_out_ms, 0);
+        assert_eq!(Config::default().panel.slide_in_ms, 200);
         assert_eq!(config.panel.position, PanelPosition::Bottom);
         assert_eq!(config.panel.mode, PanelMode::Always);
         assert_eq!(config.panel.command, "rustwm-panel");

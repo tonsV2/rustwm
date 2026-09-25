@@ -65,6 +65,9 @@ position = "top"
 mode = "auto-hide"
 # In auto-hide mode, how long the panel stays after the pointer leaves it, in milliseconds.
 hide_delay_ms = 1000
+# In auto-hide mode, how long the panel takes to slide in and out, in milliseconds. 0 moves it at once.
+slide_in_ms = 200
+slide_out_ms = 200
 # rustwm-panel runs Waybar with the config in resources/waybar (copy it to ~/.config/rustwm/waybar to change it). "" for no panel.
 command = "rustwm-panel"
 
