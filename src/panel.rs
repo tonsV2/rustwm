@@ -35,6 +35,9 @@ pub struct Panel {
     /// Whether the surface is in the layer map, where it gets input and
     /// pushes windows aside.
     mapped: bool,
+    /// Whether the bar has drawn its first frame, after which it starts
+    /// hidden.
+    drawn: bool,
     hide_timer: Option<RegistrationToken>,
     slide: Option<Slide>,
 }
@@ -95,17 +98,16 @@ impl State {
 
     /// Takes the panel off screen once it has drawn its first frame, so it starts hidden.
     pub fn panel_committed(&mut self, surface: &WlSurface, has_buffer: bool) {
-        let first_frame = has_buffer
-            && self
-                .panel
-                .surface
-                .as_ref()
-                .is_some_and(|(_, layer)| layer.wl_surface() == surface);
-        if first_frame
-            && self.panel.shown
-            && self.panel.hide_timer.is_none()
-            && !self.panel_in_use()
-        {
+        let is_panel = self
+            .panel
+            .surface
+            .as_ref()
+            .is_some_and(|(_, layer)| layer.wl_surface() == surface);
+        if !is_panel || !has_buffer || self.panel.drawn {
+            return;
+        }
+        self.panel.drawn = true;
+        if self.panel.shown && !self.panel_in_use() && !self.overview.open {
             self.hide_panel(false);
         }
     }
