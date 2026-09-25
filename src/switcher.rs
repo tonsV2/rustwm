@@ -23,6 +23,7 @@ use smithay::{
                 Kind,
                 memory::{MemoryRenderBuffer, MemoryRenderBufferRenderElement},
                 render_elements,
+                solid::SolidColorRenderElement,
                 surface::{WaylandSurfaceRenderElement, render_elements_from_surface_tree},
                 utils::{CropRenderElement, RescaleRenderElement},
             },
@@ -82,6 +83,8 @@ render_elements! {
     Thumbnail=CropRenderElement<RescaleRenderElement<WaylandSurfaceRenderElement<GlesRenderer>>>,
     /// A surface drawn as it is, such as the panel sliding in.
     Surface=WaylandSurfaceRenderElement<GlesRenderer>,
+    /// A flat colour, such as the fade to black over the whole screen.
+    Solid=SolidColorRenderElement,
 }
 
 /// One window or group in the switcher.

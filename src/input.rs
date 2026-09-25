@@ -32,9 +32,16 @@ impl State {
             event,
             InputEvent::DeviceAdded { .. } | InputEvent::DeviceRemoved { .. }
         ) {
-            // The user is here: restart the idle timers and wake the monitor.
-            self.idle_notifier_state.notify_activity(&self.seat);
+            // The user is here: the idle timers restart, the monitor wakes and
+            // a dark screen lights up. A key's release says nothing new, so it
+            // does not light the screen: after Super+l the lock stays dark
+            // until the next press.
+            self.idle_activity();
             self.power_on_outputs();
+            let release = matches!(&event, InputEvent::Keyboard { event } if event.state() == KeyState::Released);
+            if !release {
+                self.wake_screen();
+            }
         }
         match event {
             InputEvent::Keyboard { event } => self.on_keyboard::<I>(event),

@@ -29,7 +29,7 @@ Every application opens filling the screen. Snap windows to halves and quarters 
 | `Super+b` | Open the default web browser |
 | `Super+q` or `Alt+F4` | Close the focused window (the app may ask to save first) |
 | `Super+1` … `Super+9` | Focus the first … ninth window, in the order they were opened (dialogs not counted) |
-| `Super+l` | Lock the screen (`swaylock -f -c 000000`) |
+| `Super+l` | Lock the screen (`swaylock -f -c 000000 --indicator-idle-visible`) |
 | `Super+Shift+s` | Screenshot of an area you drag out with `slurp`, saved to `~/Pictures/Screenshots` |
 | `Ctrl+Alt+Backspace` | Quit rustwm |
 | `Ctrl+Alt+F1`…`F12` | Switch virtual terminal (hardware backend only) |
@@ -65,7 +65,7 @@ Done:
 - xdg-activation: an application can bring another forward, for example a terminal opening a link in the running browser, or a clicked notification bringing up the app that sent it. Only the focused application, or the one just clicked, can hand out a request, right after that input event, and it expires after 10 seconds
 - A panel (Waybar) with the time, tray, volume, brightness, network and battery, at the top or bottom, auto-hidden until the pointer touches that edge or always shown. Auto-hidden, it slides in and out. Windows are laid out beside it whenever it is on screen, so it pushes them aside rather than covering them
 - [Notifications](#notifications) through mako, styled like the switcher and panel
-- Screen locking and idle: ext-session-lock (swaylock), ext-idle-notify and idle-inhibit (swayidle, video players keeping the screen on), and wlr-output-power-management (`wlopm` turns the monitor off). See [Locking the screen](#locking-the-screen)
+- Screen locking and idle: ext-session-lock (swaylock), ext-idle-notify and idle-inhibit (swayidle, video players keeping the screen on), and wlr-output-power-management (`wlopm` turns the monitor off). The screen fades to black before the idle lock and lights up again on a key or the touchpad. See [Locking the screen](#locking-the-screen)
 - [Screenshots and screen sharing](#screenshots-and-screen-sharing): wlr-screencopy and ext-image-copy-capture, into shared memory or dmabuf buffers, for `grim` and `xdg-desktop-portal-wlr`
 
 Not done yet:
@@ -168,14 +168,17 @@ rustwm draws no lock screen of its own; [swaylock](https://github.com/swaywm/swa
 ```toml
 [autostart]
 commands = [
-    "swayidle -w timeout 300 'swaylock -f -c 000000' timeout 600 'wlopm --off \"*\"' resume 'wlopm --on \"*\"' before-sleep 'swaylock -f -c 000000'",
+    "swayidle -w timeout 300 'swaylock -f -c 000000 --indicator-idle-visible' timeout 600 'wlopm --off \"*\"' resume 'wlopm --on \"*\"' before-sleep 'swaylock -f -c 000000 --indicator-idle-visible'",
 ]
 ```
 
-This locks after 5 minutes, turns the monitor off after 10, and locks before the laptop suspends (`-w` makes the suspend wait until the lock screen is up). To lock right away, run `swaylock -f -c 000000`. Any key or mouse movement turns the monitor back on. `wlr-randr --off` does not work, because rustwm has no output-management protocol; use `wlopm`.
+This locks after 5 minutes, turns the monitor off after 10, and locks before the laptop suspends (`-w` makes the suspend wait until the lock screen is up). To lock right away, run `swaylock -f -c 000000 --indicator-idle-visible`, or press `Super+l`. Any key or mouse movement turns the monitor back on. `wlr-randr --off` does not work, because rustwm has no output-management protocol; use `wlopm`.
+
+As in GNOME, the lock does not come as a surprise: over the last 10 seconds before swayidle's timeout the screen fades to black, and any key or pointer movement during the fade brings it back and restarts the timeout. rustwm times this from the idle timeouts swayidle registers (the fade precedes the first one that is longer than the fade itself), so no second number has to match swayidle's. `lock.fade_ms` in the [configuration](#configuration) sets the length, `0` turns it off. `Super+l` and the lock before suspend fade to black in half a second.
 
 While locked:
 
+- The screen is black until a key is pressed or the pointer moves, which fades the lock screen in; that is why the default swaylock command shows its ring all along (`--indicator-idle-visible`) rather than only while typing. Before the next swayidle timeout (the monitor turning off) the screen fades to black again.
 - Only the lock screen is drawn; windows, the overview and the Alt+Tab switcher are hidden, and all keyboard and mouse input goes to the lock screen.
 - The window keys are off, and so is `Ctrl+Alt+Backspace`, which would otherwise quit past the lock. `Ctrl+Alt+F1`…`F12` (VT switching) and the brightness and volume keys still work.
 - If swaylock crashes, the screen stays black and locked. From another console than rustwm's (a free text console, or GNOME's terminal if it runs alongside), run `WAYLAND_DISPLAY=wayland-1 setsid -f swaylock -f` (the `ready` line in `logs/rustwm.log` names the socket) to get a lock screen back, then switch back to rustwm and unlock.
@@ -213,7 +216,8 @@ Settings live in `~/.config/rustwm/config.toml`. Copy [resources/config.toml](re
 | `commands.terminal` | `rustwm-terminal` | Terminal for `Super+Return` |
 | `commands.file_manager` | `xdg-open "$HOME"` | File manager for `Super+f` |
 | `commands.browser` | `gtk-launch "$(xdg-settings get default-web-browser)"` | Browser for `Super+b` |
-| `commands.lock` | `swaylock -f -c 000000` | Screen locker for `Super+l` |
+| `commands.lock` | `swaylock -f -c 000000 --indicator-idle-visible` | Screen locker for `Super+l` |
+| `lock.fade_ms` | `10000` | How long the screen takes to fade to black before an idle timeout longer than that, such as swayidle's lock, fires, in milliseconds. `0` leaves the screen as it is until the lock |
 | `osd.enabled` | `true` | Show the brightness and volume level after a key press; turn off if you run your own indicator (swayosd, wob) |
 | `autostart.commands` | none | Commands started once rustwm is ready, such as swayidle; they stop when rustwm exits |
 | `panel.position` | `"top"` | `"top"` or `"bottom"` |
@@ -319,6 +323,7 @@ rustwm puts `WAYLAND_DISPLAY` and `XDG_CURRENT_DESKTOP=rustwm` in the D-Bus acti
 | `src/window.rs` | Managed window and its configure logic |
 | `src/input.rs` | Routes input events to bindings and clients |
 | `src/handlers/` | Smithay protocol handlers (compositor, xdg-shell, layer-shell, seat, clipboard, session lock, idle, output power, ...) |
+| `src/fade.rs` | The screen fading to black before the lock and back on input |
 | `src/switcher.rs` | Alt+Tab switcher: thumbnails, icons and text (fontdue, font from fontconfig) |
 | `src/overview.rs` | The Super tap overview: window previews, date, and the application and file search |
 | `src/apps.rs` | Application names and icons from desktop files and icon themes, and the list of installed applications |
