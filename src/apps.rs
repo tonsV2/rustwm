@@ -74,6 +74,10 @@ pub struct DesktopApp {
     /// name or comment.
     pub detail: String,
     pub icon: Option<String>,
+    /// The desktop to start the app as, for apps such as GNOME Settings
+    /// that only run under the desktops their `OnlyShowIn` names: the first
+    /// of those, `None` when the app runs anywhere.
+    pub desktop: Option<String>,
     /// Everything else a search may match, lowercased: keywords and the
     /// generic name.
     keywords: String,
@@ -100,7 +104,7 @@ impl DesktopApp {
 }
 
 /// Every application with a desktop file that is meant to be shown in
-/// menus, sorted by name. A desktop file in an earlier data directory hides
+/// menus, and GNOME Settings' panels, such as Sound, sorted by name. A desktop file in an earlier data directory hides
 /// one of the same name later on, as the desktop file specification says.
 pub fn all_apps() -> Vec<DesktopApp> {
     let mut seen = HashSet::new();
@@ -133,7 +137,12 @@ pub fn all_apps() -> Vec<DesktopApp> {
 }
 
 fn desktop_app(path: PathBuf, entry: &DesktopEntry) -> Option<DesktopApp> {
-    if entry.no_display || entry.hidden || entry.kind.as_deref().is_some_and(|k| k != "Application")
+    // GNOME Settings' panels are hidden from menus, but GNOME's search
+    // finds them, so ours does too.
+    let settings_panel = list(&entry.categories).any(|c| c == "X-GNOME-Settings-Panel");
+    if (entry.no_display && !settings_panel)
+        || entry.hidden
+        || entry.kind.as_deref().is_some_and(|k| k != "Application")
     {
         return None;
     }
@@ -150,8 +159,24 @@ fn desktop_app(path: PathBuf, entry: &DesktopEntry) -> Option<DesktopApp> {
         },
         name,
         icon: entry.icon.clone(),
+        desktop: (!list(&entry.only_show_in).any(|d| d == DESKTOP))
+            .then(|| list(&entry.only_show_in).next().map(str::to_string))
+            .flatten(),
         keywords,
     })
+}
+
+/// The `XDG_CURRENT_DESKTOP` rustwm's session runs with.
+const DESKTOP: &str = "rustwm";
+
+/// The items of a semicolon separated list such as `Categories`.
+fn list(value: &Option<String>) -> impl Iterator<Item = &str> {
+    value
+        .as_deref()
+        .unwrap_or("")
+        .split(';')
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -163,6 +188,10 @@ struct DesktopEntry {
     wm_class: Option<String>,
     /// Semicolon separated.
     keywords: Option<String>,
+    /// Semicolon separated.
+    categories: Option<String>,
+    /// Semicolon separated: the only desktops the app is meant for.
+    only_show_in: Option<String>,
     /// The `Type` key: only "Application" entries can be started.
     kind: Option<String>,
     no_display: bool,
@@ -225,6 +254,8 @@ fn parse_desktop_entry(text: &str) -> DesktopEntry {
             "Icon" => &mut entry.icon,
             "StartupWMClass" => &mut entry.wm_class,
             "Keywords" => &mut entry.keywords,
+            "Categories" => &mut entry.categories,
+            "OnlyShowIn" => &mut entry.only_show_in,
             "Type" => &mut entry.kind,
             "NoDisplay" => {
                 entry.no_display = value == "true";
@@ -424,10 +455,32 @@ mod tests {
         assert_eq!(comment.score("edit"), Some(1));
         assert_eq!(comment.score("xt ed"), Some(2));
 
+        assert_eq!(firefox.desktop, None);
+
         assert!(app("[Desktop Entry]\nType=Application\nName=X\nNoDisplay=true\n").is_none());
         assert!(app("[Desktop Entry]\nType=Application\nName=X\nHidden=true\n").is_none());
         assert!(app("[Desktop Entry]\nType=Link\nName=X\n").is_none());
         assert!(app("[Desktop Entry]\nType=Application\n").is_none());
+    }
+
+    #[test]
+    fn gnome_settings_panels_are_apps_started_as_gnome() {
+        let path = PathBuf::from("/usr/share/applications/gnome-sound-panel.desktop");
+        let sound = desktop_app(
+            path,
+            &parse_desktop_entry("[Desktop Entry]\nType=Application\nName=Sound\nExec=gnome-control-center sound\nNoDisplay=true\nCategories=GNOME;GTK;Settings;X-GNOME-Settings-Panel;X-GNOME-DevicesSettings;\nOnlyShowIn=GNOME;Unity;\nKeywords=Card;Microphone;Volume;Fade;Balance;\n"),
+        )
+        .unwrap();
+        assert_eq!(sound.desktop.as_deref(), Some("GNOME"));
+        assert_eq!(sound.score("balance"), Some(3));
+
+        let app = |text: &str| desktop_app(PathBuf::from("x.desktop"), &parse_desktop_entry(text));
+        assert_eq!(
+            app("[Desktop Entry]\nType=Application\nName=X\nOnlyShowIn=GNOME;rustwm;\n")
+                .unwrap()
+                .desktop,
+            None
+        );
     }
 
     #[test]

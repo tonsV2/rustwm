@@ -588,7 +588,14 @@ impl State {
                     return;
                 };
                 info!(name, path = %app.path.display(), "starting from the overview");
-                let command = format!("gio launch {}", quote(&app.path));
+                let command = match &app.desktop {
+                    Some(desktop) => format!(
+                        "XDG_CURRENT_DESKTOP={} gio launch {}",
+                        quote(desktop),
+                        quote(app.path.display())
+                    ),
+                    None => format!("gio launch {}", quote(app.path.display())),
+                };
                 commands::run(&command, &child_env, || {});
             }
             Item::File { index, .. } => {
@@ -596,7 +603,7 @@ impl State {
                     return;
                 };
                 info!(path = %file.path.display(), "opening from the overview");
-                let command = format!("xdg-open {}", quote(&file.path));
+                let command = format!("xdg-open {}", quote(file.path.display()));
                 commands::run(&command, &child_env, || {});
             }
         }
@@ -1228,9 +1235,9 @@ fn word_end(chars: &[char], index: usize) -> usize {
     i
 }
 
-/// `path` quoted for `sh -c`.
-fn quote(path: &Path) -> String {
-    format!("'{}'", path.display().to_string().replace('\'', "'\\''"))
+/// `text` quoted for `sh -c`.
+fn quote(text: impl std::fmt::Display) -> String {
+    format!("'{}'", text.to_string().replace('\'', "'\\''"))
 }
 
 #[cfg(test)]
@@ -1336,7 +1343,7 @@ mod tests {
 
     #[test]
     fn quoting_survives_apostrophes() {
-        assert_eq!(quote(Path::new("/a b/c'd")), "'/a b/c'\\''d'");
+        assert_eq!(quote("/a b/c'd"), "'/a b/c'\\''d'");
     }
 
     #[test]
