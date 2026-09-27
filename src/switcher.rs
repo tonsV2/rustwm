@@ -101,11 +101,24 @@ pub struct Entry {
     pub title: String,
 }
 
-/// What the switcher shows: the windows and the highlighted one.
+/// What the switcher shows: the windows, the selected one and the one
+/// under the pointer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct View {
     pub entries: Vec<Entry>,
+    /// The entry Alt+Tab and the arrow keys moved to, which releasing Alt
+    /// picks.
     pub selected: usize,
+    /// The entry under the pointer, which a click picks.
+    pub hovered: Option<usize>,
+}
+
+impl View {
+    /// The entry drawn highlighted, with its title under the row: the one
+    /// under the pointer, or else the selected one.
+    fn highlighted(&self) -> usize {
+        self.hovered.unwrap_or(self.selected)
+    }
 }
 
 #[derive(Default)]
@@ -113,6 +126,10 @@ pub struct Switcher {
     /// Loaded on first use; the inner `None` means no font was found.
     font: Option<Option<Font>>,
     visible: bool,
+    /// The entry under the pointer, by window so that it stays the same
+    /// entry when another window closes. It only moves the highlight; the
+    /// selection stays where the keyboard put it.
+    hovered: Option<WindowId>,
     /// Bumped whenever the switcher is hidden, so a pending show timer from
     /// an earlier switch does nothing.
     session: u64,
@@ -141,6 +158,7 @@ struct Images {
 impl Switcher {
     pub fn hide(&mut self) {
         self.visible = false;
+        self.hovered = None;
         self.session += 1;
         self.cache = None;
     }
@@ -213,6 +231,9 @@ impl State {
         if self.focus.step(forward, |id| groups.group_of(id)).is_none() {
             return;
         }
+        // The keyboard moved the selection; highlight it again rather than
+        // the thumbnail under the pointer.
+        self.switcher.hovered = None;
         if !starting {
             // A second Tab shows the switcher at once.
             self.switcher.visible = true;
@@ -239,26 +260,7 @@ impl State {
     /// was the switcher's: any click on its panel is, so a click between
     /// thumbnails does not reach the window behind.
     pub fn switcher_click(&mut self, pos: Point<f64, Logical>) -> bool {
-        if !self.switcher.visible {
-            return false;
-        }
-        // The same view the switcher draws from, so a click never lands on a
-        // panel that is not drawn.
-        let Some(view) = self.switcher_view() else {
-            return false;
-        };
-        let Some(geometry) = self
-            .space
-            .output_under(pos)
-            .next()
-            .and_then(|output| self.space.output_geometry(output))
-        else {
-            return false;
-        };
-        let screen = (geometry.size.w, geometry.size.h);
-        let panel = Panel::new(view.entries.len(), view.selected, screen);
-        let origin = geometry.loc + panel.origin();
-        match panel.hit(pos - origin.to_f64()) {
+        match self.switcher_hit(pos) {
             Hit::Outside => false,
             Hit::Panel => true,
             Hit::Entry(index) => {
@@ -272,6 +274,45 @@ impl State {
                 true
             }
         }
+    }
+
+    /// Highlights the thumbnail under the pointer, or the selected one again
+    /// when the pointer leaves the thumbnails.
+    pub fn switcher_pointer_moved(&mut self, pos: Point<f64, Logical>) {
+        if !self.switcher.visible {
+            return;
+        }
+        self.switcher.hovered = match self.switcher_hit(pos) {
+            Hit::Entry(index) => self
+                .focus
+                .switch_list()
+                .and_then(|(ids, _)| ids.get(index).copied()),
+            Hit::Outside | Hit::Panel => None,
+        };
+    }
+
+    /// What of the switcher is at `pos`; `Outside` while it is hidden.
+    fn switcher_hit(&mut self, pos: Point<f64, Logical>) -> Hit {
+        if !self.switcher.visible {
+            return Hit::Outside;
+        }
+        // The same view the switcher draws from, so the pointer never lands
+        // on a panel that is not drawn.
+        let Some(view) = self.switcher_view() else {
+            return Hit::Outside;
+        };
+        let Some(geometry) = self
+            .space
+            .output_under(pos)
+            .next()
+            .and_then(|output| self.space.output_geometry(output))
+        else {
+            return Hit::Outside;
+        };
+        let screen = (geometry.size.w, geometry.size.h);
+        let panel = Panel::new(view.entries.len(), view.selected, screen);
+        let origin = geometry.loc + panel.origin();
+        panel.hit(pos - origin.to_f64())
     }
 
     /// Ends a pointer grab before the switcher changes focus, closing the
@@ -304,6 +345,10 @@ impl State {
     fn switcher_view(&mut self) -> Option<View> {
         let (ids, selected) = self.focus.switch_list()?;
         let ids = ids.to_vec();
+        let hovered = self
+            .switcher
+            .hovered
+            .and_then(|hovered| ids.iter().position(|&id| id == hovered));
         let mut entries = Vec::with_capacity(ids.len());
         for id in ids {
             let windows = match self.groups.group_of(id) {
@@ -349,7 +394,11 @@ impl State {
             };
             entries.push(entry);
         }
-        Some(View { entries, selected })
+        Some(View {
+            entries,
+            selected,
+            hovered,
+        })
     }
 
     /// The switcher for `output`, front to back, ready to draw on top of
@@ -492,7 +541,6 @@ struct Panel {
     first: usize,
     /// How many windows are shown.
     count: usize,
-    selected: usize,
     /// The screen's logical size, the shape of a group's thumbnail.
     screen: (i32, i32),
 }
@@ -509,7 +557,6 @@ impl Panel {
             height: PADDING + TILE_HEIGHT + TITLE_HEIGHT + PADDING,
             first,
             count,
-            selected,
             screen,
         }
     }
@@ -646,7 +693,7 @@ fn draw(
 
     for slot in 0..panel.count {
         let entry = &view.entries[panel.first + slot];
-        if panel.first + slot == panel.selected {
+        if panel.first + slot == view.highlighted() {
             below.rounded_rect(rect(panel.tile(slot)), (RADIUS - 4.0) * s, HIGHLIGHT);
         }
 
@@ -705,7 +752,7 @@ fn draw(
         );
     }
 
-    if let (Some(font), Some(entry)) = (font, view.entries.get(panel.selected)) {
+    if let (Some(font), Some(entry)) = (font, view.entries.get(view.highlighted())) {
         let style = TextStyle {
             size: TITLE_SIZE * s,
             color: TEXT_COLOR,
@@ -961,6 +1008,7 @@ mod tests {
                 })
                 .collect(),
             selected,
+            hovered: None,
         }
     }
 
@@ -1085,6 +1133,22 @@ mod tests {
             pixel(&below, PADDING + 4, PADDING + 4)[0]
         };
         assert!(brightness(0) > brightness(1));
+    }
+
+    #[test]
+    fn hover_highlights_instead_of_the_selection() {
+        let panel = Panel::new(2, 0, (1920, 1080));
+        let brightness = |hovered| {
+            let view = View {
+                hovered,
+                ..view(2, 0)
+            };
+            let (below, _) = draw(None, &view, &panel, &[], 1.0);
+            // Inside the first tile, next to its thumbnail.
+            pixel(&below, PADDING + 4, PADDING + 4)[0]
+        };
+        assert!(brightness(None) > brightness(Some(1)));
+        assert_eq!(brightness(None), brightness(Some(0)));
     }
 
     #[test]

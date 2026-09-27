@@ -300,6 +300,7 @@ impl State {
         };
         self.panel_pointer_moved(pos);
         self.overview_pointer_moved(pos);
+        self.switcher_pointer_moved(pos);
         let under = self.surface_under(pos);
         pointer.motion(
             self,
