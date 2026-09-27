@@ -71,6 +71,9 @@ pub(crate) const RADIUS: f32 = 16.0;
 // Colours as straight (not premultiplied) RGBA.
 pub(crate) const BACKGROUND: [f32; 4] = [0.12, 0.12, 0.13, 0.94];
 pub(crate) const HIGHLIGHT: [f32; 4] = [1.0, 1.0, 1.0, 0.14];
+/// The selection while another thumbnail is hovered: what releasing Alt
+/// still picks.
+const SELECTION_MARK: [f32; 4] = [1.0, 1.0, 1.0, 0.06];
 pub(crate) const TEXT_COLOR: [f32; 4] = [0.95, 0.95, 0.95, 1.0];
 pub(crate) const NAME_COLOR: [f32; 4] = [0.95, 0.95, 0.95, 0.75];
 pub(crate) const PLACEHOLDER: [f32; 4] = [0.35, 0.37, 0.42, 1.0];
@@ -694,8 +697,16 @@ fn draw(
 
     for slot in 0..panel.count {
         let entry = &view.entries[panel.first + slot];
-        if panel.first + slot == view.highlighted() {
-            below.rounded_rect(rect(panel.tile(slot)), (RADIUS - 4.0) * s, HIGHLIGHT);
+        let index = panel.first + slot;
+        let fill = if index == view.highlighted() {
+            Some(HIGHLIGHT)
+        } else if index == view.selected {
+            Some(SELECTION_MARK)
+        } else {
+            None
+        };
+        if let Some(fill) = fill {
+            below.rounded_rect(rect(panel.tile(slot)), (RADIUS - 4.0) * s, fill);
         }
 
         let icon = rect(panel.icon(slot));
@@ -1138,18 +1149,22 @@ mod tests {
 
     #[test]
     fn hover_highlights_instead_of_the_selection() {
-        let panel = Panel::new(2, 0, (1920, 1080));
-        let brightness = |hovered| {
+        let panel = Panel::new(3, 0, (1920, 1080));
+        let brightness = |hovered, slot: usize| {
             let view = View {
                 hovered,
-                ..view(2, 0)
+                ..view(3, 0)
             };
             let (below, _) = draw(None, &view, &panel, &[], 1.0);
-            // Inside the first tile, next to its thumbnail.
-            pixel(&below, PADDING + 4, PADDING + 4)[0]
+            // Inside the tile, next to its thumbnail.
+            pixel(&below, panel.tile(slot).loc.x + 4, PADDING + 4)[0]
         };
-        assert!(brightness(None) > brightness(Some(1)));
-        assert_eq!(brightness(None), brightness(Some(0)));
+        assert_eq!(brightness(None, 0), brightness(Some(0), 0));
+        // Hovering another tile highlights it fully and leaves a fainter
+        // mark on the selection, above a plain tile.
+        assert_eq!(brightness(Some(1), 1), brightness(None, 0));
+        assert!(brightness(Some(1), 0) < brightness(Some(1), 1));
+        assert!(brightness(Some(1), 0) > brightness(Some(1), 2));
     }
 
     #[test]
