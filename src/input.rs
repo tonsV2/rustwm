@@ -322,7 +322,9 @@ impl State {
 
         if state == ButtonState::Pressed {
             self.bindings.pointer_button();
-            if self.overview_click(pointer.current_location()) {
+            if self.overview_click(pointer.current_location())
+                || self.switcher_click(pointer.current_location())
+            {
                 return;
             }
             if !self.is_locked()

@@ -89,6 +89,17 @@ impl FocusHistory {
         switch.snapshot.get(switch.index).copied()
     }
 
+    /// Highlights entry `index` of the Alt+Tab session in progress, as when
+    /// the pointer moves over its thumbnail. Does nothing without a session
+    /// or for an index past the end.
+    pub fn select(&mut self, index: usize) {
+        if let Some(switch) = &mut self.switch
+            && index < switch.snapshot.len()
+        {
+            switch.index = index;
+        }
+    }
+
     /// Ends an Alt+Tab session without changing focus.
     pub fn cancel_switch(&mut self) {
         self.switch = None;
@@ -226,6 +237,27 @@ mod tests {
         h.finish_switch();
         assert!(!h.is_switching());
         assert_eq!(order(&h), [3, 1, 2]);
+    }
+
+    #[test]
+    fn select_moves_highlight_and_finish_commits_it() {
+        let mut h = history(&[1, 2, 3]);
+        h.step(true, ungrouped);
+        h.select(2);
+        assert_eq!(selected(&h), Some(3));
+        // Past the end is ignored.
+        h.select(3);
+        assert_eq!(selected(&h), Some(3));
+        h.finish_switch();
+        assert_eq!(order(&h), [3, 1, 2]);
+    }
+
+    #[test]
+    fn select_without_switch_does_nothing() {
+        let mut h = history(&[1, 2]);
+        h.select(1);
+        assert!(!h.is_switching());
+        assert_eq!(order(&h), [1, 2]);
     }
 
     #[test]

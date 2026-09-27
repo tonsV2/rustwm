@@ -233,6 +233,44 @@ impl State {
         }
     }
 
+    /// A click while the switcher shows picks the window under the pointer
+    /// and ends the switch, as releasing Alt would. Returns whether the click
+    /// was the switcher's: any click on its panel is, so a click between
+    /// thumbnails does not reach the window behind.
+    pub fn switcher_click(&mut self, pos: Point<f64, Logical>) -> bool {
+        if !self.switcher.visible {
+            return false;
+        }
+        let Some((len, selected)) = self.focus.switch_list().map(|(ids, i)| (ids.len(), i)) else {
+            return false;
+        };
+        let Some(geometry) = self
+            .space
+            .output_under(pos)
+            .next()
+            .and_then(|output| self.space.output_geometry(output))
+        else {
+            return false;
+        };
+        let screen = (geometry.size.w, geometry.size.h);
+        let panel = Panel::new(len, selected, screen);
+        let origin = geometry.loc.to_f64()
+            + Point::from((
+                ((screen.0 - panel.width) / 2) as f64,
+                ((screen.1 - panel.height) / 2) as f64,
+            ));
+        let Some(hit) = panel.hit(pos - origin) else {
+            return false;
+        };
+        if let Some(index) = hit {
+            self.focus.select(index);
+            self.focus.finish_switch();
+            self.switcher.hide();
+            self.sync_focus();
+        }
+        true
+    }
+
     /// The windows and groups to show while switching.
     fn switcher_view(&mut self) -> Option<View> {
         let (ids, selected) = self.focus.switch_list()?;
@@ -453,6 +491,21 @@ impl Panel {
         Rectangle::new(
             (PADDING + slot as i32 * TILE_WIDTH, PADDING).into(),
             (TILE_WIDTH, TILE_HEIGHT).into(),
+        )
+    }
+
+    /// What is at `pos`, relative to the panel's top left corner: `None`
+    /// outside the panel, `Some(None)` on the panel between tiles, and
+    /// `Some(Some(index))` on the tile of entry `index`.
+    fn hit(&self, pos: Point<f64, Logical>) -> Option<Option<usize>> {
+        let inside = |r: Rectangle<i32, Logical>| r.to_f64().contains(pos);
+        if !inside(Rectangle::from_size((self.width, self.height).into())) {
+            return None;
+        }
+        Some(
+            (0..self.count)
+                .find(|&slot| inside(self.tile(slot)))
+                .map(|slot| self.first + slot),
         )
     }
 
@@ -881,6 +934,30 @@ mod tests {
         assert_eq!(panel.first, 0);
         assert_eq!(panel.width, 3 * TILE_WIDTH + 2 * PADDING);
         assert_eq!(panel.height, PADDING + TILE_HEIGHT + TITLE_HEIGHT + PADDING);
+    }
+
+    #[test]
+    fn hit_finds_the_tile_under_the_pointer() {
+        let panel = Panel::new(3, 1, (1920, 1080));
+        let middle = |slot: usize| {
+            let tile = panel.tile(slot).to_f64();
+            tile.loc + tile.size.downscale(2.0).to_point()
+        };
+        assert_eq!(panel.hit(middle(0)), Some(Some(0)));
+        assert_eq!(panel.hit(middle(2)), Some(Some(2)));
+        // The padding is the panel's, but no tile's.
+        assert_eq!(panel.hit((2.0, 2.0).into()), Some(None));
+        assert_eq!(panel.hit((-1.0, 2.0).into()), None);
+        assert_eq!(panel.hit((panel.width as f64 + 1.0, 2.0).into()), None);
+    }
+
+    #[test]
+    fn hit_counts_from_the_first_shown_window() {
+        let panel = Panel::new(20, 15, (1000, 800));
+        assert!(panel.first > 0);
+        let tile = panel.tile(0).to_f64();
+        let middle = tile.loc + tile.size.downscale(2.0).to_point();
+        assert_eq!(panel.hit(middle), Some(Some(panel.first)));
     }
 
     #[test]
