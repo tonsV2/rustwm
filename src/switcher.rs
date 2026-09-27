@@ -30,12 +30,13 @@ use smithay::{
             gles::GlesRenderer,
         },
     },
+    desktop::PopupManager,
     output::Output,
     reexports::{
         calloop::timer::{TimeoutAction, Timer},
         wayland_server::protocol::wl_surface::WlSurface,
     },
-    utils::{Logical, Point, Rectangle, Size, Transform},
+    utils::{Logical, Point, Rectangle, SERIAL_COUNTER, Size, Transform},
     wayland::{compositor::with_states, shell::xdg::XdgToplevelSurfaceData},
 };
 use tracing::warn;
@@ -241,7 +242,9 @@ impl State {
         if !self.switcher.visible {
             return false;
         }
-        let Some((len, selected)) = self.focus.switch_list().map(|(ids, i)| (ids.len(), i)) else {
+        // The same view the switcher draws from, so a click never lands on a
+        // panel that is not drawn.
+        let Some(view) = self.switcher_view() else {
             return false;
         };
         let Some(geometry) = self
@@ -253,22 +256,48 @@ impl State {
             return false;
         };
         let screen = (geometry.size.w, geometry.size.h);
-        let panel = Panel::new(len, selected, screen);
-        let origin = geometry.loc.to_f64()
-            + Point::from((
-                ((screen.0 - panel.width) / 2) as f64,
-                ((screen.1 - panel.height) / 2) as f64,
-            ));
-        let Some(hit) = panel.hit(pos - origin) else {
-            return false;
-        };
-        if let Some(index) = hit {
-            self.focus.select(index);
-            self.focus.finish_switch();
-            self.switcher.hide();
-            self.sync_focus();
+        let panel = Panel::new(view.entries.len(), view.selected, screen);
+        let origin = geometry.loc + panel.origin();
+        match panel.hit(pos - origin.to_f64()) {
+            Hit::Outside => false,
+            Hit::Panel => true,
+            Hit::Entry(index) => {
+                self.end_pointer_grab();
+                self.focus.select(index);
+                self.focus.finish_switch();
+                self.switcher.hide();
+                self.sync_focus();
+                // The picked window is now under the pointer.
+                self.refresh_pointer_focus();
+                true
+            }
         }
-        true
+    }
+
+    /// Ends a pointer grab before the switcher changes focus, closing the
+    /// focused window's popup menus. A menu's grab would otherwise keep the
+    /// keyboard from the picked window, and the menu would stay open on the
+    /// window left behind.
+    fn end_pointer_grab(&mut self) {
+        let Some(pointer) = self.seat.get_pointer() else {
+            return;
+        };
+        if !pointer.is_grabbed() {
+            return;
+        }
+        let focused = self.focus.current().and_then(|id| self.window(id));
+        if let Some(surface) = focused.and_then(|w| w.wl_surface()) {
+            let popups: Vec<_> = PopupManager::popups_for_surface(surface).collect();
+            for (popup, _) in popups {
+                // Only a dead surface fails, and it has no menu to close.
+                let _ = PopupManager::dismiss_popup(surface, &popup);
+            }
+        }
+        if let Some(keyboard) = self.seat.get_keyboard() {
+            keyboard.unset_grab(self);
+        }
+        let time = self.start_time.elapsed().as_millis() as u32;
+        pointer.unset_grab(self, SERIAL_COUNTER.next_serial(), time);
     }
 
     /// The windows and groups to show while switching.
@@ -340,13 +369,11 @@ impl State {
         let panel = Panel::new(view.entries.len(), view.selected, screen);
         let output_loc = geometry.loc;
         // Whole physical pixels, so the images are not blurred.
-        let origin = Point::<i32, Logical>::from((
-            (screen.0 - panel.width) / 2,
-            (screen.1 - panel.height) / 2,
-        ))
-        .to_f64()
-        .to_physical(scale)
-        .to_i32_round::<i32>();
+        let origin = panel
+            .origin()
+            .to_f64()
+            .to_physical(scale)
+            .to_i32_round::<i32>();
 
         let images = self.switcher.images(&view, &panel, screen, scale);
         let renderer = self.backend.renderer();
@@ -494,19 +521,24 @@ impl Panel {
         )
     }
 
-    /// What is at `pos`, relative to the panel's top left corner: `None`
-    /// outside the panel, `Some(None)` on the panel between tiles, and
-    /// `Some(Some(index))` on the tile of entry `index`.
-    fn hit(&self, pos: Point<f64, Logical>) -> Option<Option<usize>> {
+    /// The panel's top left corner relative to the screen's: centred on it.
+    fn origin(&self) -> Point<i32, Logical> {
+        Point::from((
+            (self.screen.0 - self.width) / 2,
+            (self.screen.1 - self.height) / 2,
+        ))
+    }
+
+    /// What is at `pos`, relative to the panel's top left corner.
+    fn hit(&self, pos: Point<f64, Logical>) -> Hit {
         let inside = |r: Rectangle<i32, Logical>| r.to_f64().contains(pos);
         if !inside(Rectangle::from_size((self.width, self.height).into())) {
-            return None;
+            return Hit::Outside;
         }
-        Some(
-            (0..self.count)
-                .find(|&slot| inside(self.tile(slot)))
-                .map(|slot| self.first + slot),
-        )
+        match (0..self.count).find(|&slot| inside(self.tile(slot))) {
+            Some(slot) => Hit::Entry(self.first + slot),
+            None => Hit::Panel,
+        }
     }
 
     fn thumb_box(&self, slot: usize) -> Rectangle<i32, Logical> {
@@ -531,6 +563,16 @@ impl Panel {
             (ICON_SIZE, ICON_SIZE).into(),
         )
     }
+}
+
+/// Where on the switcher a click landed.
+#[derive(Debug, PartialEq, Eq)]
+enum Hit {
+    Outside,
+    /// On the panel, between the tiles.
+    Panel,
+    /// On the tile of the entry with this index.
+    Entry(usize),
 }
 
 /// A window of `size` scaled down to fit `area`, keeping its shape, and
@@ -943,12 +985,15 @@ mod tests {
             let tile = panel.tile(slot).to_f64();
             tile.loc + tile.size.downscale(2.0).to_point()
         };
-        assert_eq!(panel.hit(middle(0)), Some(Some(0)));
-        assert_eq!(panel.hit(middle(2)), Some(Some(2)));
+        assert_eq!(panel.hit(middle(0)), Hit::Entry(0));
+        assert_eq!(panel.hit(middle(2)), Hit::Entry(2));
         // The padding is the panel's, but no tile's.
-        assert_eq!(panel.hit((2.0, 2.0).into()), Some(None));
-        assert_eq!(panel.hit((-1.0, 2.0).into()), None);
-        assert_eq!(panel.hit((panel.width as f64 + 1.0, 2.0).into()), None);
+        assert_eq!(panel.hit((2.0, 2.0).into()), Hit::Panel);
+        assert_eq!(panel.hit((-1.0, 2.0).into()), Hit::Outside);
+        assert_eq!(
+            panel.hit((panel.width as f64 + 1.0, 2.0).into()),
+            Hit::Outside
+        );
     }
 
     #[test]
@@ -957,7 +1002,7 @@ mod tests {
         assert!(panel.first > 0);
         let tile = panel.tile(0).to_f64();
         let middle = tile.loc + tile.size.downscale(2.0).to_point();
-        assert_eq!(panel.hit(middle), Some(Some(panel.first)));
+        assert_eq!(panel.hit(middle), Hit::Entry(panel.first));
     }
 
     #[test]

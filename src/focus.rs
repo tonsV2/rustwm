@@ -90,8 +90,8 @@ impl FocusHistory {
     }
 
     /// Highlights entry `index` of the Alt+Tab session in progress, as when
-    /// the pointer moves over its thumbnail. Does nothing without a session
-    /// or for an index past the end.
+    /// its thumbnail is clicked. Does nothing without a session or for an
+    /// index past the end.
     pub fn select(&mut self, index: usize) {
         if let Some(switch) = &mut self.switch
             && index < switch.snapshot.len()

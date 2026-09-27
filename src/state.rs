@@ -1,6 +1,7 @@
 //! Compositor state: Smithay protocol state plus window-management policy.
 
 use std::{
+    collections::HashSet,
     ffi::OsString,
     sync::Arc,
     time::{Duration, Instant},
@@ -149,6 +150,10 @@ pub struct State {
     pub bindings: Bindings,
     /// The held key whose action repeats, and the timer repeating it.
     pub key_repeat: Option<(u32, RegistrationToken)>,
+    /// Pointer buttons whose press the overview or the switcher took. Their
+    /// release is dropped too, or a client would see a release without a
+    /// press.
+    pub suppressed_buttons: HashSet<u32>,
     /// When a click on a layer surface, such as a notification, last got
     /// an activation token, and the client that got it. The next token
     /// request from another client within a moment is granted too.
@@ -251,6 +256,7 @@ impl State {
             snap_hold: None,
             bindings: Bindings::default(),
             key_repeat: None,
+            suppressed_buttons: HashSet::new(),
             shell_click: None,
             xwayland: None,
             switcher: Switcher::default(),
