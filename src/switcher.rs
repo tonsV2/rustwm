@@ -126,10 +126,12 @@ pub struct Switcher {
     /// Loaded on first use; the inner `None` means no font was found.
     font: Option<Option<Font>>,
     visible: bool,
-    /// The entry under the pointer, by window so that it stays the same
-    /// entry when another window closes. It only moves the highlight; the
-    /// selection stays where the keyboard put it.
-    hovered: Option<WindowId>,
+    /// Whether the pointer moved since the switcher showed or the keyboard
+    /// last moved the selection, so the thumbnail under it is highlighted.
+    /// Which thumbnail that is gets worked out from where the pointer is
+    /// each time, since the row shifts when a window closes. Hover only
+    /// moves the highlight; the selection stays where the keyboard put it.
+    hover: bool,
     /// Bumped whenever the switcher is hidden, so a pending show timer from
     /// an earlier switch does nothing.
     session: u64,
@@ -158,7 +160,7 @@ struct Images {
 impl Switcher {
     pub fn hide(&mut self) {
         self.visible = false;
-        self.hovered = None;
+        self.hover = false;
         self.session += 1;
         self.cache = None;
     }
@@ -233,7 +235,7 @@ impl State {
         }
         // The keyboard moved the selection; highlight it again rather than
         // the thumbnail under the pointer.
-        self.switcher.hovered = None;
+        self.switcher.hover = false;
         if !starting {
             // A second Tab shows the switcher at once.
             self.switcher.visible = true;
@@ -260,6 +262,10 @@ impl State {
     /// was the switcher's: any click on its panel is, so a click between
     /// thumbnails does not reach the window behind.
     pub fn switcher_click(&mut self, pos: Point<f64, Logical>) -> bool {
+        // Nothing is drawn without a view, so there is nothing to click.
+        if self.switcher_view().is_none() {
+            return false;
+        }
         match self.switcher_hit(pos) {
             Hit::Outside => false,
             Hit::Panel => true,
@@ -276,29 +282,20 @@ impl State {
         }
     }
 
-    /// Highlights the thumbnail under the pointer, or the selected one again
-    /// when the pointer leaves the thumbnails.
-    pub fn switcher_pointer_moved(&mut self, pos: Point<f64, Logical>) {
-        if !self.switcher.visible {
-            return;
+    /// From now on the thumbnail under the pointer is highlighted, or the
+    /// selected one again when the pointer is off the thumbnails.
+    pub fn switcher_pointer_moved(&mut self) {
+        if self.switcher.visible {
+            self.switcher.hover = true;
         }
-        self.switcher.hovered = match self.switcher_hit(pos) {
-            Hit::Entry(index) => self
-                .focus
-                .switch_list()
-                .and_then(|(ids, _)| ids.get(index).copied()),
-            Hit::Outside | Hit::Panel => None,
-        };
     }
 
     /// What of the switcher is at `pos`; `Outside` while it is hidden.
-    fn switcher_hit(&mut self, pos: Point<f64, Logical>) -> Hit {
+    fn switcher_hit(&self, pos: Point<f64, Logical>) -> Hit {
         if !self.switcher.visible {
             return Hit::Outside;
         }
-        // The same view the switcher draws from, so the pointer never lands
-        // on a panel that is not drawn.
-        let Some(view) = self.switcher_view() else {
+        let Some((len, selected)) = self.focus.switch_list().map(|(ids, i)| (ids.len(), i)) else {
             return Hit::Outside;
         };
         let Some(geometry) = self
@@ -310,7 +307,7 @@ impl State {
             return Hit::Outside;
         };
         let screen = (geometry.size.w, geometry.size.h);
-        let panel = Panel::new(view.entries.len(), view.selected, screen);
+        let panel = Panel::new(len, selected, screen);
         let origin = geometry.loc + panel.origin();
         panel.hit(pos - origin.to_f64())
     }
@@ -345,10 +342,14 @@ impl State {
     fn switcher_view(&mut self) -> Option<View> {
         let (ids, selected) = self.focus.switch_list()?;
         let ids = ids.to_vec();
-        let hovered = self
-            .switcher
-            .hovered
-            .and_then(|hovered| ids.iter().position(|&id| id == hovered));
+        let pointer = self.seat.get_pointer().map(|p| p.current_location());
+        let hovered = match pointer.filter(|_| self.switcher.hover) {
+            Some(pos) => match self.switcher_hit(pos) {
+                Hit::Entry(index) => Some(index),
+                Hit::Outside | Hit::Panel => None,
+            },
+            None => None,
+        };
         let mut entries = Vec::with_capacity(ids.len());
         for id in ids {
             let windows = match self.groups.group_of(id) {
