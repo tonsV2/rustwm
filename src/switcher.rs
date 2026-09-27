@@ -341,18 +341,24 @@ impl State {
         pointer.unset_grab(self, SERIAL_COUNTER.next_serial(), time);
     }
 
+    /// The entry under the pointer, once the pointer has moved; `None`
+    /// before that or when the pointer is off the thumbnails.
+    fn hovered_entry(&self) -> Option<usize> {
+        if !self.switcher.hover {
+            return None;
+        }
+        let pos = self.seat.get_pointer()?.current_location();
+        match self.switcher_hit(pos) {
+            Hit::Entry(index) => Some(index),
+            Hit::Outside | Hit::Panel => None,
+        }
+    }
+
     /// The windows and groups to show while switching.
     fn switcher_view(&mut self) -> Option<View> {
         let (ids, selected) = self.focus.switch_list()?;
         let ids = ids.to_vec();
-        let pointer = self.seat.get_pointer().map(|p| p.current_location());
-        let hovered = match pointer.filter(|_| self.switcher.hover) {
-            Some(pos) => match self.switcher_hit(pos) {
-                Hit::Entry(index) => Some(index),
-                Hit::Outside | Hit::Panel => None,
-            },
-            None => None,
-        };
+        let hovered = self.hovered_entry();
         let mut entries = Vec::with_capacity(ids.len());
         for id in ids {
             let windows = match self.groups.group_of(id) {
