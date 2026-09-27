@@ -30,12 +30,13 @@ use smithay::{
             gles::GlesRenderer,
         },
     },
+    desktop::PopupManager,
     output::Output,
     reexports::{
         calloop::timer::{TimeoutAction, Timer},
         wayland_server::protocol::wl_surface::WlSurface,
     },
-    utils::{Logical, Point, Rectangle, Size, Transform},
+    utils::{Logical, Point, Rectangle, SERIAL_COUNTER, Size, Transform},
     wayland::{compositor::with_states, shell::xdg::XdgToplevelSurfaceData},
 };
 use tracing::warn;
@@ -70,6 +71,9 @@ pub(crate) const RADIUS: f32 = 16.0;
 // Colours as straight (not premultiplied) RGBA.
 pub(crate) const BACKGROUND: [f32; 4] = [0.12, 0.12, 0.13, 0.94];
 pub(crate) const HIGHLIGHT: [f32; 4] = [1.0, 1.0, 1.0, 0.14];
+/// The selection while another thumbnail is hovered: what releasing Alt
+/// still picks.
+const SELECTION_MARK: [f32; 4] = [1.0, 1.0, 1.0, 0.06];
 pub(crate) const TEXT_COLOR: [f32; 4] = [0.95, 0.95, 0.95, 1.0];
 pub(crate) const NAME_COLOR: [f32; 4] = [0.95, 0.95, 0.95, 0.75];
 pub(crate) const PLACEHOLDER: [f32; 4] = [0.35, 0.37, 0.42, 1.0];
@@ -100,11 +104,24 @@ pub struct Entry {
     pub title: String,
 }
 
-/// What the switcher shows: the windows and the highlighted one.
+/// What the switcher shows: the windows, the selected one and the one
+/// under the pointer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct View {
     pub entries: Vec<Entry>,
+    /// The entry Alt+Tab and the arrow keys moved to, which releasing Alt
+    /// picks.
     pub selected: usize,
+    /// The entry under the pointer, which a click picks.
+    pub hovered: Option<usize>,
+}
+
+impl View {
+    /// The entry drawn highlighted, with its title under the row: the one
+    /// under the pointer, or else the selected one.
+    fn highlighted(&self) -> usize {
+        self.hovered.unwrap_or(self.selected)
+    }
 }
 
 #[derive(Default)]
@@ -112,6 +129,12 @@ pub struct Switcher {
     /// Loaded on first use; the inner `None` means no font was found.
     font: Option<Option<Font>>,
     visible: bool,
+    /// Whether the pointer moved since the switcher showed or the keyboard
+    /// last moved the selection, so the thumbnail under it is highlighted.
+    /// Which thumbnail that is gets worked out from where the pointer is
+    /// each time, since the row shifts when a window closes. Hover only
+    /// moves the highlight; the selection stays where the keyboard put it.
+    hover: bool,
     /// Bumped whenever the switcher is hidden, so a pending show timer from
     /// an earlier switch does nothing.
     session: u64,
@@ -140,6 +163,7 @@ struct Images {
 impl Switcher {
     pub fn hide(&mut self) {
         self.visible = false;
+        self.hover = false;
         self.session += 1;
         self.cache = None;
     }
@@ -212,6 +236,9 @@ impl State {
         if self.focus.step(forward, |id| groups.group_of(id)).is_none() {
             return;
         }
+        // The keyboard moved the selection; highlight it again rather than
+        // the thumbnail under the pointer.
+        self.switcher.hover = false;
         if !starting {
             // A second Tab shows the switcher at once.
             self.switcher.visible = true;
@@ -233,10 +260,99 @@ impl State {
         }
     }
 
+    /// A click while the switcher shows picks the window under the pointer
+    /// and ends the switch, as releasing Alt would. Returns whether the click
+    /// was the switcher's: any click on its panel is, so a click between
+    /// thumbnails does not reach the window behind.
+    pub fn switcher_click(&mut self, pos: Point<f64, Logical>) -> bool {
+        // Nothing is drawn without a view, so there is nothing to click.
+        if self.switcher_view().is_none() {
+            return false;
+        }
+        match self.switcher_hit(pos) {
+            Hit::Outside => false,
+            Hit::Panel => true,
+            Hit::Entry(index) => {
+                self.end_pointer_grab();
+                self.focus.select(index);
+                self.focus.finish_switch();
+                self.switcher.hide();
+                self.sync_focus();
+                // The picked window is now under the pointer.
+                self.refresh_pointer_focus();
+                true
+            }
+        }
+    }
+
+    /// From now on the thumbnail under the pointer is highlighted, or the
+    /// selected one again when the pointer is off the thumbnails.
+    pub fn switcher_pointer_moved(&mut self) {
+        if self.switcher.visible {
+            self.switcher.hover = true;
+        }
+    }
+
+    /// What of the switcher is at `pos`; `Outside` while it is hidden.
+    fn switcher_hit(&self, pos: Point<f64, Logical>) -> Hit {
+        if !self.switcher.visible {
+            return Hit::Outside;
+        }
+        let Some((len, selected)) = self.focus.switch_list().map(|(ids, i)| (ids.len(), i)) else {
+            return Hit::Outside;
+        };
+        let Some(geometry) = self
+            .space
+            .output_under(pos)
+            .next()
+            .and_then(|output| self.space.output_geometry(output))
+        else {
+            return Hit::Outside;
+        };
+        let screen = (geometry.size.w, geometry.size.h);
+        let panel = Panel::new(len, selected, screen);
+        let origin = geometry.loc + panel.origin();
+        panel.hit(pos - origin.to_f64())
+    }
+
+    /// Ends a pointer grab before the switcher changes focus, closing the
+    /// focused window's popup menus. A menu's grab would otherwise keep the
+    /// keyboard from the picked window, and the menu would stay open on the
+    /// window left behind.
+    fn end_pointer_grab(&mut self) {
+        let Some(pointer) = self.seat.get_pointer() else {
+            return;
+        };
+        if !pointer.is_grabbed() {
+            return;
+        }
+        let focused = self.focus.current().and_then(|id| self.window(id));
+        if let Some(surface) = focused.and_then(|w| w.wl_surface()) {
+            let popups: Vec<_> = PopupManager::popups_for_surface(surface).collect();
+            for (popup, _) in popups {
+                // Only a dead surface fails, and it has no menu to close.
+                let _ = PopupManager::dismiss_popup(surface, &popup);
+            }
+        }
+        if let Some(keyboard) = self.seat.get_keyboard() {
+            keyboard.unset_grab(self);
+        }
+        let time = self.start_time.elapsed().as_millis() as u32;
+        pointer.unset_grab(self, SERIAL_COUNTER.next_serial(), time);
+    }
+
     /// The windows and groups to show while switching.
     fn switcher_view(&mut self) -> Option<View> {
         let (ids, selected) = self.focus.switch_list()?;
         let ids = ids.to_vec();
+        let pointer = self.seat.get_pointer().map(|p| p.current_location());
+        let hovered = match pointer.filter(|_| self.switcher.hover) {
+            Some(pos) => match self.switcher_hit(pos) {
+                Hit::Entry(index) => Some(index),
+                Hit::Outside | Hit::Panel => None,
+            },
+            None => None,
+        };
         let mut entries = Vec::with_capacity(ids.len());
         for id in ids {
             let windows = match self.groups.group_of(id) {
@@ -282,7 +398,11 @@ impl State {
             };
             entries.push(entry);
         }
-        Some(View { entries, selected })
+        Some(View {
+            entries,
+            selected,
+            hovered,
+        })
     }
 
     /// The switcher for `output`, front to back, ready to draw on top of
@@ -302,13 +422,11 @@ impl State {
         let panel = Panel::new(view.entries.len(), view.selected, screen);
         let output_loc = geometry.loc;
         // Whole physical pixels, so the images are not blurred.
-        let origin = Point::<i32, Logical>::from((
-            (screen.0 - panel.width) / 2,
-            (screen.1 - panel.height) / 2,
-        ))
-        .to_f64()
-        .to_physical(scale)
-        .to_i32_round::<i32>();
+        let origin = panel
+            .origin()
+            .to_f64()
+            .to_physical(scale)
+            .to_i32_round::<i32>();
 
         let images = self.switcher.images(&view, &panel, screen, scale);
         let renderer = self.backend.renderer();
@@ -427,7 +545,6 @@ struct Panel {
     first: usize,
     /// How many windows are shown.
     count: usize,
-    selected: usize,
     /// The screen's logical size, the shape of a group's thumbnail.
     screen: (i32, i32),
 }
@@ -444,7 +561,6 @@ impl Panel {
             height: PADDING + TILE_HEIGHT + TITLE_HEIGHT + PADDING,
             first,
             count,
-            selected,
             screen,
         }
     }
@@ -454,6 +570,26 @@ impl Panel {
             (PADDING + slot as i32 * TILE_WIDTH, PADDING).into(),
             (TILE_WIDTH, TILE_HEIGHT).into(),
         )
+    }
+
+    /// The panel's top left corner relative to the screen's: centred on it.
+    fn origin(&self) -> Point<i32, Logical> {
+        Point::from((
+            (self.screen.0 - self.width) / 2,
+            (self.screen.1 - self.height) / 2,
+        ))
+    }
+
+    /// What is at `pos`, relative to the panel's top left corner.
+    fn hit(&self, pos: Point<f64, Logical>) -> Hit {
+        let inside = |r: Rectangle<i32, Logical>| r.to_f64().contains(pos);
+        if !inside(Rectangle::from_size((self.width, self.height).into())) {
+            return Hit::Outside;
+        }
+        match (0..self.count).find(|&slot| inside(self.tile(slot))) {
+            Some(slot) => Hit::Entry(self.first + slot),
+            None => Hit::Panel,
+        }
     }
 
     fn thumb_box(&self, slot: usize) -> Rectangle<i32, Logical> {
@@ -478,6 +614,16 @@ impl Panel {
             (ICON_SIZE, ICON_SIZE).into(),
         )
     }
+}
+
+/// Where on the switcher a click landed.
+#[derive(Debug, PartialEq, Eq)]
+enum Hit {
+    Outside,
+    /// On the panel, between the tiles.
+    Panel,
+    /// On the tile of the entry with this index.
+    Entry(usize),
 }
 
 /// A window of `size` scaled down to fit `area`, keeping its shape, and
@@ -551,8 +697,16 @@ fn draw(
 
     for slot in 0..panel.count {
         let entry = &view.entries[panel.first + slot];
-        if panel.first + slot == panel.selected {
-            below.rounded_rect(rect(panel.tile(slot)), (RADIUS - 4.0) * s, HIGHLIGHT);
+        let index = panel.first + slot;
+        let fill = if index == view.highlighted() {
+            Some(HIGHLIGHT)
+        } else if index == view.selected {
+            Some(SELECTION_MARK)
+        } else {
+            None
+        };
+        if let Some(fill) = fill {
+            below.rounded_rect(rect(panel.tile(slot)), (RADIUS - 4.0) * s, fill);
         }
 
         let icon = rect(panel.icon(slot));
@@ -610,7 +764,7 @@ fn draw(
         );
     }
 
-    if let (Some(font), Some(entry)) = (font, view.entries.get(panel.selected)) {
+    if let (Some(font), Some(entry)) = (font, view.entries.get(view.highlighted())) {
         let style = TextStyle {
             size: TITLE_SIZE * s,
             color: TEXT_COLOR,
@@ -866,6 +1020,7 @@ mod tests {
                 })
                 .collect(),
             selected,
+            hovered: None,
         }
     }
 
@@ -881,6 +1036,33 @@ mod tests {
         assert_eq!(panel.first, 0);
         assert_eq!(panel.width, 3 * TILE_WIDTH + 2 * PADDING);
         assert_eq!(panel.height, PADDING + TILE_HEIGHT + TITLE_HEIGHT + PADDING);
+    }
+
+    #[test]
+    fn hit_finds_the_tile_under_the_pointer() {
+        let panel = Panel::new(3, 1, (1920, 1080));
+        let middle = |slot: usize| {
+            let tile = panel.tile(slot).to_f64();
+            tile.loc + tile.size.downscale(2.0).to_point()
+        };
+        assert_eq!(panel.hit(middle(0)), Hit::Entry(0));
+        assert_eq!(panel.hit(middle(2)), Hit::Entry(2));
+        // The padding is the panel's, but no tile's.
+        assert_eq!(panel.hit((2.0, 2.0).into()), Hit::Panel);
+        assert_eq!(panel.hit((-1.0, 2.0).into()), Hit::Outside);
+        assert_eq!(
+            panel.hit((panel.width as f64 + 1.0, 2.0).into()),
+            Hit::Outside
+        );
+    }
+
+    #[test]
+    fn hit_counts_from_the_first_shown_window() {
+        let panel = Panel::new(20, 15, (1000, 800));
+        assert!(panel.first > 0);
+        let tile = panel.tile(0).to_f64();
+        let middle = tile.loc + tile.size.downscale(2.0).to_point();
+        assert_eq!(panel.hit(middle), Hit::Entry(panel.first));
     }
 
     #[test]
@@ -963,6 +1145,26 @@ mod tests {
             pixel(&below, PADDING + 4, PADDING + 4)[0]
         };
         assert!(brightness(0) > brightness(1));
+    }
+
+    #[test]
+    fn hover_highlights_instead_of_the_selection() {
+        let panel = Panel::new(3, 0, (1920, 1080));
+        let brightness = |hovered, slot: usize| {
+            let view = View {
+                hovered,
+                ..view(3, 0)
+            };
+            let (below, _) = draw(None, &view, &panel, &[], 1.0);
+            // Inside the tile, next to its thumbnail.
+            pixel(&below, panel.tile(slot).loc.x + 4, PADDING + 4)[0]
+        };
+        assert_eq!(brightness(None, 0), brightness(Some(0), 0));
+        // Hovering another tile highlights it fully and leaves a fainter
+        // mark on the selection, above a plain tile.
+        assert_eq!(brightness(Some(1), 1), brightness(None, 0));
+        assert!(brightness(Some(1), 0) < brightness(Some(1), 1));
+        assert!(brightness(Some(1), 0) > brightness(Some(1), 2));
     }
 
     #[test]

@@ -20,7 +20,7 @@ Log out and pick "rustwm" from the gear menu on the login screen. Run `make && s
 | Keys | Action |
 | --- | --- |
 | `Super` (tap) | Overview: window previews and search |
-| `Alt+Tab` | Switch window, most recently used first |
+| `Alt+Tab` | Switch window, most recently used first; click a thumbnail to pick it |
 | `Super+arrow` | Snap to a half; two arrows with Super held snap to a quarter; the same arrow again goes back to full screen |
 | `Super+g` / `Super+Shift+g` | Group the snapped windows on screen / take the focused window out of its group |
 | `Super+Tab` / `Super+Shift+Tab` | Next / previous window in the group |

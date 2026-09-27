@@ -8,6 +8,10 @@ The search field edits like any text field, with a blinking caret: Left and Righ
 
 The windows stay where they are underneath; the overview is only a picture of them, drawn by the compositor from the same textures it shows the windows with, so nothing is copied and no other program is involved.
 
+## Switching windows
+
+Alt+Tab walks the windows, most recently used first, and releasing Alt brings the highlighted one to the front; Shift+Tab or the arrow keys step back and forth, Escape cancels. A quick Alt+Tab toggles between the two most recent windows without the switcher showing. While it shows, the thumbnail under the pointer is highlighted and clicking it brings that window to the front at once; moving the pointer off the thumbnails puts the highlight back on the window Alt+Tab picked, and releasing Alt still picks that one, which keeps a fainter highlight while another thumbnail is hovered.
+
 ## Locking the screen
 
 rustwm draws no lock screen of its own; [swaylock](https://github.com/swaywm/swaylock) does, and [swayidle](https://github.com/swaywm/swayidle) runs it after a while without input. Start swayidle with rustwm through [autostart](configuration.md) in `config.toml` (the sample config has this line):

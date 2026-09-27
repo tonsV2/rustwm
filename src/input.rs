@@ -300,6 +300,7 @@ impl State {
         };
         self.panel_pointer_moved(pos);
         self.overview_pointer_moved(pos);
+        self.switcher_pointer_moved();
         let under = self.surface_under(pos);
         pointer.motion(
             self,
@@ -319,10 +320,20 @@ impl State {
         };
         let serial = SERIAL_COUNTER.next_serial();
         let state = event.state();
+        let button = event.button_code();
 
+        if state == ButtonState::Released && self.suppressed_buttons.remove(&button) {
+            return;
+        }
         if state == ButtonState::Pressed {
+            // A new press means the release of any earlier swallowed press
+            // was lost, such as when the mouse was unplugged mid-click.
+            self.suppressed_buttons.remove(&button);
             self.bindings.pointer_button();
-            if self.overview_click(pointer.current_location()) {
+            if self.overview_click(pointer.current_location())
+                || self.switcher_click(pointer.current_location())
+            {
+                self.suppressed_buttons.insert(button);
                 return;
             }
             if !self.is_locked()
@@ -339,7 +350,7 @@ impl State {
         pointer.button(
             self,
             &ButtonEvent {
-                button: event.button_code(),
+                button,
                 state,
                 serial,
                 time: event.time_msec(),
