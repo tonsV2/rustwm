@@ -34,14 +34,15 @@ install:
 	install -D -m 644 -t $(DESTDIR)$(WAYBARDIR) $(addprefix resources/waybar/,$(WAYBAR))
 	install -D -m 644 -t $(DESTDIR)$(MAKODIR) resources/mako/config
 	install -D -m 644 -t $(DESTDIR)$(DBUSDIR) resources/dbus/session.conf
-	install -D -m 644 -t $(DESTDIR)$(DBUSDIR)/services resources/dbus/services/org.freedesktop.portal.Documents.service
+	install -D -m 644 -t $(DESTDIR)$(DBUSDIR)/services $(wildcard resources/dbus/services/*.service)
+	rm -f $(DESTDIR)$(BINDIR)/rustwm-secrets-relay  # replaced by rustwm-bus-relay
 	install -d $(DESTDIR)$(SESSIONDIR)
 	sed 's|^Exec=.*|Exec=$(BINDIR)/rustwm-session|' resources/rustwm.desktop >$(DESTDIR)$(SESSIONDIR)/rustwm.desktop
 	chmod 644 $(DESTDIR)$(SESSIONDIR)/rustwm.desktop
 	install -D -m 644 -t $(DESTDIR)$(PORTALDIR) resources/rustwm-portals.conf
 
 uninstall:
-	rm -f $(DESTDIR)$(BINDIR)/rustwm $(addprefix $(DESTDIR)$(BINDIR)/,$(SCRIPTS))
+	rm -f $(DESTDIR)$(BINDIR)/rustwm $(addprefix $(DESTDIR)$(BINDIR)/,$(SCRIPTS)) $(DESTDIR)$(BINDIR)/rustwm-secrets-relay
 	rm -rf $(DESTDIR)$(PREFIX)/share/rustwm
 	rm -f $(DESTDIR)$(SESSIONDIR)/rustwm.desktop
 	rm -f $(DESTDIR)$(PORTALDIR)/rustwm-portals.conf

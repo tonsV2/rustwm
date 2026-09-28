@@ -52,29 +52,28 @@ if [[ "$nested" == false && -S "$shared_socket" ]] && ! other_graphical_session;
     exec "$@"
 fi
 
-# The private bus starts the relay for the document portal in place of a
-# second portal (see rustwm-bus-relay), through a bus config that sits in the
-# checkout's resources/ or, installed, under share/. It builds on the
-# system's standard session bus config.
-bus_config=()
+# The private bus starts rustwm-bus-relay in place of a second keyring daemon
+# and document portal, through a bus config that sits in the checkout's
+# resources/ or, installed, under share/, and builds on the system's standard
+# session bus config. Without it a second document portal would start, and
+# when it exits Flatpak apps stop starting in the other session too, so
+# rustwm does not start.
+bus_config=""
 for dir in "$here/dbus" "$here/../share/rustwm/dbus"; do
-    if [[ -f "$dir/session.conf" && -f "$dir/services/org.freedesktop.portal.Documents.service" ]]; then
-        bus_config=(--config-file="$dir/session.conf")
+    if [[ -f "$dir/session.conf" ]]; then
+        bus_config="$dir/session.conf"
         break
     fi
 done
-if ((${#bus_config[@]} == 0)) || [[ ! -f /usr/share/dbus-1/session.conf ]]; then
-    echo "rustwm-session: rustwm's or the system's D-Bus session config is missing;" \
-        "a second document portal may start, and once rustwm exits Flatpak apps" \
-        "fail to start until 'systemctl --user restart xdg-document-portal'" >&2
-    bus_config=()
+services="$(dirname "$bus_config")/services"
+if [[ -z "$bus_config" || ! -f /usr/share/dbus-1/session.conf ||
+    ! -f "$services/org.freedesktop.portal.Documents.service" ||
+    ! -f "$services/org.freedesktop.secrets.service" ]]; then
+    echo "rustwm-session: rustwm's D-Bus config (dbus/ next to this script or in" \
+        "share/rustwm/) or the system's /usr/share/dbus-1/session.conf is missing" >&2
+    exit 1
 fi
 
-# D-Bus passes its environment on to the services it starts, such as the
-# document portal's relay.
+# D-Bus passes its environment on to the relays it starts.
 export RUSTWM_SHARED_BUS_ADDRESS="$shared_bus"
-relay="$here/rustwm-bus-relay"
-# Inside the private bus: start the keyring relay, then replace the shell
-# with rustwm. The relay exits on its own when the bus goes away with rustwm.
-# shellcheck disable=SC2016
-exec dbus-run-session "${bus_config[@]}" -- bash -c '"$1" org.freedesktop.secrets & shift; exec "$@"' _ "$relay" "$@"
+exec dbus-run-session --config-file="$bus_config" -- "$@"

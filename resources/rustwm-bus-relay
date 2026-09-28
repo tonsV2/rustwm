@@ -8,12 +8,14 @@ passes every call to the copy on the shared bus:
 
 - org.freedesktop.secrets: the GNOME keyring daemon that PAM unlocked at
   login only answers on the shared bus, and a second daemon on the private
-  bus would start with the keyring locked. rustwm-session starts this relay.
+  bus would start with the keyring locked.
 - org.freedesktop.portal.Documents: the document portal mounts its file
   system at $XDG_RUNTIME_DIR/doc, the path Flatpak sandboxes and the paths
   the portal hands out are built on. A second portal there shares the shared
   portal's mount and unmounts it when it exits, after which no Flatpak app
-  starts. D-Bus starts this relay in its place (see dbus/services/).
+  starts.
+
+D-Bus starts the relay when the name is first called (see dbus/services/).
 
 Usage: rustwm-bus-relay NAME
 The private bus is the one in DBUS_SESSION_BUS_ADDRESS, the shared one the
@@ -31,9 +33,19 @@ from gi.repository import Gio, GLib  # noqa: E402
 # The document portal tells apps apart by the process that calls it, and the
 # shared portal only sees the relay, an unsandboxed process. Passing on calls
 # from sandboxed apps would give them the rights of an unsandboxed one, so the
-# relay refuses them. xdg-desktop-portal, which passes on files the user
-# picked in a file chooser, is unsandboxed.
+# relay only passes on the calls below, which reveal nothing an app could
+# misuse. xdg-desktop-portal, which passes on files the user picked in a file
+# chooser, is unsandboxed. Sandboxed apps cannot hand files to the portal or
+# fetch files dropped or pasted into them.
 HOST_ONLY = {"org.freedesktop.portal.Documents"}
+SANDBOX_SAFE = {
+    ("org.freedesktop.portal.Documents", "GetMountPoint"),
+    ("org.freedesktop.DBus.Properties", "Get"),
+    ("org.freedesktop.DBus.Properties", "GetAll"),
+    ("org.freedesktop.DBus.Introspectable", "Introspect"),
+    ("org.freedesktop.DBus.Peer", "Ping"),
+    ("org.freedesktop.DBus.Peer", "GetMachineId"),
+}
 
 
 def main():
@@ -63,20 +75,32 @@ def main():
             if answer.get_message_type() == Gio.DBusMessageType.ERROR:
                 body = answer.get_body()
                 text = body.unpack()[0] if body is not None and body.n_children() else ""
+                if not isinstance(text, str):
+                    text = ""
                 out = call.new_method_error_literal(answer.get_error_name(), text)
             else:
                 out = call.new_method_reply()
                 if answer.get_body() is not None:
                     out.set_body(answer.get_body())
-        private.send_message(out, Gio.DBusSendMessageFlags.NONE)
+                    out.set_unix_fd_list(answer.get_unix_fd_list())
+        send_reply(call, out)
+
+    def send_reply(call, out):
+        if not call.get_flags() & Gio.DBusMessageFlags.NO_REPLY_EXPECTED:
+            private.send_message(out, Gio.DBusSendMessageFlags.NONE)
 
     def forward(call):
-        if name in HOST_ONLY and is_sandboxed(private, call.get_sender()):
+        method = (call.get_interface(), call.get_member())
+        if (
+            name in HOST_ONLY
+            and method not in SANDBOX_SAFE
+            and is_sandboxed(private, call.get_sender())
+        ):
             out = call.new_method_error_literal(
                 "org.freedesktop.DBus.Error.AccessDenied",
-                f"rustwm-bus-relay does not pass on {name} calls from sandboxed apps",
+                f"rustwm-bus-relay does not pass on {'.'.join(map(str, method))} from sandboxed apps",
             )
-            private.send_message(out, Gio.DBusSendMessageFlags.NONE)
+            send_reply(call, out)
             return GLib.SOURCE_REMOVE
         # The copy keeps the call's file descriptors, which the document
         # portal needs for the files it is handed.
