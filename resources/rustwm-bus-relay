@@ -106,6 +106,9 @@ def main():
         # portal needs for the files it is handed.
         copy = call.copy()
         copy.set_destination(name)
+        if call.get_flags() & Gio.DBusMessageFlags.NO_REPLY_EXPECTED:
+            shared.send_message(copy, Gio.DBusSendMessageFlags.NONE)
+            return GLib.SOURCE_REMOVE
         # Secret Service prompts are asynchronous, so no call should wait
         # long; the timeout only guards against a hung daemon.
         shared.send_message_with_reply(

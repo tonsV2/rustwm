@@ -52,6 +52,12 @@ if [[ "$nested" == false && -S "$shared_socket" ]] && ! other_graphical_session;
     exec "$@"
 fi
 
+# Without a shared bus there is nothing to relay to, and no portal whose
+# mount a second one could take down.
+if [[ ! -S "$shared_socket" ]]; then
+    exec dbus-run-session -- "$@"
+fi
+
 # The private bus starts rustwm-bus-relay in place of a second keyring daemon
 # and document portal, through a bus config that sits in the checkout's
 # resources/ or, installed, under share/, and builds on the system's standard
