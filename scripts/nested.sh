@@ -46,5 +46,6 @@ fi
 
 # A private D-Bus session bus keeps single-instance apps (GTK, Ghostty) from
 # handing their windows to copies already running in the host session;
-# rustwm-session sets it up with the host's keyring relayed onto it.
+# rustwm-session sets it up with the host's keyring and document portal
+# relayed onto it.
 resources/rustwm-session cargo run "$@"
