@@ -16,7 +16,7 @@ SESSIONDIR ?= /usr/share/wayland-sessions
 PORTALDIR ?= /usr/share/xdg-desktop-portal
 
 BINARY = target/release/rustwm
-SCRIPTS = rustwm-session rustwm-secrets-relay rustwm-document-portal rustwm-volume rustwm-terminal rustwm-panel rustwm-notifications
+SCRIPTS = rustwm-session rustwm-bus-relay rustwm-volume rustwm-terminal rustwm-panel rustwm-notifications
 WAYBAR = config.jsonc style.css
 MAKODIR = $(PREFIX)/share/rustwm/mako
 DBUSDIR = $(PREFIX)/share/rustwm/dbus

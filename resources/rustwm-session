@@ -11,8 +11,8 @@
 # Next to another graphical session (GNOME on another VT, or nested inside
 # it), rustwm gets a private bus instead. Single-instance apps (GTK apps,
 # Ghostty) would otherwise hand their windows to copies running there. The
-# keyring stays on the shared bus, so rustwm-secrets-relay passes
-# org.freedesktop.secrets calls through to it.
+# keyring and the document portal stay on the shared bus, and
+# rustwm-bus-relay passes calls to them through.
 set -euo pipefail
 
 if (($# == 0)); then
@@ -52,22 +52,29 @@ if [[ "$nested" == false && -S "$shared_socket" ]] && ! other_graphical_session;
     exec "$@"
 fi
 
-# The private bus starts its own portals, and its document portal must not
-# mount over the shared bus's one (see rustwm-document-portal). The bus
-# config sits in the checkout's resources/ or, installed, under share/.
+# The private bus starts the relay for the document portal in place of a
+# second portal (see rustwm-bus-relay), through a bus config that sits in the
+# checkout's resources/ or, installed, under share/. It builds on the
+# system's standard session bus config.
 bus_config=()
 for dir in "$here/dbus" "$here/../share/rustwm/dbus"; do
-    if [[ -f "$dir/session.conf" ]]; then
+    if [[ -f "$dir/session.conf" && -f "$dir/services/org.freedesktop.portal.Documents.service" ]]; then
         bus_config=(--config-file="$dir/session.conf")
         break
     fi
 done
-if ((${#bus_config[@]} == 0)); then
-    echo "rustwm-session: dbus/session.conf not found; Flatpak apps may stop starting once rustwm exits" >&2
+if ((${#bus_config[@]} == 0)) || [[ ! -f /usr/share/dbus-1/session.conf ]]; then
+    echo "rustwm-session: rustwm's or the system's D-Bus session config is missing;" \
+        "a second document portal may start, and once rustwm exits Flatpak apps" \
+        "fail to start until 'systemctl --user restart xdg-document-portal'" >&2
+    bus_config=()
 fi
 
-relay="$here/rustwm-secrets-relay"
-# Inside the private bus: start the relay, then replace the shell with rustwm.
-# The relay exits on its own when the bus goes away with rustwm.
+# D-Bus passes its environment on to the services it starts, such as the
+# document portal's relay.
+export RUSTWM_SHARED_BUS_ADDRESS="$shared_bus"
+relay="$here/rustwm-bus-relay"
+# Inside the private bus: start the keyring relay, then replace the shell
+# with rustwm. The relay exits on its own when the bus goes away with rustwm.
 # shellcheck disable=SC2016
-exec dbus-run-session "${bus_config[@]}" -- bash -c '"$1" "$2" & shift 2; exec "$@"' _ "$relay" "$shared_bus" "$@"
+exec dbus-run-session "${bus_config[@]}" -- bash -c '"$1" org.freedesktop.secrets & shift; exec "$@"' _ "$relay" "$@"

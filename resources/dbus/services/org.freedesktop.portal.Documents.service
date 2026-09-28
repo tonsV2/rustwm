@@ -1,6 +1,5 @@
-# Starts the document portal on rustwm's private bus through
-# rustwm-document-portal, which keeps it off the shared bus's mount.
-# rustwm-session puts the script's folder first on PATH.
+# Starts rustwm-bus-relay in place of a second document portal on rustwm's
+# private bus. rustwm-session puts the script's folder first on PATH.
 [D-BUS Service]
 Name=org.freedesktop.portal.Documents
-Exec=/usr/bin/env rustwm-document-portal
+Exec=/usr/bin/env rustwm-bus-relay org.freedesktop.portal.Documents
