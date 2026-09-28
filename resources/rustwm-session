@@ -52,8 +52,22 @@ if [[ "$nested" == false && -S "$shared_socket" ]] && ! other_graphical_session;
     exec "$@"
 fi
 
+# The private bus starts its own portals, and its document portal must not
+# mount over the shared bus's one (see rustwm-document-portal). The bus
+# config sits in the checkout's resources/ or, installed, under share/.
+bus_config=()
+for dir in "$here/dbus" "$here/../share/rustwm/dbus"; do
+    if [[ -f "$dir/session.conf" ]]; then
+        bus_config=(--config-file="$dir/session.conf")
+        break
+    fi
+done
+if ((${#bus_config[@]} == 0)); then
+    echo "rustwm-session: dbus/session.conf not found; Flatpak apps may stop starting once rustwm exits" >&2
+fi
+
 relay="$here/rustwm-secrets-relay"
 # Inside the private bus: start the relay, then replace the shell with rustwm.
 # The relay exits on its own when the bus goes away with rustwm.
 # shellcheck disable=SC2016
-exec dbus-run-session -- bash -c '"$1" "$2" & shift 2; exec "$@"' _ "$relay" "$shared_bus" "$@"
+exec dbus-run-session "${bus_config[@]}" -- bash -c '"$1" "$2" & shift 2; exec "$@"' _ "$relay" "$shared_bus" "$@"

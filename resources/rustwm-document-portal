@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Runs xdg-document-portal for rustwm's private D-Bus bus (see
+# rustwm-session), mounted in a folder of its own.
+#
+# The document portal mounts its FUSE file system at $XDG_RUNTIME_DIR/doc,
+# where the portal of the shared bus already has its mount. A second portal
+# there takes the mount over, and when the private bus goes away with rustwm
+# the mount goes with it: Flatpak apps then fail to start with "bwrap: Can't
+# find source path /run/user/1000/doc/by-app/...". Pointing XDG_RUNTIME_DIR at
+# a new folder moves the mount there instead; apps on the private bus ask the
+# portal where it is mounted, so they find it.
+set -euo pipefail
+
+# The system's service file names the portal's binary, whose folder differs
+# between distributions (/usr/libexec, /usr/lib).
+portal=""
+IFS=: read -ra data_dirs <<<"${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+for dir in "${data_dirs[@]}"; do
+    file="$dir/dbus-1/services/org.freedesktop.portal.Documents.service"
+    if [[ -f "$file" ]]; then
+        portal=$(sed -n 's/^Exec=//p' "$file" | head -n 1)
+        break
+    fi
+done
+if [[ -z "$portal" ]]; then
+    echo "rustwm-document-portal: xdg-document-portal is not installed" >&2
+    exit 1
+fi
+
+runtime_dir=$(mktemp -d "${XDG_RUNTIME_DIR:?}/rustwm-doc.XXXXXX")
+
+# Not exec: the folder is removed once the portal exits, which it does when
+# the private bus goes away. rmdir only removes empty folders, so a mount
+# that is still there is never deleted into.
+status=0
+# shellcheck disable=SC2086 # Exec= is a command line with its arguments
+XDG_RUNTIME_DIR="$runtime_dir" $portal || status=$?
+rmdir "$runtime_dir/doc" "$runtime_dir" 2>/dev/null || true
+exit "$status"
