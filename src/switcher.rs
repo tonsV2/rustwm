@@ -6,6 +6,11 @@
 //! members in their tiles, the members' app names under it and their titles
 //! below the row.
 //!
+//! When more windows are open than fit across the screen, the row scrolls
+//! to keep the highlight in view, and an arrow with a count such as "+4"
+//! at either end shows how many windows are hidden beyond it. Clicking an
+//! arrow or turning the mouse wheel over the switcher scrolls the row.
+//!
 //! Stepping only moves the highlight; the highlighted window is raised and
 //! focused when Alt is released. A quick Alt+Tab finishes before
 //! [`SHOW_DELAY`] passes, so it toggles between the two most recent windows
@@ -64,6 +69,14 @@ const TITLE_HEIGHT: i32 = 36;
 const ICON_SIZE: i32 = 48;
 /// How far the icon reaches past the thumbnail's lower right corner.
 const ICON_OVERHANG: i32 = 8;
+/// The room at each end of a row that does not show every window, for the
+/// arrow and count of the windows hidden beyond that end.
+const EDGE_WIDTH: i32 = 32;
+const ARROW_WIDTH: f32 = 9.0;
+const ARROW_HEIGHT: f32 = 16.0;
+/// How far the mouse wheel or touchpad scrolls, in logical pixels, to move
+/// the selection by one window: one wheel notch.
+pub(crate) const SCROLL_STEP: f64 = 15.0;
 const NAME_SIZE: f32 = 13.0;
 const TITLE_SIZE: f32 = 15.0;
 pub(crate) const RADIUS: f32 = 16.0;
@@ -79,6 +92,8 @@ pub(crate) const NAME_COLOR: [f32; 4] = [0.95, 0.95, 0.95, 0.75];
 pub(crate) const PLACEHOLDER: [f32; 4] = [0.35, 0.37, 0.42, 1.0];
 /// Behind a group's members, where the screen shows through between them.
 const GROUP_BACKGROUND: [f32; 4] = [0.0, 0.0, 0.0, 0.6];
+/// The arrows and counts of hidden windows.
+const EDGE_COLOR: [f32; 4] = [0.95, 0.95, 0.95, 0.6];
 
 render_elements! {
     /// Everything the switcher draws.
@@ -138,6 +153,9 @@ pub struct Switcher {
     /// Bumped whenever the switcher is hidden, so a pending show timer from
     /// an earlier switch does nothing.
     session: u64,
+    /// Wheel or touchpad scrolling not yet turned into a step, in logical
+    /// pixels, so a touchpad's small movements add up.
+    scroll: f64,
     /// The images last drawn. Reusing them while nothing changed keeps the
     /// renderer from redrawing them every frame. Thumbnails are not cached;
     /// they show the windows as they are now.
@@ -165,6 +183,7 @@ impl Switcher {
         self.visible = false;
         self.hover = false;
         self.session += 1;
+        self.scroll = 0.0;
         self.cache = None;
     }
 
@@ -239,6 +258,7 @@ impl State {
         // The keyboard moved the selection; highlight it again rather than
         // the thumbnail under the pointer.
         self.switcher.hover = false;
+        self.switcher.scroll = 0.0;
         if !starting {
             // A second Tab shows the switcher at once.
             self.switcher.visible = true;
@@ -272,6 +292,10 @@ impl State {
         match self.switcher_hit(pos) {
             Hit::Outside => false,
             Hit::Panel => true,
+            Hit::More(index) => {
+                self.switcher_select(index);
+                true
+            }
             Hit::Entry(index) => {
                 self.end_pointer_grab();
                 self.focus.select(index);
@@ -283,6 +307,53 @@ impl State {
                 true
             }
         }
+    }
+
+    /// Wheel or touchpad scrolling by `delta` logical pixels at `pos` moves
+    /// the selection, one window per [`SCROLL_STEP`], forwards for down or
+    /// right. Returns whether the scroll was the switcher's: any over its
+    /// panel is, so the window behind does not scroll.
+    ///
+    /// A scroll of nothing, such as a touchpad's stop when the fingers
+    /// lift, is left for the window with pointer focus, which may have seen
+    /// the start of the scroll before the switcher showed and waits for its
+    /// end to begin kinetic scrolling.
+    pub fn switcher_scroll(&mut self, pos: Point<f64, Logical>, delta: f64) -> bool {
+        if delta == 0.0 || self.switcher_hit(pos) == Hit::Outside {
+            return false;
+        }
+        // Nothing is drawn without a view, so there is nothing to scroll.
+        if self.switcher_view().is_none() {
+            return false;
+        }
+        let Some((len, selected)) = self.focus.switch_list().map(|(ids, i)| (ids.len(), i)) else {
+            return false;
+        };
+        // Turning back starts afresh, so the first notch the other way
+        // moves at once.
+        if self.switcher.scroll * delta < 0.0 {
+            self.switcher.scroll = 0.0;
+        }
+        self.switcher.scroll += delta;
+        let steps = (self.switcher.scroll / SCROLL_STEP).trunc();
+        self.switcher.scroll -= steps * SCROLL_STEP;
+        if steps != 0.0 {
+            // Stop at the ends rather than wrapping round as Tab does, so
+            // scrolling past the last window does not jump to the first.
+            let index = (selected as f64 + steps).clamp(0.0, (len - 1) as f64);
+            self.switcher_select(index as usize);
+        }
+        true
+    }
+
+    /// Selects entry `index` without ending the switch; the row scrolls to
+    /// show it.
+    fn switcher_select(&mut self, index: usize) {
+        self.focus.select(index);
+        // As when the keyboard moves the selection, highlight it rather
+        // than the thumbnail that is now under the pointer.
+        self.switcher.hover = false;
+        self.switcher.scroll = 0.0;
     }
 
     /// From now on the thumbnail under the pointer is highlighted, or the
@@ -350,7 +421,7 @@ impl State {
         let pos = self.seat.get_pointer()?.current_location();
         match self.switcher_hit(pos) {
             Hit::Entry(index) => Some(index),
-            Hit::Outside | Hit::Panel => None,
+            Hit::Outside | Hit::Panel | Hit::More(_) => None,
         }
     }
 
@@ -551,29 +622,79 @@ struct Panel {
     first: usize,
     /// How many windows are shown.
     count: usize,
+    /// How many windows there are, shown or not.
+    windows: usize,
+    /// The room for the arrow at each end, between the padding and the
+    /// tiles: none when every window is shown.
+    edge_width: i32,
     /// The screen's logical size, the shape of a group's thumbnail.
     screen: (i32, i32),
 }
 
 impl Panel {
     fn new(windows: usize, selected: usize, screen: (i32, i32)) -> Self {
-        let max_tiles = ((screen.0 - 2 * SCREEN_MARGIN - 2 * PADDING) / TILE_WIDTH).max(1) as usize;
-        let count = windows.min(max_tiles);
+        let tiles_across = |room: i32| (room / TILE_WIDTH).max(1) as usize;
+        let room = screen.0 - 2 * SCREEN_MARGIN - 2 * PADDING;
+        let mut count = windows.min(tiles_across(room));
+        // A row that does not show every window needs room at its ends
+        // for the arrows, which can leave space for one tile fewer.
+        if count < windows {
+            count = tiles_across(room - 2 * EDGE_WIDTH);
+        }
         let first = selected
             .saturating_sub(count / 2)
             .min(windows.saturating_sub(count));
+        // On a screen too narrow for one tile and the arrows, the arrows
+        // get what is left beside the tile rather than widening the panel.
+        let edge_width = if count < windows {
+            ((room - count as i32 * TILE_WIDTH) / 2).clamp(0, EDGE_WIDTH)
+        } else {
+            0
+        };
         Self {
-            width: count as i32 * TILE_WIDTH + 2 * PADDING,
+            width: count as i32 * TILE_WIDTH + 2 * (PADDING + edge_width),
             height: PADDING + TILE_HEIGHT + TITLE_HEIGHT + PADDING,
             first,
             count,
+            windows,
+            edge_width,
             screen,
         }
     }
 
+    /// How many windows are hidden beyond `side` of the row.
+    fn hidden(&self, side: Side) -> usize {
+        match side {
+            Side::Left => self.first,
+            Side::Right => self.windows - self.first - self.count,
+        }
+    }
+
+    /// The end of the panel beyond the tiles on `side`, from its top to its
+    /// bottom, and the index of the nearest window hidden beyond it; `None`
+    /// when no window is.
+    fn edge(&self, side: Side) -> Option<(Rectangle<i32, Logical>, usize)> {
+        if self.hidden(side) == 0 {
+            return None;
+        }
+        let width = PADDING + self.edge_width;
+        let (x, nearest) = match side {
+            Side::Left => (0, self.first - 1),
+            Side::Right => (self.width - width, self.first + self.count),
+        };
+        Some((
+            Rectangle::new((x, 0).into(), (width, self.height).into()),
+            nearest,
+        ))
+    }
+
     fn tile(&self, slot: usize) -> Rectangle<i32, Logical> {
         Rectangle::new(
-            (PADDING + slot as i32 * TILE_WIDTH, PADDING).into(),
+            (
+                PADDING + self.edge_width + slot as i32 * TILE_WIDTH,
+                PADDING,
+            )
+                .into(),
             (TILE_WIDTH, TILE_HEIGHT).into(),
         )
     }
@@ -592,10 +713,14 @@ impl Panel {
         if !inside(Rectangle::from_size((self.width, self.height).into())) {
             return Hit::Outside;
         }
-        match (0..self.count).find(|&slot| inside(self.tile(slot))) {
-            Some(slot) => Hit::Entry(self.first + slot),
-            None => Hit::Panel,
+        if let Some(slot) = (0..self.count).find(|&slot| inside(self.tile(slot))) {
+            return Hit::Entry(self.first + slot);
         }
+        [Side::Left, Side::Right]
+            .into_iter()
+            .filter_map(|side| self.edge(side))
+            .find(|&(area, _)| inside(area))
+            .map_or(Hit::Panel, |(_, nearest)| Hit::More(nearest))
     }
 
     fn thumb_box(&self, slot: usize) -> Rectangle<i32, Logical> {
@@ -630,6 +755,15 @@ enum Hit {
     Panel,
     /// On the tile of the entry with this index.
     Entry(usize),
+    /// On an arrow towards hidden windows; the index is the nearest of them.
+    More(usize),
+}
+
+/// An end of the switcher's row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Side {
+    Left,
+    Right,
 }
 
 /// A window of `size` scaled down to fit `area`, keeping its shape, and
@@ -770,6 +904,48 @@ fn draw(
         );
     }
 
+    for side in [Side::Left, Side::Right] {
+        let Some((area, _)) = panel.edge(side) else {
+            continue;
+        };
+        // The arrow and count sit in the room beside the tiles, not in the
+        // panel's padding.
+        let edge_width = panel.edge_width as f32 * s;
+        let centre = match side {
+            Side::Left => PADDING as f32 * s + edge_width / 2.0,
+            Side::Right => area.loc.x as f32 * s + edge_width / 2.0,
+        };
+        let middle = (PADDING + TILE_PADDING + THUMB_HEIGHT / 2) as f32 * s;
+        let (w, h) = (ARROW_WIDTH * s, ARROW_HEIGHT * s);
+        let (back, tip) = match side {
+            Side::Left => (centre + w / 2.0, centre - w / 2.0),
+            Side::Right => (centre - w / 2.0, centre + w / 2.0),
+        };
+        below.convex_polygon(
+            &[
+                (back, middle - h / 2.0),
+                (tip, middle),
+                (back, middle + h / 2.0),
+            ],
+            EDGE_COLOR,
+        );
+        let Some(font) = font else { continue };
+        let style = TextStyle {
+            size: NAME_SIZE * s,
+            color: EDGE_COLOR,
+        };
+        let name_middle = (PADDING + TILE_PADDING + THUMB_HEIGHT) as f32 * s
+            + (ICON_OVERHANG as f32 + NAME_HEIGHT as f32) * s / 2.0;
+        below.centred_text(
+            font,
+            &format!("+{}", panel.hidden(side)),
+            style,
+            centre,
+            edge_width,
+            name_middle,
+        );
+    }
+
     if let (Some(font), Some(entry)) = (font, view.entries.get(view.highlighted())) {
         let style = TextStyle {
             size: TITLE_SIZE * s,
@@ -860,6 +1036,51 @@ impl Canvas {
                 let corner = (dx * dx + dy * dy).sqrt() - radius;
                 let edge = (x - cx).max(cx - (x + w)).max(y - cy).max(cy - (y + h));
                 let distance = if dx > 0.0 && dy > 0.0 { corner } else { edge };
+                self.blend(px, py, color, 0.5 - distance);
+            }
+        }
+    }
+
+    /// Fills a convex polygon, anti-aliased. `points` may go round it in
+    /// either direction.
+    pub(crate) fn convex_polygon(&mut self, points: &[(f32, f32)], color: [f32; 4]) {
+        if points.len() < 3 {
+            return;
+        }
+        let edges: Vec<((f32, f32), (f32, f32))> = points
+            .iter()
+            .zip(points.iter().cycle().skip(1))
+            .map(|(&a, &b)| (a, b))
+            .collect();
+        // Twice the signed area: which side of each edge is inside.
+        let winding: f32 = edges.iter().map(|(a, b)| a.0 * b.1 - b.0 * a.1).sum();
+        // Points in a line enclose nothing.
+        if winding == 0.0 {
+            return;
+        }
+        let inside = winding.signum();
+        let (mut left, mut top, mut right, mut bottom) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+        for &(x, y) in points {
+            left = left.min(x);
+            top = top.min(y);
+            right = right.max(x);
+            bottom = bottom.max(y);
+        }
+        for py in top.floor() as i32..bottom.ceil() as i32 {
+            for px in left.floor() as i32..right.ceil() as i32 {
+                let cx = px as f32 + 0.5;
+                let cy = py as f32 + 0.5;
+                // Distance from the pixel centre to the shape's edge,
+                // negative inside: for a convex shape, the largest of the
+                // distances past each edge.
+                let distance = edges
+                    .iter()
+                    .map(|&((ax, ay), (bx, by))| {
+                        let length = (bx - ax).hypot(by - ay).max(f32::EPSILON);
+                        let cross = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+                        -inside * cross / length
+                    })
+                    .fold(f32::MIN, f32::max);
                 self.blend(px, py, color, 0.5 - distance);
             }
         }
@@ -1084,6 +1305,108 @@ mod tests {
 
         // A screen too narrow for even one tile still shows one.
         assert_eq!(Panel::new(5, 0, (100, 800)).count, 1);
+    }
+
+    #[test]
+    fn a_row_that_shows_every_window_has_no_arrows() {
+        let panel = Panel::new(3, 1, (1920, 1080));
+        assert_eq!(panel.edge(Side::Left), None);
+        assert_eq!(panel.edge(Side::Right), None);
+        assert_eq!(panel.tile(0).loc.x, PADDING);
+    }
+
+    #[test]
+    fn arrows_count_the_windows_hidden_beyond_each_end() {
+        // At the start only the right end has windows beyond it.
+        let panel = Panel::new(20, 0, (1000, 800));
+        assert_eq!(panel.hidden(Side::Left), 0);
+        assert_eq!(panel.hidden(Side::Right), 20 - panel.count);
+        assert_eq!(panel.edge(Side::Left), None);
+        assert!(panel.edge(Side::Right).is_some());
+
+        // In the middle both ends do, and they add up to what is not shown.
+        let panel = Panel::new(20, 10, (1000, 800));
+        assert!(panel.hidden(Side::Left) > 0);
+        assert!(panel.hidden(Side::Right) > 0);
+        assert_eq!(
+            panel.hidden(Side::Left) + panel.count + panel.hidden(Side::Right),
+            20
+        );
+
+        // At the end only the left end does.
+        let panel = Panel::new(20, 19, (1000, 800));
+        assert_eq!(panel.hidden(Side::Right), 0);
+        assert_eq!(panel.edge(Side::Right), None);
+    }
+
+    #[test]
+    fn the_arrows_room_leaves_the_row_on_the_screen() {
+        // Four tiles fit exactly, but not with the arrows beside them.
+        let screen = 4 * TILE_WIDTH + 2 * (SCREEN_MARGIN + PADDING);
+        assert_eq!(Panel::new(4, 0, (screen, 800)).count, 4);
+        let panel = Panel::new(5, 0, (screen, 800));
+        assert_eq!(panel.count, 3);
+        assert!(panel.width <= screen - 2 * SCREEN_MARGIN);
+        // The tiles start after the left arrow's room.
+        assert_eq!(panel.tile(0).loc.x, PADDING + EDGE_WIDTH);
+        let last = panel.tile(panel.count - 1);
+        assert_eq!(last.loc.x + last.size.w, panel.width - PADDING - EDGE_WIDTH);
+    }
+
+    #[test]
+    fn arrows_do_not_widen_the_panel_past_a_narrow_screen() {
+        for screen in 320..600 {
+            let panel = Panel::new(20, 10, (screen, 800));
+            assert!(
+                panel.width <= screen - 2 * SCREEN_MARGIN,
+                "screen {screen}: panel {}",
+                panel.width
+            );
+        }
+    }
+
+    #[test]
+    fn hit_on_an_arrow_names_the_nearest_hidden_window() {
+        let panel = Panel::new(20, 10, (1000, 800));
+        let middle = |side| {
+            let (area, _) = panel.edge(side).unwrap();
+            let area = area.to_f64();
+            area.loc + area.size.downscale(2.0).to_point()
+        };
+        assert_eq!(panel.hit(middle(Side::Left)), Hit::More(panel.first - 1));
+        assert_eq!(
+            panel.hit(middle(Side::Right)),
+            Hit::More(panel.first + panel.count)
+        );
+        // Without hidden windows the end is just the panel.
+        let panel = Panel::new(20, 0, (1000, 800));
+        assert_eq!(panel.hit((2.0, 50.0).into()), Hit::Panel);
+    }
+
+    #[test]
+    fn arrows_are_drawn_only_towards_hidden_windows() {
+        let panel = Panel::new(20, 0, (1000, 800));
+        let (below, _) = draw(None, &view(20, 0), &panel, &[], 1.0);
+        let arrow = |x: i32| pixel(&below, x, PADDING + TILE_PADDING + THUMB_HEIGHT / 2)[0];
+        let left = PADDING + EDGE_WIDTH / 2;
+        let right = panel.width - PADDING - EDGE_WIDTH / 2;
+        // The panel's background is dark; the arrow is light.
+        assert!(arrow(right) > arrow(left) + 50);
+    }
+
+    #[test]
+    fn convex_polygon_fills_inside_either_way_round() {
+        for points in [
+            [(2.0, 2.0), (18.0, 2.0), (10.0, 18.0)],
+            [(10.0, 18.0), (18.0, 2.0), (2.0, 2.0)],
+        ] {
+            let mut canvas = Canvas::new(20, 20);
+            canvas.convex_polygon(&points, [1.0, 1.0, 1.0, 1.0]);
+            let image = canvas.into_image();
+            assert_eq!(pixel(&image, 10, 6), [255, 255, 255, 255]);
+            assert_eq!(pixel(&image, 2, 16)[3], 0);
+            assert_eq!(pixel(&image, 0, 0)[3], 0);
+        }
     }
 
     #[test]

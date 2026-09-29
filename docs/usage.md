@@ -10,7 +10,7 @@ The windows stay where they are underneath; the overview is only a picture of th
 
 ## Switching windows
 
-Alt+Tab walks the windows, most recently used first, and releasing Alt brings the highlighted one to the front; Shift+Tab or the arrow keys step back and forth, Escape cancels. A quick Alt+Tab toggles between the two most recent windows without the switcher showing. While it shows, the thumbnail under the pointer is highlighted and clicking it brings that window to the front at once; moving the pointer off the thumbnails puts the highlight back on the window Alt+Tab picked, and releasing Alt still picks that one, which keeps a fainter highlight while another thumbnail is hovered.
+Alt+Tab walks the windows, most recently used first, and releasing Alt brings the highlighted one to the front; Shift+Tab or the arrow keys step back and forth, Escape cancels. A quick Alt+Tab toggles between the two most recent windows without the switcher showing. While it shows, the thumbnail under the pointer is highlighted and clicking it brings that window to the front at once; moving the pointer off the thumbnails puts the highlight back on the window Alt+Tab picked, and releasing Alt still picks that one, which keeps a fainter highlight while another thumbnail is hovered. When more windows are open than fit across the screen, the row scrolls to keep the highlight in view, and an arrow at either end with a count such as "+4" shows how many windows are hidden beyond it. Clicking an arrow selects the nearest hidden window, and the mouse wheel or a touchpad scroll over the switcher moves the selection one window at a time, stopping at the first and last.
 
 ## Locking the screen
 
