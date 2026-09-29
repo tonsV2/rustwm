@@ -23,6 +23,7 @@ use crate::{
     keyboard::{Action, App, Command, Key, Mods},
     layout::{Direction, Layout},
     state::{Backend, State},
+    switcher::SCROLL_STEP,
 };
 use tracing::{info, warn};
 
@@ -362,17 +363,26 @@ impl State {
     fn on_pointer_axis<I: InputBackend>(&mut self, event: I::PointerAxisEvent) {
         let source = event.source();
         let mut frame = AxisFrame::new(event.time_msec()).source(source);
-        // Down and right, the directions that scroll the switcher forwards.
-        let mut scrolled = 0.0;
+        // How far the switcher scrolls along each axis, down and right
+        // being forwards.
+        let mut scrolled = [0.0; 2];
 
-        for axis in [Axis::Horizontal, Axis::Vertical] {
+        for (i, axis) in [Axis::Horizontal, Axis::Vertical].into_iter().enumerate() {
             let discrete = event.amount_v120(axis);
             // Wheels report only discrete steps; 15 logical pixels per
             // notch matches what other compositors send.
             let amount = event
                 .amount(axis)
                 .unwrap_or_else(|| discrete.unwrap_or(0.0) * 15.0 / 120.0);
-            scrolled += amount;
+            // A wheel's amount is in degrees, and a notch is 10, 15 or 20
+            // of them depending on the mouse, so the switcher counts
+            // notches instead: one window each.
+            scrolled[i] = match (source, discrete) {
+                (AxisSource::Wheel | AxisSource::WheelTilt, Some(discrete)) => {
+                    discrete * SCROLL_STEP / 120.0
+                }
+                _ => amount,
+            };
             if amount != 0.0 {
                 frame = frame.value(axis, amount);
                 if let Some(discrete) = discrete {
@@ -387,7 +397,15 @@ impl State {
         let Some(pointer) = self.seat.get_pointer() else {
             return;
         };
-        if self.switcher_scroll(pointer.current_location(), scrolled) {
+        // The axis scrolled further, so a diagonal touchpad scroll does
+        // not cancel itself out.
+        let [horizontal, vertical] = scrolled;
+        let delta = if horizontal.abs() > vertical.abs() {
+            horizontal
+        } else {
+            vertical
+        };
+        if self.switcher_scroll(pointer.current_location(), delta) {
             return;
         }
         pointer.axis(self, frame);

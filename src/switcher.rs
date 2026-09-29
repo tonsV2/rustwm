@@ -76,7 +76,7 @@ const ARROW_WIDTH: f32 = 9.0;
 const ARROW_HEIGHT: f32 = 16.0;
 /// How far the mouse wheel or touchpad scrolls, in logical pixels, to move
 /// the selection by one window: one wheel notch.
-const SCROLL_STEP: f64 = 15.0;
+pub(crate) const SCROLL_STEP: f64 = 15.0;
 const NAME_SIZE: f32 = 13.0;
 const TITLE_SIZE: f32 = 15.0;
 pub(crate) const RADIUS: f32 = 16.0;
@@ -258,6 +258,7 @@ impl State {
         // The keyboard moved the selection; highlight it again rather than
         // the thumbnail under the pointer.
         self.switcher.hover = false;
+        self.switcher.scroll = 0.0;
         if !starting {
             // A second Tab shows the switcher at once.
             self.switcher.visible = true;
@@ -312,13 +313,27 @@ impl State {
     /// the selection, one window per [`SCROLL_STEP`], forwards for down or
     /// right. Returns whether the scroll was the switcher's: any over its
     /// panel is, so the window behind does not scroll.
+    ///
+    /// A scroll of nothing, such as a touchpad's stop when the fingers
+    /// lift, is left for the window with pointer focus, which may have seen
+    /// the start of the scroll before the switcher showed and waits for its
+    /// end to begin kinetic scrolling.
     pub fn switcher_scroll(&mut self, pos: Point<f64, Logical>, delta: f64) -> bool {
-        if self.switcher_hit(pos) == Hit::Outside {
+        if delta == 0.0 || self.switcher_hit(pos) == Hit::Outside {
+            return false;
+        }
+        // Nothing is drawn without a view, so there is nothing to scroll.
+        if self.switcher_view().is_none() {
             return false;
         }
         let Some((len, selected)) = self.focus.switch_list().map(|(ids, i)| (ids.len(), i)) else {
             return false;
         };
+        // Turning back starts afresh, so the first notch the other way
+        // moves at once.
+        if self.switcher.scroll * delta < 0.0 {
+            self.switcher.scroll = 0.0;
+        }
         self.switcher.scroll += delta;
         let steps = (self.switcher.scroll / SCROLL_STEP).trunc();
         self.switcher.scroll -= steps * SCROLL_STEP;
@@ -338,6 +353,7 @@ impl State {
         // As when the keyboard moves the selection, highlight it rather
         // than the thumbnail that is now under the pointer.
         self.switcher.hover = false;
+        self.switcher.scroll = 0.0;
     }
 
     /// From now on the thumbnail under the pointer is highlighted, or the
@@ -608,6 +624,9 @@ struct Panel {
     count: usize,
     /// How many windows there are, shown or not.
     windows: usize,
+    /// The room for the arrow at each end, between the padding and the
+    /// tiles: none when every window is shown.
+    edge_width: i32,
     /// The screen's logical size, the shape of a group's thumbnail.
     screen: (i32, i32),
 }
@@ -625,23 +644,21 @@ impl Panel {
         let first = selected
             .saturating_sub(count / 2)
             .min(windows.saturating_sub(count));
-        let edge = if count < windows { EDGE_WIDTH } else { 0 };
+        // On a screen too narrow for one tile and the arrows, the arrows
+        // get what is left beside the tile rather than widening the panel.
+        let edge_width = if count < windows {
+            ((room - count as i32 * TILE_WIDTH) / 2).clamp(0, EDGE_WIDTH)
+        } else {
+            0
+        };
         Self {
-            width: count as i32 * TILE_WIDTH + 2 * (PADDING + edge),
+            width: count as i32 * TILE_WIDTH + 2 * (PADDING + edge_width),
             height: PADDING + TILE_HEIGHT + TITLE_HEIGHT + PADDING,
             first,
             count,
             windows,
+            edge_width,
             screen,
-        }
-    }
-
-    /// The room for the arrow at each end: none when every window is shown.
-    fn edge_width(&self) -> i32 {
-        if self.count < self.windows {
-            EDGE_WIDTH
-        } else {
-            0
         }
     }
 
@@ -660,7 +677,7 @@ impl Panel {
         if self.hidden(side) == 0 {
             return None;
         }
-        let width = PADDING + self.edge_width();
+        let width = PADDING + self.edge_width;
         let (x, nearest) = match side {
             Side::Left => (0, self.first - 1),
             Side::Right => (self.width - width, self.first + self.count),
@@ -674,7 +691,7 @@ impl Panel {
     fn tile(&self, slot: usize) -> Rectangle<i32, Logical> {
         Rectangle::new(
             (
-                PADDING + self.edge_width() + slot as i32 * TILE_WIDTH,
+                PADDING + self.edge_width + slot as i32 * TILE_WIDTH,
                 PADDING,
             )
                 .into(),
@@ -893,9 +910,10 @@ fn draw(
         };
         // The arrow and count sit in the room beside the tiles, not in the
         // panel's padding.
+        let edge_width = panel.edge_width as f32 * s;
         let centre = match side {
-            Side::Left => (PADDING + EDGE_WIDTH / 2) as f32 * s,
-            Side::Right => (area.loc.x + EDGE_WIDTH / 2) as f32 * s,
+            Side::Left => PADDING as f32 * s + edge_width / 2.0,
+            Side::Right => area.loc.x as f32 * s + edge_width / 2.0,
         };
         let middle = (PADDING + TILE_PADDING + THUMB_HEIGHT / 2) as f32 * s;
         let (w, h) = (ARROW_WIDTH * s, ARROW_HEIGHT * s);
@@ -923,7 +941,7 @@ fn draw(
             &format!("+{}", panel.hidden(side)),
             style,
             centre,
-            (EDGE_WIDTH + PADDING) as f32 * s,
+            edge_width,
             name_middle,
         );
     }
@@ -1036,7 +1054,11 @@ impl Canvas {
             .collect();
         // Twice the signed area: which side of each edge is inside.
         let winding: f32 = edges.iter().map(|(a, b)| a.0 * b.1 - b.0 * a.1).sum();
-        let inside = if winding >= 0.0 { 1.0 } else { -1.0 };
+        // Points in a line enclose nothing.
+        if winding == 0.0 {
+            return;
+        }
+        let inside = winding.signum();
         let (mut left, mut top, mut right, mut bottom) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
         for &(x, y) in points {
             left = left.min(x);
@@ -1329,6 +1351,18 @@ mod tests {
         assert_eq!(panel.tile(0).loc.x, PADDING + EDGE_WIDTH);
         let last = panel.tile(panel.count - 1);
         assert_eq!(last.loc.x + last.size.w, panel.width - PADDING - EDGE_WIDTH);
+    }
+
+    #[test]
+    fn arrows_do_not_widen_the_panel_past_a_narrow_screen() {
+        for screen in 320..600 {
+            let panel = Panel::new(20, 10, (screen, 800));
+            assert!(
+                panel.width <= screen - 2 * SCREEN_MARGIN,
+                "screen {screen}: panel {}",
+                panel.width
+            );
+        }
     }
 
     #[test]
