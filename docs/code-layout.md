@@ -18,7 +18,7 @@
 | `src/session.rs` | The environment of started apps, the D-Bus session bus and the systemd graphical session |
 | `src/xwayland.rs` | Starts xwayland-satellite for X11 apps |
 | `src/commands.rs` | Runs the brightness, volume and Print key commands |
-| `src/capture/` | Screen capture protocols (wlr-screencopy, ext-image-copy-capture) for screenshots and screen sharing; drawn in `src/handlers/capture.rs` |
+| `src/capture/` | Screen capture protocols (wlr-screencopy, ext-image-copy-capture) for screenshots and sharing the screen or a window; drawn in `src/handlers/capture.rs`, with the window list in `src/handlers/foreign_toplevel.rs` |
 | `src/osd.rs` | On-screen brightness and volume indicator |
 | `src/reload.rs` | Applies the config file again when it is saved |
 | `src/panel.rs` | Starts the panel, slides it in and out in auto-hide mode and lays windows out beside it while it shows |

@@ -37,6 +37,7 @@ use smithay::{
         compositor::{CompositorClientState, CompositorState},
         cursor_shape::CursorShapeManagerState,
         dmabuf::DmabufState,
+        foreign_toplevel_list::ForeignToplevelListState,
         fractional_scale::FractionalScaleManagerState,
         idle_inhibit::IdleInhibitManagerState,
         output::OutputManagerState,
@@ -121,6 +122,8 @@ pub struct State {
     pub xdg_activation_state: XdgActivationState,
     pub screencopy_state: ScreencopyState,
     pub image_copy_state: ImageCopyState,
+    /// Shown windows, for screen sharing tools to offer.
+    pub foreign_toplevel_list: ForeignToplevelListState,
     pub session_lock_state: SessionLockManagerState,
     pub idle_notify: IdleNotifyState,
     #[allow(dead_code)]
@@ -202,6 +205,7 @@ impl State {
         let xdg_activation_state = XdgActivationState::new::<Self>(&dh);
         let screencopy_state = ScreencopyState::new::<Self>(&dh);
         let image_copy_state = ImageCopyState::new::<Self>(&dh);
+        let foreign_toplevel_list = ForeignToplevelListState::new::<Self>(&dh);
         let session_lock_state = SessionLockManagerState::new::<Self, _>(&dh, |_| true);
         let idle_notify = IdleNotifyState::new(&dh);
         let idle_inhibit_state = IdleInhibitManagerState::new::<Self>(&dh);
@@ -238,6 +242,7 @@ impl State {
             xdg_activation_state,
             screencopy_state,
             image_copy_state,
+            foreign_toplevel_list,
             session_lock_state,
             idle_notify,
             idle_inhibit_state,

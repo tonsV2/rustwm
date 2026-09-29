@@ -43,6 +43,7 @@ impl XdgShellHandler for State {
             mapped: false,
             unzoomed: None,
             fullscreen: false,
+            foreign_toplevel: None,
         });
     }
 
@@ -54,6 +55,8 @@ impl XdgShellHandler for State {
         else {
             return;
         };
+        let id = self.windows[pos].id;
+        self.withdraw_window(id);
         let window = self.windows.remove(pos);
         log_window("window destroyed", window.id.0, &surface);
 
@@ -144,6 +147,14 @@ impl XdgShellHandler for State {
 
     fn unfullscreen_request(&mut self, surface: ToplevelSurface) {
         self.set_fullscreen(surface.wl_surface(), false);
+    }
+
+    fn title_changed(&mut self, surface: ToplevelSurface) {
+        self.update_window_title(surface.wl_surface());
+    }
+
+    fn app_id_changed(&mut self, surface: ToplevelSurface) {
+        self.update_window_title(surface.wl_surface());
     }
 }
 delegate_xdg_shell!(State);
@@ -238,6 +249,7 @@ impl State {
         if let Some(toplevel) = window.window.toplevel() {
             log_window("window mapped", id.0, toplevel);
         }
+        self.announce_window(id);
         self.focus_window(id);
     }
 
@@ -254,6 +266,7 @@ impl State {
         }
 
         self.space.unmap_elem(&element);
+        self.withdraw_window(id);
         self.focus.remove(id);
         self.sync_focus();
     }

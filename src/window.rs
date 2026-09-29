@@ -7,6 +7,7 @@ use smithay::{
         wayland_protocols::xdg::shell::server::xdg_toplevel,
         wayland_server::protocol::wl_surface::WlSurface,
     },
+    wayland::foreign_toplevel_list::ForeignToplevelHandle,
 };
 
 use crate::{
@@ -28,6 +29,9 @@ pub struct ManagedWindow {
     pub unzoomed: Option<Layout>,
     /// The client asked to cover the whole output, as a video player does, until it asks to leave or the user snaps it.
     pub fullscreen: bool,
+    /// The window's entry in ext-foreign-toplevel-list while it is shown,
+    /// which screen sharing tools offer to share.
+    pub foreign_toplevel: Option<ForeignToplevelHandle>,
 }
 
 impl ManagedWindow {

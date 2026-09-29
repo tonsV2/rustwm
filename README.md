@@ -8,7 +8,7 @@ Every app opens full screen. Snap windows to halves and quarters from the keyboa
 
 ```sh
 sudo dnf install cargo mesa-libEGL-devel libxkbcommon-devel wayland-devel libseat-devel libinput-devel mesa-libgbm-devel libdrm-devel systemd-devel
-sudo dnf install waybar network-manager-applet mako swaylock swayidle wlopm grim slurp xdg-desktop-portal-wlr brightnessctl plocate xwayland-satellite
+sudo dnf install waybar network-manager-applet mako swaylock swayidle wlopm grim slurp xdg-desktop-portal-wlr fuzzel brightnessctl plocate xwayland-satellite
 make
 sudo make install
 ```
@@ -49,5 +49,4 @@ Copy [resources/config.toml](resources/config.toml) to `~/.config/rustwm/config.
 
 - One monitor, the first connected one ([#7](https://github.com/tonsV2/rustwm/issues/7)), and only the primary GPU.
 - An app whose minimum size is larger than its slot draws past the slot's edge.
-- Screen sharing shares the whole screen, not single windows.
 - X11 apps need `xwayland-satellite`. Some Java apps show a blank window until `_JAVA_AWT_WM_NONREPARENTING=1` is set; JetBrains IDEs can run on Wayland with `-Dawt.toolkit.name=WLToolkit` (Help → Edit Custom VM Options).

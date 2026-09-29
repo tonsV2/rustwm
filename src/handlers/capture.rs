@@ -1,5 +1,5 @@
-//! Draws screen captures for grim and xdg-desktop-portal-wlr. The protocols
-//! are in `crate::capture`.
+//! Draws screen and window captures for grim and xdg-desktop-portal-wlr.
+//! The protocols are in `crate::capture`.
 
 use std::ptr;
 
@@ -12,25 +12,29 @@ use smithay::{
             Bind, ExportMem, Offscreen,
             damage::OutputDamageTracker,
             element::{
-                RenderElement,
+                AsRenderElements, RenderElement,
+                surface::WaylandSurfaceRenderElement,
                 utils::{Relocate, RelocateRenderElement},
             },
             gles::{GlesRenderer, GlesTexture},
             sync::SyncPoint,
         },
     },
-    desktop::space::space_render_elements,
+    desktop::{
+        Window,
+        space::{SpaceRenderElements, space_render_elements},
+    },
     output::Output,
     reexports::{calloop::LoopHandle, wayland_server::protocol::wl_buffer::WlBuffer},
     utils::{Physical, Rectangle, Scale, Size, Transform},
-    wayland::shm,
+    wayland::{foreign_toplevel_list::ForeignToplevelHandle, shm},
 };
 use tracing::{trace, warn};
 
 use crate::{
     capture::{
-        CaptureHandler, CaptureRequest, DMABUF_FORMAT, DmabufConstraints, Drawn, Target,
-        buffer_size, image_copy::ImageCopyState, screencopy::ScreencopyState,
+        CaptureHandler, CaptureRequest, DMABUF_FORMAT, DmabufConstraints, Drawn, Subject, Target,
+        ToplevelPlace, image_copy::ImageCopyState, screencopy::ScreencopyState,
     },
     delegate_image_copy, delegate_screencopy,
     state::{Backend, State},
@@ -54,10 +58,24 @@ impl CaptureHandler for State {
         self.space.outputs().any(|o| o == output)
     }
 
+    fn toplevel_place(&self, toplevel: &ForeignToplevelHandle) -> Option<ToplevelPlace> {
+        let window = self.window_for_foreign_toplevel(toplevel)?;
+        let geometry = self.space.element_geometry(&window.window)?;
+        let output_geometry = self.space.output_geometry(&window.output)?;
+        let scale = window.output.current_scale().fractional_scale();
+        let region = Rectangle::new(
+            (geometry.loc - output_geometry.loc).to_physical_precise_round(scale),
+            geometry.size.to_physical_precise_round(scale),
+        );
+        (!region.is_empty()).then(|| ToplevelPlace {
+            output: window.output.clone(),
+            region,
+        })
+    }
+
     fn draw_capture(&mut self, request: CaptureRequest<'_>) -> anyhow::Result<Option<Drawn>> {
         let CaptureRequest {
-            output,
-            region,
+            subject,
             cursor,
             target,
             tracker,
@@ -79,10 +97,27 @@ impl CaptureHandler for State {
             return Ok(None);
         }
 
+        // A window is drawn upright, whichever way the monitor is turned.
+        let (output, region, transform, window) = match subject {
+            Subject::Region { output, region } => {
+                (output.clone(), region, output.current_transform(), None)
+            }
+            Subject::Toplevel(toplevel) => {
+                let place = self
+                    .toplevel_place(toplevel)
+                    .context("the window is not shown")?;
+                let window = self
+                    .window_for_foreign_toplevel(toplevel)
+                    .map(|w| w.window.clone());
+                (place.output, place.region, Transform::Normal, window)
+            }
+        };
+        let output = &output;
+
         // Elements are placed relative to the output; the region's corner
         // becomes the buffer's.
         let elements: Vec<_> = self
-            .capture_elements(output, cursor)
+            .capture_elements(output, cursor, window.as_ref())
             .into_iter()
             .map(|element| {
                 RelocateRenderElement::from_element(
@@ -93,11 +128,10 @@ impl CaptureHandler for State {
             })
             .collect();
 
-        let size = buffer_size(output, region);
-        // The output can change size between the request and now.
-        ensure!(target.size() == size, "the output changed size");
+        let size = transform.invert().transform_size(region.size);
+        // The output or window can change size between the request and now.
+        ensure!(target.size() == size, "the captured area changed size");
         let scale = Scale::from(output.current_scale().fractional_scale());
-        let transform = output.current_transform();
         let mode = (size, scale, transform);
         if tracker.mode().try_into().ok() != Some(mode) {
             // A new tracker reports everything as damaged.
@@ -161,9 +195,16 @@ delegate_screencopy!(State);
 delegate_image_copy!(State);
 
 impl State {
-    /// What the screen shows on `output`, front to back. The pointer is only
-    /// drawn on the DRM backend; nested, the host window shows its own.
-    fn capture_elements(&mut self, output: &Output, cursor: bool) -> Vec<OutputElements> {
+    /// What the screen shows on `output`, front to back, or only `window`
+    /// and the pointer, as if no other window or overlay covered it. The
+    /// pointer is only drawn on the DRM backend; nested, the host window
+    /// shows its own.
+    fn capture_elements(
+        &mut self,
+        output: &Output,
+        cursor: bool,
+        window: Option<&Window>,
+    ) -> Vec<OutputElements> {
         let mut elements = Vec::new();
         if cursor && let Backend::Udev(udev) = &mut self.backend {
             let location = self
@@ -180,6 +221,10 @@ impl State {
                 scale,
             ));
         }
+        if let Some(window) = window {
+            elements.extend(self.window_elements(output, window));
+            return elements;
+        }
         let overlay = self.overlay_elements(output);
         elements.extend(overlay.into_iter().map(OutputElements::Switcher));
         match space_render_elements(self.backend.renderer(), [&self.space], output, 1.0) {
@@ -187,6 +232,31 @@ impl State {
             Err(err) => warn!(?err, "failed to collect window elements for capture"),
         }
         elements
+    }
+
+    /// `window` with its popups, where the screen shows it on `output`.
+    fn window_elements(&mut self, output: &Output, window: &Window) -> Vec<OutputElements> {
+        let (Some(location), Some(output_geometry)) = (
+            self.space.element_location(window),
+            self.space.output_geometry(output),
+        ) else {
+            return Vec::new();
+        };
+        let scale = Scale::from(output.current_scale().fractional_scale());
+        // The window's content starts before its geometry where the client
+        // draws shadows; the space places the geometry, as it does here.
+        let location = (location - window.geometry().loc - output_geometry.loc)
+            .to_physical_precise_round(scale);
+        window
+            .render_elements::<WaylandSurfaceRenderElement<GlesRenderer>>(
+                self.backend.renderer(),
+                location,
+                scale,
+                1.0,
+            )
+            .into_iter()
+            .map(|element| OutputElements::Space(SpaceRenderElements::Surface(element)))
+            .collect()
     }
 }
 

@@ -48,7 +48,7 @@ The look is in [resources/mako/config](../resources/mako/config). Copy it to `~/
 
 ## Screenshots and screen sharing
 
-rustwm lets outside tools read the screen through the wlr-screencopy and ext-image-copy-capture protocols. It has no capture interface of its own.
+rustwm lets outside tools read the screen, or a single window, through the wlr-screencopy and ext-image-copy-capture protocols, and lists the shown windows for them through ext-foreign-toplevel-list. It has no capture interface of its own.
 
 Screenshots use [grim](https://gitlab.freedesktop.org/emersion/grim), and [slurp](https://github.com/emersion/slurp) to select an area:
 
@@ -63,12 +63,17 @@ Screen sharing in browsers, Meet, Slack, Zoom and OBS goes through the desktop p
 
 1. Install `xdg-desktop-portal-wlr` (see [Fedora dependencies](../README.md#install)).
 2. Tell the portal to use it when `XDG_CURRENT_DESKTOP=rustwm`, with [resources/rustwm-portals.conf](../resources/rustwm-portals.conf): system-wide in `/usr/share/xdg-desktop-portal/` (see [As a login session](../README.md#install)), or for yourself in `~/.config/xdg-desktop-portal/`. The other portals (file chooser and so on) stay with GTK's.
-3. With one monitor there is nothing to choose, so skip the chooser `xdg-desktop-portal-wlr` would otherwise show (slurp, or a Fuzzel menu) with `~/.config/xdg-desktop-portal-wlr/rustwm`:
+3. Choose what to share from a menu of the monitor and every shown window with `~/.config/xdg-desktop-portal-wlr/rustwm`. Without it, `xdg-desktop-portal-wlr` runs slurp, which only picks monitors:
 
    ```ini
    [screencast]
-   chooser_type=none
+   chooser_type=dmenu
+   chooser_cmd=fuzzel --dmenu --prompt "Share: "
    ```
+
+   To always share the whole screen without asking, use `chooser_type=none` instead.
+
+A shared window is captured on its own at its own size, also while other windows cover it, and the stream stops when the window closes.
 
 rustwm puts `WAYLAND_DISPLAY` and `XDG_CURRENT_DESKTOP=rustwm` in the D-Bus activation environment at startup (see [D-Bus bus and keyring](development.md#d-bus-bus-and-keyring)), so the portals it starts connect to rustwm. On the shared user bus, a portal that was already running for another desktop keeps that desktop's settings until it restarts: `systemctl --user restart xdg-desktop-portal`.
 

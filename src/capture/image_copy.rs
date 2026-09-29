@@ -1,12 +1,17 @@
-//! ext-image-copy-capture-v1 with ext-output-image-capture-source-v1: the
-//! capture protocol xdg-desktop-portal-wlr 0.8 prefers for sharing the
-//! screen. (Its wlr-screencopy path stops after the first frame.)
+//! ext-image-copy-capture-v1 with ext-output-image-capture-source-v1 and
+//! ext-foreign-toplevel-image-capture-source-v1: the capture protocol
+//! xdg-desktop-portal-wlr 0.8 prefers for sharing the screen or a window.
+//! (Its wlr-screencopy path stops after the first frame, and cannot share
+//! a window.)
 //!
-//! A client makes a capture source from an output, opens a session on it
-//! and captures frames one at a time. The first frame of a session is drawn
-//! right away; later ones wait until the output changed. Only outputs can
-//! be captured, and cursor sessions (the pointer as a separate image) never
-//! produce frames: clients get the pointer painted into the frame instead.
+//! A client makes a capture source from an output, or from a window it
+//! found through ext-foreign-toplevel-list, opens a session on it and
+//! captures frames one at a time. The first frame of a session is drawn
+//! right away; later ones wait until the source changed. A window source
+//! is captured at the window's own size; when that changes, the session
+//! announces the new size and the client allocates new buffers. Cursor
+//! sessions (the pointer as a separate image) never produce frames: clients
+//! get the pointer painted into the frame instead.
 
 use std::{
     sync::{
@@ -22,6 +27,9 @@ use smithay::{
     reexports::{
         wayland_protocols::ext::{
             image_capture_source::v1::server::{
+                ext_foreign_toplevel_image_capture_source_manager_v1::{
+                    self, ExtForeignToplevelImageCaptureSourceManagerV1,
+                },
                 ext_image_capture_source_v1::ExtImageCaptureSourceV1,
                 ext_output_image_capture_source_manager_v1::{
                     self, ExtOutputImageCaptureSourceManagerV1,
@@ -44,12 +52,13 @@ use smithay::{
         },
     },
     utils::{Physical, Size, Transform},
+    wayland::foreign_toplevel_list::{ForeignToplevelHandle, ForeignToplevelWeakHandle},
 };
 use tracing::{debug, warn};
 
 use super::{
-    CaptureHandler, CaptureRequest, DMABUF_FORMAT, Drawn, SHM_FORMAT, Target, buffer_size,
-    output_rect, split_time, when_drawn,
+    CaptureHandler, CaptureRequest, DMABUF_FORMAT, Drawn, SHM_FORMAT, Subject, Target,
+    ToplevelPlace, buffer_size, output_rect, split_time, when_drawn,
 };
 
 /// Open sessions, plus frames waiting for their output to change.
@@ -62,10 +71,12 @@ impl ImageCopyState {
     pub fn new<D>(dh: &DisplayHandle) -> Self
     where
         D: GlobalDispatch<ExtOutputImageCaptureSourceManagerV1, ()>
+            + GlobalDispatch<ExtForeignToplevelImageCaptureSourceManagerV1, ()>
             + GlobalDispatch<ExtImageCopyCaptureManagerV1, ()>
             + 'static,
     {
         dh.create_global::<D, ExtOutputImageCaptureSourceManagerV1, ()>(1, ());
+        dh.create_global::<D, ExtForeignToplevelImageCaptureSourceManagerV1, ()>(1, ());
         dh.create_global::<D, ExtImageCopyCaptureManagerV1, ()>(1, ());
         Self {
             sessions: Vec::new(),
@@ -74,15 +85,89 @@ impl ImageCopyState {
     }
 }
 
-/// A capture source: the output it was made from, if that still exists.
+/// A capture source: what it was made from, or `None` when that was
+/// already gone.
 pub struct SourceData {
-    output: Option<WeakOutput>,
+    source: Option<Source>,
+}
+
+/// What a capture source shows. Both are held weakly: the session stops
+/// when the output or the window goes away.
+#[derive(Clone)]
+enum Source {
+    Output(WeakOutput),
+    Toplevel(ForeignToplevelWeakHandle),
+}
+
+/// A source that is still shown. It is looked up again for every frame,
+/// since outputs and windows come and go and windows change size.
+enum Shown {
+    Output(Output),
+    Toplevel {
+        toplevel: ForeignToplevelHandle,
+        place: ToplevelPlace,
+    },
+}
+
+impl Shown {
+    fn find<D: CaptureHandler>(state: &D, source: &Source) -> Option<Self> {
+        match source {
+            Source::Output(output) => {
+                let output = output.upgrade()?;
+                let shown = state.is_output_mapped(&output) && output_rect(&output).is_some();
+                shown.then_some(Shown::Output(output))
+            }
+            Source::Toplevel(toplevel) => {
+                // A closed window's handle lives on while clients hold it.
+                let toplevel = toplevel.upgrade().filter(|t| !t.is_closed())?;
+                let place = state.toplevel_place(&toplevel)?;
+                Some(Shown::Toplevel { toplevel, place })
+            }
+        }
+    }
+
+    /// The output the source is on. Its renders answer the waiting frames.
+    fn output(&self) -> &Output {
+        match self {
+            Shown::Output(output) => output,
+            Shown::Toplevel { place, .. } => &place.output,
+        }
+    }
+
+    fn subject(&self) -> Subject<'_> {
+        match self {
+            Shown::Output(output) => Subject::Region {
+                output,
+                region: output_rect(output).unwrap_or_default(),
+            },
+            Shown::Toplevel { toplevel, .. } => Subject::Toplevel(toplevel),
+        }
+    }
+
+    /// The size of a buffer holding the whole source.
+    fn buffer_size(&self) -> Size<i32, Physical> {
+        match self {
+            Shown::Output(output) => output_rect(output)
+                .map(|full| buffer_size(output, full))
+                .unwrap_or_default(),
+            Shown::Toplevel { place, .. } => place.region.size,
+        }
+    }
+
+    /// How the client turns the buffer to show it upright. An output's
+    /// buffer is in the monitor's orientation; a window is drawn upright.
+    fn transform(&self) -> Transform {
+        match self {
+            Shown::Output(output) => output.current_transform(),
+            Shown::Toplevel { .. } => Transform::Normal,
+        }
+    }
 }
 
 pub struct SessionData {
     /// `None` for a cursor session's capture session, which never
     /// produces frames.
-    output: Option<WeakOutput>,
+    source: Option<Source>,
     paint_cursors: bool,
     inner: Mutex<SessionInner>,
 }
@@ -100,12 +185,12 @@ impl SessionData {
         self.inner.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// The captured output, if the session still captures one.
-    fn output(&self) -> Option<Output> {
+    /// The captured source, unless the session stopped.
+    fn source(&self) -> Option<Source> {
         if self.inner().stopped {
             return None;
         }
-        self.output.as_ref()?.upgrade()
+        self.source.clone()
     }
 }
 
@@ -129,7 +214,6 @@ pub struct CursorSessionData {
 struct Frame {
     frame: ExtImageCopyCaptureFrameV1,
     session: ExtImageCopyCaptureSessionV1,
-    output: Output,
     target: Target,
     size: Size<i32, Physical>,
     failure: FailureReason,
@@ -184,8 +268,50 @@ where
     ) {
         use ext_output_image_capture_source_manager_v1::Request;
         if let Request::CreateSource { source, output } = request {
-            let output = Output::from_resource(&output).map(|o| o.downgrade());
-            data_init.init(source, SourceData { output });
+            let output = Output::from_resource(&output).map(|o| Source::Output(o.downgrade()));
+            data_init.init(source, SourceData { source: output });
+        }
+    }
+}
+
+impl<D> GlobalDispatch<ExtForeignToplevelImageCaptureSourceManagerV1, (), D> for ImageCopyState
+where
+    D: Dispatch<ExtForeignToplevelImageCaptureSourceManagerV1, ()> + 'static,
+{
+    fn bind(
+        _state: &mut D,
+        _dh: &DisplayHandle,
+        _client: &Client,
+        manager: New<ExtForeignToplevelImageCaptureSourceManagerV1>,
+        _global_data: &(),
+        data_init: &mut DataInit<'_, D>,
+    ) {
+        data_init.init(manager, ());
+    }
+}
+
+impl<D> Dispatch<ExtForeignToplevelImageCaptureSourceManagerV1, (), D> for ImageCopyState
+where
+    D: Dispatch<ExtImageCaptureSourceV1, SourceData> + 'static,
+{
+    fn request(
+        _state: &mut D,
+        _client: &Client,
+        _manager: &ExtForeignToplevelImageCaptureSourceManagerV1,
+        request: ext_foreign_toplevel_image_capture_source_manager_v1::Request,
+        _data: &(),
+        _dh: &DisplayHandle,
+        data_init: &mut DataInit<'_, D>,
+    ) {
+        use ext_foreign_toplevel_image_capture_source_manager_v1::Request;
+        if let Request::CreateSource {
+            source,
+            toplevel_handle,
+        } = request
+        {
+            let toplevel = ForeignToplevelHandle::from_resource(&toplevel_handle)
+                .map(|t| Source::Toplevel(t.downgrade()));
+            data_init.init(source, SourceData { source: toplevel });
         }
     }
 }
@@ -249,11 +375,11 @@ where
                     manager.post_error(Error::InvalidOption, "unknown capture option");
                     return;
                 };
-                let output = source.data::<SourceData>().and_then(|s| s.output.clone());
+                let source = source.data::<SourceData>().and_then(|s| s.source.clone());
                 let session = data_init.init(
                     session,
                     SessionData {
-                        output,
+                        source,
                         paint_cursors: options.contains(Options::PaintCursors),
                         inner: Mutex::new(SessionInner {
                             tracker: OutputDamageTracker::new((0, 0), 1.0, Transform::Normal),
@@ -279,27 +405,31 @@ where
 }
 
 /// Announces the buffer constraints, or stops the session at once if its
-/// output is gone.
+/// source is gone.
 fn start_session<D: CaptureHandler>(state: &mut D, session: ExtImageCopyCaptureSessionV1) {
-    let data = session.data::<SessionData>().expect("session without data");
-    match data.output().filter(|o| state.is_output_mapped(o)) {
-        Some(output) => {
-            send_constraints(state, &session, &output);
+    match session_shown(state, &session) {
+        Some(shown) => {
+            send_constraints(state, &session, shown.buffer_size());
             state.image_copy_state().sessions.push(session);
         }
         None => stop_session(&session),
     }
 }
 
+/// What the session captures, if it still runs and its source is shown.
+fn session_shown<D: CaptureHandler>(
+    state: &D,
+    session: &ExtImageCopyCaptureSessionV1,
+) -> Option<Shown> {
+    let source = session.data::<SessionData>()?.source()?;
+    Shown::find(state, &source)
+}
+
 fn send_constraints<D: CaptureHandler>(
     state: &mut D,
     session: &ExtImageCopyCaptureSessionV1,
-    output: &Output,
+    size: Size<i32, Physical>,
 ) {
-    let Some(full) = output_rect(output) else {
-        return;
-    };
-    let size = buffer_size(output, full);
     let data = session.data::<SessionData>().expect("session without data");
     data.inner().size = size;
     session.buffer_size(size.w as u32, size.h as u32);
@@ -345,7 +475,7 @@ where
             let session = data_init.init(
                 session,
                 SessionData {
-                    output: None,
+                    source: None,
                     paint_cursors: false,
                     inner: Mutex::new(SessionInner {
                         tracker: OutputDamageTracker::new((0, 0), 1.0, Transform::Normal),
@@ -468,10 +598,10 @@ fn capture<D: CaptureHandler>(
     let Some(data) = session.data::<SessionData>() else {
         return;
     };
-    let Some(output) = data.output() else {
+    if data.source().is_none() {
         frame.failed(FailureReason::Stopped);
         return;
-    };
+    }
     let size = data.inner().size;
     let Some(target) = Target::new(buffer, size) else {
         debug!("captured into a buffer that does not match the constraints");
@@ -481,7 +611,6 @@ fn capture<D: CaptureHandler>(
     let frame = Frame {
         frame: frame.clone(),
         session: session.clone(),
-        output,
         target,
         size,
         failure: FailureReason::Unknown,
@@ -490,9 +619,9 @@ fn capture<D: CaptureHandler>(
     draw(state, frame);
 }
 
-/// Stops sessions whose output is gone, announces new buffer constraints
-/// when `output` changed size, and answers the frames waiting for it to
-/// change.
+/// Stops sessions whose source is gone, announces new buffer constraints
+/// when a source changed size, and answers the frames waiting for `output`
+/// to change.
 pub fn render_queued<D: CaptureHandler>(state: &mut D, output: &Output) {
     let sessions = std::mem::take(&mut state.image_copy_state().sessions);
     let mut kept = Vec::new();
@@ -501,39 +630,29 @@ pub fn render_queued<D: CaptureHandler>(state: &mut D, output: &Output) {
             continue;
         }
         let data = session.data::<SessionData>().expect("session without data");
-        match data.output() {
-            Some(o) if state.is_output_mapped(&o) => {
-                let size = output_rect(&o).map(|full| buffer_size(&o, full));
-                if &o == output && size.is_some_and(|s| s != data.inner().size) {
-                    send_constraints(state, &session, &o);
+        match session_shown(state, &session) {
+            Some(shown) => {
+                let size = shown.buffer_size();
+                if size != data.inner().size {
+                    send_constraints(state, &session, size);
                 }
                 kept.push(session);
             }
-            _ => stop_session(&session),
+            None => stop_session(&session),
         }
     }
     let image_copy = state.image_copy_state();
     image_copy.sessions = kept;
 
+    // Frames whose source is gone go along and fail in draw.
     let queue = std::mem::take(&mut image_copy.queue);
-    let (now, later): (Vec<_>, Vec<_>) = queue.into_iter().partition(|f| &f.output == output);
+    let (now, later): (Vec<_>, Vec<_>) = queue.into_iter().partition(|f| {
+        session_shown(state, &f.session).is_none_or(|shown| shown.output() == output)
+    });
     state.image_copy_state().queue = later;
-    // Frames of stopped sessions fail in draw.
     for frame in now {
         draw(state, frame);
     }
-    let queue = std::mem::take(&mut state.image_copy_state().queue);
-    for mut frame in queue {
-        if session_output(&frame.session).is_some() {
-            state.image_copy_state().queue.push(frame);
-        } else {
-            frame.failure = FailureReason::Stopped;
-        }
-    }
-}
-
-fn session_output(session: &ExtImageCopyCaptureSessionV1) -> Option<Output> {
-    session.data::<SessionData>()?.output()
 }
 
 /// Draws the frame and tells the client when it is ready, or queues it
@@ -541,26 +660,23 @@ fn session_output(session: &ExtImageCopyCaptureSessionV1) -> Option<Output> {
 fn draw<D: CaptureHandler>(state: &mut D, mut frame: Frame) {
     let session = frame.session.clone();
     let data = session.data::<SessionData>().expect("session without data");
-    if data.output().is_none() {
+    let Some(shown) = session_shown(state, &session) else {
         frame.failure = FailureReason::Stopped;
         return;
-    }
-    let Some(region) = output_rect(&frame.output) else {
-        return;
     };
-    if buffer_size(&frame.output, region) != frame.size {
-        // The output changed size. The client allocates new buffers after
+    let size = shown.buffer_size();
+    if size != frame.size {
+        // The source changed size. The client allocates new buffers after
         // the new constraints.
-        if data.inner().size != buffer_size(&frame.output, region) {
-            send_constraints(state, &session, &frame.output);
+        if data.inner().size != size {
+            send_constraints(state, &session, size);
         }
         frame.failure = FailureReason::BufferConstraints;
         return;
     }
     let mut inner = data.inner();
     let result = state.draw_capture(CaptureRequest {
-        output: &frame.output,
-        region,
+        subject: shown.subject(),
         cursor: data.paint_cursors,
         target: &frame.target,
         tracker: &mut inner.tracker,
@@ -569,7 +685,7 @@ fn draw<D: CaptureHandler>(state: &mut D, mut frame: Frame) {
     match result {
         Ok(Some(drawn)) => {
             drop(inner);
-            ready(state, frame, drawn);
+            ready(state, frame, shown.transform(), drawn);
         }
         Ok(None) => {
             drop(inner);
@@ -583,10 +699,8 @@ fn draw<D: CaptureHandler>(state: &mut D, mut frame: Frame) {
     }
 }
 
-fn ready<D: CaptureHandler>(state: &mut D, mut frame: Frame, drawn: Drawn) {
-    frame
-        .frame
-        .transform(frame.output.current_transform().into());
+fn ready<D: CaptureHandler>(state: &mut D, mut frame: Frame, transform: Transform, drawn: Drawn) {
+    frame.frame.transform(transform.into());
     for rect in &drawn.damage {
         frame
             .frame
@@ -609,6 +723,12 @@ macro_rules! delegate_image_copy {
         ] => $crate::capture::image_copy::ImageCopyState);
         smithay::reexports::wayland_server::delegate_dispatch!($ty: [
             smithay::reexports::wayland_protocols::ext::image_capture_source::v1::server::ext_output_image_capture_source_manager_v1::ExtOutputImageCaptureSourceManagerV1: ()
+        ] => $crate::capture::image_copy::ImageCopyState);
+        smithay::reexports::wayland_server::delegate_global_dispatch!($ty: [
+            smithay::reexports::wayland_protocols::ext::image_capture_source::v1::server::ext_foreign_toplevel_image_capture_source_manager_v1::ExtForeignToplevelImageCaptureSourceManagerV1: ()
+        ] => $crate::capture::image_copy::ImageCopyState);
+        smithay::reexports::wayland_server::delegate_dispatch!($ty: [
+            smithay::reexports::wayland_protocols::ext::image_capture_source::v1::server::ext_foreign_toplevel_image_capture_source_manager_v1::ExtForeignToplevelImageCaptureSourceManagerV1: ()
         ] => $crate::capture::image_copy::ImageCopyState);
         smithay::reexports::wayland_server::delegate_dispatch!($ty: [
             smithay::reexports::wayland_protocols::ext::image_capture_source::v1::server::ext_image_capture_source_v1::ExtImageCaptureSourceV1: $crate::capture::image_copy::SourceData

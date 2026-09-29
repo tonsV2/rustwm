@@ -3,6 +3,7 @@
 
 mod capture;
 mod compositor;
+mod foreign_toplevel;
 mod idle;
 mod layer_shell;
 mod output_power;

@@ -3,8 +3,9 @@
 //! Two protocols hand the compositor a client buffer to draw the screen
 //! into: wlr-screencopy ([`screencopy`]), which grim and most tools use,
 //! and ext-image-copy-capture ([`image_copy`]), which
-//! xdg-desktop-portal-wlr 0.8 prefers for sharing the screen. Smithay 0.7
-//! implements neither. Both leave the drawing to [`CaptureHandler`].
+//! xdg-desktop-portal-wlr 0.8 prefers for sharing the screen or a single
+//! window. Smithay 0.7 implements neither. Both leave the drawing to
+//! [`CaptureHandler`].
 //!
 //! A capture is drawn again from the output's elements rather than read
 //! back from the screen: on the DRM backend, windows and the cursor can sit
@@ -31,7 +32,7 @@ use smithay::{
         wayland_server::protocol::{wl_buffer::WlBuffer, wl_shm},
     },
     utils::{Buffer, Clock, Monotonic, Physical, Rectangle, Size},
-    wayland::{dmabuf, shm},
+    wayland::{dmabuf, foreign_toplevel_list::ForeignToplevelHandle, shm},
 };
 use tracing::warn;
 
@@ -48,6 +49,10 @@ pub trait CaptureHandler: 'static + Sized {
     fn loop_handle(&self) -> LoopHandle<'static, Self>;
     fn is_output_mapped(&self, output: &Output) -> bool;
 
+    /// Where the window behind `toplevel` is shown, or `None` when it is
+    /// not shown.
+    fn toplevel_place(&self, toplevel: &ForeignToplevelHandle) -> Option<ToplevelPlace>;
+
     /// Draws the request into its buffer. Returns `None` without drawing
     /// when [`CaptureRequest::wait_for_damage`] is set and nothing changed
     /// since the tracker's previous frame.
@@ -59,14 +64,31 @@ pub trait CaptureHandler: 'static + Sized {
 }
 
 pub struct CaptureRequest<'a> {
-    pub output: &'a Output,
-    /// The captured area in the output's physical pixels, after the output
-    /// transform: the whole output, or a region of it.
-    pub region: Rectangle<i32, Physical>,
+    pub subject: Subject<'a>,
     pub cursor: bool,
     pub target: &'a Target,
     pub tracker: &'a mut OutputDamageTracker,
     pub wait_for_damage: bool,
+}
+
+/// What a capture shows.
+pub enum Subject<'a> {
+    /// Everything the screen shows in `region` of `output`, in the output's
+    /// physical pixels after the output transform: the whole output, or a
+    /// region of it.
+    Region {
+        output: &'a Output,
+        region: Rectangle<i32, Physical>,
+    },
+    /// One window at its own size, as if nothing covered it.
+    Toplevel(&'a ForeignToplevelHandle),
+}
+
+/// A shown window: its output, and its area there in the output's physical
+/// pixels after the output transform.
+pub struct ToplevelPlace {
+    pub output: Output,
+    pub region: Rectangle<i32, Physical>,
 }
 
 /// A drawn capture: what changed since the tracker's previous frame, in
