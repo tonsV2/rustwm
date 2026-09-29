@@ -362,6 +362,8 @@ impl State {
     fn on_pointer_axis<I: InputBackend>(&mut self, event: I::PointerAxisEvent) {
         let source = event.source();
         let mut frame = AxisFrame::new(event.time_msec()).source(source);
+        // Down and right, the directions that scroll the switcher forwards.
+        let mut scrolled = 0.0;
 
         for axis in [Axis::Horizontal, Axis::Vertical] {
             let discrete = event.amount_v120(axis);
@@ -370,6 +372,7 @@ impl State {
             let amount = event
                 .amount(axis)
                 .unwrap_or_else(|| discrete.unwrap_or(0.0) * 15.0 / 120.0);
+            scrolled += amount;
             if amount != 0.0 {
                 frame = frame.value(axis, amount);
                 if let Some(discrete) = discrete {
@@ -384,6 +387,9 @@ impl State {
         let Some(pointer) = self.seat.get_pointer() else {
             return;
         };
+        if self.switcher_scroll(pointer.current_location(), scrolled) {
+            return;
+        }
         pointer.axis(self, frame);
         pointer.frame(self);
     }
