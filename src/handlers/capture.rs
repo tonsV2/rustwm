@@ -106,10 +106,12 @@ impl CaptureHandler for State {
                 let place = self
                     .toplevel_place(toplevel)
                     .context("the window is not shown")?;
+                // Without the window, the whole output would be drawn.
                 let window = self
                     .window_for_foreign_toplevel(toplevel)
-                    .map(|w| w.window.clone());
-                (place.output, place.region, Transform::Normal, window)
+                    .map(|w| w.window.clone())
+                    .context("the window is not shown")?;
+                (place.output, place.region, Transform::Normal, Some(window))
             }
         };
         let output = &output;

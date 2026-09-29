@@ -220,6 +220,7 @@ impl State {
         };
         window.mapped = true;
         let window = window.clone();
+        self.announce_window(id);
 
         let Some(area) = self.usable_area(&window.output) else {
             return;
@@ -249,7 +250,6 @@ impl State {
         if let Some(toplevel) = window.window.toplevel() {
             log_window("window mapped", id.0, toplevel);
         }
-        self.announce_window(id);
         self.focus_window(id);
     }
 
@@ -266,7 +266,6 @@ impl State {
         }
 
         self.space.unmap_elem(&element);
-        self.withdraw_window(id);
         self.focus.remove(id);
         self.sync_focus();
     }

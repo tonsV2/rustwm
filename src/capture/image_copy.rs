@@ -99,6 +99,20 @@ enum Source {
     Toplevel(ForeignToplevelWeakHandle),
 }
 
+impl Source {
+    /// Whether the source is gone for good: its output left, or its window
+    /// closed. A window that is only not shown for now, such as while its
+    /// output is being replaced, pauses its session instead.
+    fn is_gone<D: CaptureHandler>(&self, state: &D) -> bool {
+        match self {
+            Source::Output(output) => output
+                .upgrade()
+                .is_none_or(|output| !state.is_output_mapped(&output)),
+            Source::Toplevel(toplevel) => toplevel.upgrade().is_none_or(|t| t.is_closed()),
+        }
+    }
+}
+
 /// A source that is still shown. It is looked up again for every frame,
 /// since outputs and windows come and go and windows change size.
 enum Shown {
@@ -425,6 +439,14 @@ fn session_shown<D: CaptureHandler>(
     Shown::find(state, &source)
 }
 
+/// Whether the session stopped or its source is gone for good.
+fn session_gone<D: CaptureHandler>(state: &D, session: &ExtImageCopyCaptureSessionV1) -> bool {
+    session
+        .data::<SessionData>()
+        .and_then(|data| data.source())
+        .is_none_or(|source| source.is_gone(state))
+}
+
 fn send_constraints<D: CaptureHandler>(
     state: &mut D,
     session: &ExtImageCopyCaptureSessionV1,
@@ -446,9 +468,15 @@ fn send_constraints<D: CaptureHandler>(
     session.done();
 }
 
+/// Tells the client the session ended. It is sent once; the session
+/// produces no frames after it.
 fn stop_session(session: &ExtImageCopyCaptureSessionV1) {
     if let Some(data) = session.data::<SessionData>() {
-        data.inner().stopped = true;
+        let mut inner = data.inner();
+        if inner.stopped {
+            return;
+        }
+        inner.stopped = true;
     }
     session.stopped();
 }
@@ -621,7 +649,7 @@ fn capture<D: CaptureHandler>(
 
 /// Stops sessions whose source is gone, announces new buffer constraints
 /// when a source changed size, and answers the frames waiting for `output`
-/// to change.
+/// to change. Sessions whose source is only not shown for now wait.
 pub fn render_queued<D: CaptureHandler>(state: &mut D, output: &Output) {
     let sessions = std::mem::take(&mut state.image_copy_state().sessions);
     let mut kept = Vec::new();
@@ -638,17 +666,23 @@ pub fn render_queued<D: CaptureHandler>(state: &mut D, output: &Output) {
                 }
                 kept.push(session);
             }
-            None => stop_session(&session),
+            None if session_gone(state, &session) => stop_session(&session),
+            None => kept.push(session),
         }
     }
     let image_copy = state.image_copy_state();
     image_copy.sessions = kept;
 
-    // Frames whose source is gone go along and fail in draw.
+    // Frames whose source is gone go along and fail in draw; frames whose
+    // source is only not shown for now keep waiting.
     let queue = std::mem::take(&mut image_copy.queue);
-    let (now, later): (Vec<_>, Vec<_>) = queue.into_iter().partition(|f| {
-        session_shown(state, &f.session).is_none_or(|shown| shown.output() == output)
-    });
+    let (now, later): (Vec<_>, Vec<_>) =
+        queue
+            .into_iter()
+            .partition(|f| match session_shown(state, &f.session) {
+                Some(shown) => shown.output() == output,
+                None => session_gone(state, &f.session),
+            });
     state.image_copy_state().queue = later;
     for frame in now {
         draw(state, frame);
@@ -661,7 +695,13 @@ fn draw<D: CaptureHandler>(state: &mut D, mut frame: Frame) {
     let session = frame.session.clone();
     let data = session.data::<SessionData>().expect("session without data");
     let Some(shown) = session_shown(state, &session) else {
-        frame.failure = FailureReason::Stopped;
+        if session_gone(state, &session) {
+            // The client learns why from the session's `stopped` first.
+            stop_session(&session);
+            frame.failure = FailureReason::Stopped;
+        } else {
+            state.image_copy_state().queue.push(frame);
+        }
         return;
     };
     let size = shown.buffer_size();

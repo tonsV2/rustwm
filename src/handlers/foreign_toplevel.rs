@@ -1,5 +1,6 @@
-//! ext-foreign-toplevel-list: tells other clients which windows are shown,
-//! with their title and app id. xdg-desktop-portal-wlr offers these windows
+//! ext-foreign-toplevel-list: tells other clients which windows exist,
+//! from when they are first shown until they close, with their title and
+//! app id. xdg-desktop-portal-wlr offers these windows
 //! for sharing, and captures the chosen one through a capture source made
 //! from its handle (see `crate::capture::image_copy`).
 
@@ -21,9 +22,17 @@ impl ForeignToplevelListHandler for State {
 delegate_foreign_toplevel_list!(State);
 
 impl State {
-    /// Lists a window that was just shown.
+    /// Lists a window when it is first shown. A window that hides and shows
+    /// again, as tray apps do, keeps its entry, so a share of it pauses
+    /// rather than ends.
     pub fn announce_window(&mut self, id: WindowId) {
-        let Some(surface) = self.window(id).and_then(|w| w.wl_surface()).cloned() else {
+        let Some(window) = self.window(id) else {
+            return;
+        };
+        if window.foreign_toplevel.is_some() {
+            return;
+        }
+        let Some(surface) = window.wl_surface().cloned() else {
             return;
         };
         let (app_id, title) = app_id_and_title(&surface);
@@ -37,8 +46,8 @@ impl State {
         }
     }
 
-    /// Takes a window that was hidden or closed off the list. Clients see
-    /// its handle close, and a capture of it stops.
+    /// Takes a closed window off the list. Clients see its handle close,
+    /// and a capture of it stops.
     pub fn withdraw_window(&mut self, id: WindowId) {
         let Some(window) = self.windows.iter_mut().find(|w| w.id == id) else {
             return;
@@ -63,8 +72,7 @@ impl State {
         handle.send_done();
     }
 
-    /// The window a listed handle stands for, while it is shown. A window
-    /// hidden and shown again gets a new handle; the old one stays closed.
+    /// The window a listed handle stands for, until it closes.
     pub fn window_for_foreign_toplevel(
         &self,
         handle: &ForeignToplevelHandle,

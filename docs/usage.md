@@ -48,7 +48,7 @@ The look is in [resources/mako/config](../resources/mako/config). Copy it to `~/
 
 ## Screenshots and screen sharing
 
-rustwm lets outside tools read the screen, or a single window, through the wlr-screencopy and ext-image-copy-capture protocols, and lists the shown windows for them through ext-foreign-toplevel-list. It has no capture interface of its own.
+rustwm lets outside tools read the screen through the wlr-screencopy and ext-image-copy-capture protocols, and a single window through ext-image-copy-capture, with the windows listed through ext-foreign-toplevel-list. It has no capture interface of its own. Any app connected to rustwm can use these protocols, as on other wlroots-style desktops: it can read window titles, and capture a window's contents even while other windows cover it.
 
 Screenshots use [grim](https://gitlab.freedesktop.org/emersion/grim), and [slurp](https://github.com/emersion/slurp) to select an area:
 
@@ -73,9 +73,9 @@ Screen sharing in browsers, Meet, Slack, Zoom and OBS goes through the desktop p
 
    To always share the whole screen without asking, use `chooser_type=none` instead.
 
-A shared window is captured on its own at its own size, also while other windows cover it, and the stream stops when the window closes.
+A shared window is captured on its own at its own size, also while other windows cover it. The stream pauses while the window is hidden, and stops when it closes. When the window changes size, such as when it is snapped or the auto-hide panel pushes it aside, the stream switches to the new size, which some apps show as a brief flicker.
 
 rustwm puts `WAYLAND_DISPLAY` and `XDG_CURRENT_DESKTOP=rustwm` in the D-Bus activation environment at startup (see [D-Bus bus and keyring](development.md#d-bus-bus-and-keyring)), so the portals it starts connect to rustwm. On the shared user bus, a portal that was already running for another desktop keeps that desktop's settings until it restarts: `systemctl --user restart xdg-desktop-portal`.
 
-`xdg-desktop-portal-wlr` 0.8.4 (Fedora 44) only streams over ext-image-copy-capture; over wlr-screencopy it stops after the first frame (fixed upstream after 0.8.4). rustwm offers both. Nested, the shared stream pauses while the host hides the rustwm window, and it arrives upside down in apps that ignore the stream's transform, because the nested output is flipped.
+`xdg-desktop-portal-wlr` 0.8.4 (Fedora 44) only streams over ext-image-copy-capture; over wlr-screencopy it stops after the first frame (fixed upstream after 0.8.4). rustwm offers both. Nested, the shared stream pauses while the host hides the rustwm window, and a shared screen arrives upside down in apps that ignore the stream's transform, because the nested output is flipped. A shared window arrives upright.
 

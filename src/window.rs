@@ -29,8 +29,8 @@ pub struct ManagedWindow {
     pub unzoomed: Option<Layout>,
     /// The client asked to cover the whole output, as a video player does, until it asks to leave or the user snaps it.
     pub fullscreen: bool,
-    /// The window's entry in ext-foreign-toplevel-list while it is shown,
-    /// which screen sharing tools offer to share.
+    /// The window's entry in ext-foreign-toplevel-list from when it is
+    /// first shown, which screen sharing tools offer to share.
     pub foreign_toplevel: Option<ForeignToplevelHandle>,
 }
 
