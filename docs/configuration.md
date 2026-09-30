@@ -11,7 +11,7 @@ Settings live in `~/.config/rustwm/config.toml`. Copy [resources/config.toml](..
 | `input.click_method` | `"fingers"` | `"fingers"`: pressing the touchpad with two fingers right-clicks, three middle-clicks. `"areas"`: the bottom-right corner right-clicks |
 | `keyboard.layout`, `variant`, `model`, `options` | the system keyboard (`localectl`) | XKB keymap, e.g. `layout = "us,dk"`, `options = "grp:alt_shift_toggle"` |
 | `keyboard.repeat_delay`, `repeat_rate` | `500`, `25` | Milliseconds before a held key repeats, and repeats per second |
-| `commands.brightness_up`, `brightness_down` | `brightnessctl set +5%`, `… 5%-` | Brightness keys |
+| `commands.brightness_up`, `brightness_down` | `brightnessctl -e -n1 set +5%`, `… 5%-` | Brightness keys |
 | `commands.volume_up`, `volume_down`, `volume_mute` | `rustwm-volume up 5`, `rustwm-volume down 5`, `wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle` | Volume keys |
 | `commands.mic_mute` | `wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle` | Microphone mute key |
 | `commands.screenshot` | `mkdir -p ~/Pictures/Screenshots && grim ~/Pictures/Screenshots/Screenshot-$(date +%Y-%m-%d-%H%M%S).png` | Print key |

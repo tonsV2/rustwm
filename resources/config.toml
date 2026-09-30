@@ -33,8 +33,11 @@ repeat_rate = 25
 
 [commands]
 # What each key runs, as a shell command (`sh -c`). An empty string ("") passes the key on to the focused application instead. The brightness and volume up and down keys repeat while held; the others do not.
-brightness_up = "brightnessctl set +5%"
-brightness_down = "brightnessctl set 5%-"
+# `-e` steps along a perceptual curve instead of the raw backlight level,
+# so dim settings get as many steps as bright ones; `-n1` stops at the
+# dimmest level instead of turning the backlight off.
+brightness_up = "brightnessctl -e -n1 set +5%"
+brightness_down = "brightnessctl -e -n1 set 5%-"
 # rustwm-volume (next to rustwm-session) keeps the left/right balance;
 # `wpctl set-volume` would set every channel to the same level.
 volume_up = "rustwm-volume up 5"

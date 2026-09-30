@@ -139,8 +139,11 @@ const SCREENSHOT_AREA: &str = "area=\"$(slurp)\" && mkdir -p ~/Pictures/Screensh
 impl Default for CommandsConfig {
     fn default() -> Self {
         Self {
-            brightness_up: "brightnessctl set +5%".into(),
-            brightness_down: "brightnessctl set 5%-".into(),
+            // `-e` steps along a perceptual curve, so the low end gets as many
+            // steps as the high end; `-n1` keeps the backlight from reaching
+            // 0, which turns the panel black.
+            brightness_up: "brightnessctl -e -n1 set +5%".into(),
+            brightness_down: "brightnessctl -e -n1 set 5%-".into(),
             volume_up: "rustwm-volume up 5".into(),
             volume_down: "rustwm-volume down 5".into(),
             volume_mute: "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle".into(),
@@ -431,7 +434,7 @@ mod tests {
         assert_eq!(config.commands.get(Command::Screenshot), SCREENSHOT);
         assert_eq!(
             config.commands.get(Command::BrightnessUp),
-            "brightnessctl set +5%"
+            "brightnessctl -e -n1 set +5%"
         );
         assert!(Config::parse("[commands]\nvolume_raise = \"true\"\n").is_err());
         // The section's old name still works.

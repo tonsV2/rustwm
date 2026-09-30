@@ -85,7 +85,9 @@ impl Device {
         let (program, args): (&str, &[&str]) = match self {
             Device::Speakers => ("wpctl", &["get-volume", "@DEFAULT_AUDIO_SINK@"]),
             Device::Microphone => ("wpctl", &["get-volume", "@DEFAULT_AUDIO_SOURCE@"]),
-            Device::Screen => ("brightnessctl", &["-m"]),
+            // `-e` reports the level on the same perceptual curve the
+            // default keys step along, so each press moves the bar evenly.
+            Device::Screen => ("brightnessctl", &["-m", "-e"]),
         };
         let output = process::Command::new(program)
             .args(args)
