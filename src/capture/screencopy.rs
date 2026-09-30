@@ -32,7 +32,7 @@ use smithay::{
 use tracing::{debug, warn};
 
 use super::{
-    CaptureHandler, CaptureRequest, DMABUF_FORMAT, Drawn, SHM_FORMAT, Target, buffer_size,
+    CaptureHandler, CaptureRequest, DMABUF_FORMAT, Drawn, SHM_FORMAT, Subject, Target, buffer_size,
     output_rect, split_time, when_drawn,
 };
 
@@ -281,8 +281,10 @@ fn draw<D: CaptureHandler>(state: &mut D, screencopy: Screencopy) {
         .expect("screencopy manager without data");
     let mut tracker = data.tracker.lock().unwrap_or_else(|e| e.into_inner());
     let result = state.draw_capture(CaptureRequest {
-        output: &screencopy.capture.output,
-        region: screencopy.capture.region,
+        subject: Subject::Region {
+            output: &screencopy.capture.output,
+            region: screencopy.capture.region,
+        },
         cursor: screencopy.capture.overlay_cursor,
         target: &screencopy.target,
         tracker: &mut tracker,

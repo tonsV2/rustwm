@@ -7,13 +7,16 @@
 # install never builds: run as root, cargo would leave root-owned files in
 # target/. PREFIX (default /usr/local) holds the binaries, the Waybar and
 # mako configs and the private D-Bus bus config. The session and portal files
-# go to /usr/share, where GDM and xdg-desktop-portal look for them.
+# go to /usr/share, where GDM and xdg-desktop-portal look for them, and the
+# xdg-desktop-portal-wlr settings to /etc/xdg, the only system-wide place it
+# reads them from.
 
 PREFIX ?= /usr/local
 BINDIR = $(PREFIX)/bin
 WAYBARDIR = $(PREFIX)/share/rustwm/waybar
 SESSIONDIR ?= /usr/share/wayland-sessions
 PORTALDIR ?= /usr/share/xdg-desktop-portal
+WLRPORTALDIR ?= /etc/xdg/xdg-desktop-portal-wlr
 
 BINARY = target/release/rustwm
 SCRIPTS = rustwm-session rustwm-bus-relay rustwm-volume rustwm-terminal rustwm-panel rustwm-notifications
@@ -40,9 +43,11 @@ install:
 	sed 's|^Exec=.*|Exec=$(BINDIR)/rustwm-session|' resources/rustwm.desktop >$(DESTDIR)$(SESSIONDIR)/rustwm.desktop
 	chmod 644 $(DESTDIR)$(SESSIONDIR)/rustwm.desktop
 	install -D -m 644 -t $(DESTDIR)$(PORTALDIR) resources/rustwm-portals.conf
+	install -D -m 644 -t $(DESTDIR)$(WLRPORTALDIR) resources/xdg-desktop-portal-wlr/rustwm
 
 uninstall:
 	rm -f $(DESTDIR)$(BINDIR)/rustwm $(addprefix $(DESTDIR)$(BINDIR)/,$(SCRIPTS)) $(DESTDIR)$(BINDIR)/rustwm-secrets-relay
 	rm -rf $(DESTDIR)$(PREFIX)/share/rustwm
 	rm -f $(DESTDIR)$(SESSIONDIR)/rustwm.desktop
 	rm -f $(DESTDIR)$(PORTALDIR)/rustwm-portals.conf
+	rm -f $(DESTDIR)$(WLRPORTALDIR)/rustwm

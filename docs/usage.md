@@ -48,7 +48,7 @@ The look is in [resources/mako/config](../resources/mako/config). Copy it to `~/
 
 ## Screenshots and screen sharing
 
-rustwm lets outside tools read the screen through the wlr-screencopy and ext-image-copy-capture protocols. It has no capture interface of its own.
+rustwm lets outside tools read the screen through the wlr-screencopy and ext-image-copy-capture protocols, and a single window through ext-image-copy-capture, with the windows listed through ext-foreign-toplevel-list. It has no capture interface of its own. Any app connected to rustwm can use these protocols, as on other wlroots-style desktops: it can read window titles, and capture a window's contents even while other windows cover it.
 
 Screenshots use [grim](https://gitlab.freedesktop.org/emersion/grim), and [slurp](https://github.com/emersion/slurp) to select an area:
 
@@ -63,14 +63,11 @@ Screen sharing in browsers, Meet, Slack, Zoom and OBS goes through the desktop p
 
 1. Install `xdg-desktop-portal-wlr` (see [Fedora dependencies](../README.md#install)).
 2. Tell the portal to use it when `XDG_CURRENT_DESKTOP=rustwm`, with [resources/rustwm-portals.conf](../resources/rustwm-portals.conf): system-wide in `/usr/share/xdg-desktop-portal/` (see [As a login session](../README.md#install)), or for yourself in `~/.config/xdg-desktop-portal/`. The other portals (file chooser and so on) stay with GTK's.
-3. With one monitor there is nothing to choose, so skip the chooser `xdg-desktop-portal-wlr` would otherwise show (slurp, or a Fuzzel menu) with `~/.config/xdg-desktop-portal-wlr/rustwm`:
+3. Choose what to share, the monitor or one window, from a Fuzzel menu. `sudo make install` sets this up with [resources/xdg-desktop-portal-wlr/rustwm](../resources/xdg-desktop-portal-wlr/rustwm) in `/etc/xdg/xdg-desktop-portal-wlr/`. A copy in `~/.config/xdg-desktop-portal-wlr/rustwm` replaces it for you; to always share the whole screen without asking, set `chooser_type=none` there. Without either, `xdg-desktop-portal-wlr` runs slurp, which only picks monitors.
 
-   ```ini
-   [screencast]
-   chooser_type=none
-   ```
+A shared window is captured on its own at its own size, also while other windows cover it. The stream pauses while the window is hidden, and stops when it closes. When the window changes size, such as when it is snapped or the auto-hide panel pushes it aside, the stream switches to the new size, which some apps show as a brief flicker.
 
 rustwm puts `WAYLAND_DISPLAY` and `XDG_CURRENT_DESKTOP=rustwm` in the D-Bus activation environment at startup (see [D-Bus bus and keyring](development.md#d-bus-bus-and-keyring)), so the portals it starts connect to rustwm. On the shared user bus, a portal that was already running for another desktop keeps that desktop's settings until it restarts: `systemctl --user restart xdg-desktop-portal`.
 
-`xdg-desktop-portal-wlr` 0.8.4 (Fedora 44) only streams over ext-image-copy-capture; over wlr-screencopy it stops after the first frame (fixed upstream after 0.8.4). rustwm offers both. Nested, the shared stream pauses while the host hides the rustwm window, and it arrives upside down in apps that ignore the stream's transform, because the nested output is flipped.
+`xdg-desktop-portal-wlr` 0.8.4 (Fedora 44) only streams over ext-image-copy-capture; over wlr-screencopy it stops after the first frame (fixed upstream after 0.8.4). rustwm offers both. Nested, the shared stream pauses while the host hides the rustwm window, and a shared screen arrives upside down in apps that ignore the stream's transform, because the nested output is flipped. A shared window arrives upright.
 
