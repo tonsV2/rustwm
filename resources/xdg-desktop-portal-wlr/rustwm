@@ -2,8 +2,10 @@
 # as /etc/xdg/xdg-desktop-portal-wlr/rustwm; a copy in
 # ~/.config/xdg-desktop-portal-wlr/rustwm replaces it for one user.
 [screencast]
-# Ask what to share, the monitor or one window, with a Fuzzel menu. Without
-# this the portal runs slurp, which only picks monitors. chooser_type=none
-# shares the whole screen without asking.
+# Ask what to share, the screen or one window, with a Fuzzel menu. Without
+# this the portal asks with slurp when an app wants a monitor, else with the
+# first of wmenu, wofi, rofi, bemenu, mew and fuzzel it finds, as they look
+# by default. chooser_type=none shares the whole screen without asking.
+# make install fills in the script's full path.
 chooser_type=dmenu
-chooser_cmd=fuzzel --dmenu --prompt "Share: "
+chooser_cmd=rustwm-share-chooser

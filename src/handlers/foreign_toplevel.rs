@@ -35,7 +35,7 @@ impl State {
         let Some(surface) = window.wl_surface().cloned() else {
             return;
         };
-        let (app_id, title) = app_id_and_title(&surface);
+        let (app_id, title) = listed_app_id_and_title(&surface);
         let handle = self
             .foreign_toplevel_list
             .new_toplevel::<Self>(title, app_id);
@@ -66,7 +66,7 @@ impl State {
         else {
             return;
         };
-        let (app_id, title) = app_id_and_title(surface);
+        let (app_id, title) = listed_app_id_and_title(surface);
         handle.send_title(&title);
         handle.send_app_id(&app_id);
         handle.send_done();
@@ -83,5 +83,35 @@ impl State {
                 .as_ref()
                 .is_some_and(|h| h.identifier() == handle.identifier())
         })
+    }
+}
+
+/// A window's app id and title as the list shows them. Clients such as
+/// xdg-desktop-portal-wlr put each window on a line of its own, which a
+/// newline in a title would break, so control characters become spaces.
+fn listed_app_id_and_title(surface: &WlSurface) -> (String, String) {
+    let (app_id, title) = app_id_and_title(surface);
+    (
+        without_control_characters(&app_id),
+        without_control_characters(&title),
+    )
+}
+
+fn without_control_characters(text: &str) -> String {
+    text.chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::without_control_characters;
+
+    #[test]
+    fn control_characters_become_spaces() {
+        assert_eq!(
+            without_control_characters("two\nlines\tand — dash"),
+            "two lines and — dash"
+        );
     }
 }

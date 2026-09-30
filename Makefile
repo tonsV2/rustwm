@@ -19,7 +19,7 @@ PORTALDIR ?= /usr/share/xdg-desktop-portal
 WLRPORTALDIR ?= /etc/xdg/xdg-desktop-portal-wlr
 
 BINARY = target/release/rustwm
-SCRIPTS = rustwm-session rustwm-bus-relay rustwm-volume rustwm-terminal rustwm-panel rustwm-notifications
+SCRIPTS = rustwm-session rustwm-bus-relay rustwm-volume rustwm-terminal rustwm-panel rustwm-notifications rustwm-share-chooser
 WAYBAR = config.jsonc style.css
 MAKODIR = $(PREFIX)/share/rustwm/mako
 DBUSDIR = $(PREFIX)/share/rustwm/dbus
@@ -43,7 +43,9 @@ install:
 	sed 's|^Exec=.*|Exec=$(BINDIR)/rustwm-session|' resources/rustwm.desktop >$(DESTDIR)$(SESSIONDIR)/rustwm.desktop
 	chmod 644 $(DESTDIR)$(SESSIONDIR)/rustwm.desktop
 	install -D -m 644 -t $(DESTDIR)$(PORTALDIR) resources/rustwm-portals.conf
-	install -D -m 644 -t $(DESTDIR)$(WLRPORTALDIR) resources/xdg-desktop-portal-wlr/rustwm
+	install -d $(DESTDIR)$(WLRPORTALDIR)
+	sed 's|^chooser_cmd=.*|chooser_cmd=$(BINDIR)/rustwm-share-chooser|' resources/xdg-desktop-portal-wlr/rustwm >$(DESTDIR)$(WLRPORTALDIR)/rustwm
+	chmod 644 $(DESTDIR)$(WLRPORTALDIR)/rustwm
 
 uninstall:
 	rm -f $(DESTDIR)$(BINDIR)/rustwm $(addprefix $(DESTDIR)$(BINDIR)/,$(SCRIPTS)) $(DESTDIR)$(BINDIR)/rustwm-secrets-relay
