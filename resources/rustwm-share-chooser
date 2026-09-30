@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# Asks what to share, for xdg-desktop-portal-wlr's dmenu chooser. The portal
+# writes one line per monitor ("Monitor: WL-1 Maker Model") and window
+# ("Window: Title (identifier)") and reads the chosen line back; no output
+# declines. The lines are shown as "Entire screen" and plain window titles in
+# a Fuzzel menu with the colours of the Alt+Tab switcher and notifications.
+set -euo pipefail
+
+mapfile -t choices
+[[ ${#choices[@]} -gt 0 ]] || exit 0
+
+monitors=0
+for choice in "${choices[@]}"; do
+    [[ $choice == "Monitor: "* ]] && monitors=$((monitors + 1))
+done
+
+labels=()
+for choice in "${choices[@]}"; do
+    case $choice in
+    "Monitor: "*)
+        # With one monitor its name says nothing.
+        if [[ $monitors -eq 1 ]]; then
+            labels+=("Entire screen")
+        else
+            labels+=("Screen: ${choice#Monitor: }")
+        fi
+        ;;
+    "Window: "*)
+        # The identifier in brackets is random and means nothing to people.
+        title=${choice#Window: }
+        title=${title% (*)}
+        labels+=("${title:-Untitled window}")
+        ;;
+    *) labels+=("$choice") ;;
+    esac
+done
+
+# Escape or a click outside makes fuzzel fail: nothing is shared.
+index=$(printf '%s\n' "${labels[@]}" | fuzzel --dmenu --index \
+    --prompt "Share: " --placeholder "Screen or window" \
+    --no-icons --lines 12 --minimal-lines --width 50 \
+    --font "sans:size=12" \
+    --background-color 1f1f21f0 --border-color ffffff1f \
+    --border-width 1 --border-radius 12 \
+    --text-color f2f2f2ff --prompt-color f2f2f2bf --placeholder-color f2f2f280 \
+    --match-color f6c177ff --selection-color ffffff26 \
+    --selection-text-color f2f2f2ff --selection-match-color f6c177ff \
+    --selection-radius 8) || exit 0
+
+printf '%s\n' "${choices[index]}"
