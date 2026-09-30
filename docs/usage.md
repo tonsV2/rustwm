@@ -63,15 +63,7 @@ Screen sharing in browsers, Meet, Slack, Zoom and OBS goes through the desktop p
 
 1. Install `xdg-desktop-portal-wlr` (see [Fedora dependencies](../README.md#install)).
 2. Tell the portal to use it when `XDG_CURRENT_DESKTOP=rustwm`, with [resources/rustwm-portals.conf](../resources/rustwm-portals.conf): system-wide in `/usr/share/xdg-desktop-portal/` (see [As a login session](../README.md#install)), or for yourself in `~/.config/xdg-desktop-portal/`. The other portals (file chooser and so on) stay with GTK's.
-3. Choose what to share from a menu of the monitor and every shown window with `~/.config/xdg-desktop-portal-wlr/rustwm`. Without it, `xdg-desktop-portal-wlr` runs slurp, which only picks monitors:
-
-   ```ini
-   [screencast]
-   chooser_type=dmenu
-   chooser_cmd=fuzzel --dmenu --prompt "Share: "
-   ```
-
-   To always share the whole screen without asking, use `chooser_type=none` instead.
+3. Choose what to share, the monitor or one window, from a Fuzzel menu. `sudo make install` sets this up with [resources/xdg-desktop-portal-wlr/rustwm](../resources/xdg-desktop-portal-wlr/rustwm) in `/etc/xdg/xdg-desktop-portal-wlr/`. A copy in `~/.config/xdg-desktop-portal-wlr/rustwm` replaces it for you; to always share the whole screen without asking, set `chooser_type=none` there. Without either, `xdg-desktop-portal-wlr` runs slurp, which only picks monitors.
 
 A shared window is captured on its own at its own size, also while other windows cover it. The stream pauses while the window is hidden, and stops when it closes. When the window changes size, such as when it is snapped or the auto-hide panel pushes it aside, the stream switches to the new size, which some apps show as a brief flicker.
 
