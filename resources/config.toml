@@ -56,6 +56,10 @@ browser = 'gtk-launch "$(xdg-settings get default-web-browser)"'
 # `-f` returns once the screen is locked, `-c` sets the colour, and the ring is shown all along rather than only while typing, so the lock screen is visibly lit when a key or the touchpad brings it up.
 lock = "swaylock -f -c 000000 --indicator-idle-visible"
 
+[switcher]
+# Wrap the Alt+Tab switcher's windows onto more rows, so every window shows at once. false keeps one row that scrolls.
+wrap = true
+
 [lock]
 # How long the screen takes to fade to black before an idle timeout longer than that (swayidle's lock below) fires, in milliseconds. Any key or pointer movement during the fade brings the screen back. 0 leaves the screen as it is until the lock.
 fade_ms = 10000

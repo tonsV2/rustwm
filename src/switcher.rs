@@ -1,15 +1,22 @@
-//! The Alt+Tab switcher: a row of live window thumbnails, most recently
-//! used first, drawn in the middle of the screen while Alt is held. Each
-//! thumbnail has the application's icon in its lower right corner and the
-//! application's name under it; the highlighted window's title is shown
-//! below the row. A window group is one screen-shaped thumbnail with its
-//! members in their tiles, the members' app names under it and their titles
-//! below the row.
+//! The Alt+Tab switcher: a grid of live window thumbnails, most recently
+//! used first, reading left to right and then top to bottom, drawn in the
+//! middle of the screen while Alt is held. Each thumbnail has the
+//! application's icon in its lower right corner and the application's name
+//! under it; the highlighted window's title is shown below the grid. A
+//! window group is one screen-shaped thumbnail with its members in their
+//! tiles, the members' app names under it and their titles below the grid.
 //!
-//! When more windows are open than fit across the screen, the row scrolls
-//! to keep the highlight in view, and an arrow with a count such as "+4"
-//! at either end shows how many windows are hidden beyond it. Clicking an
-//! arrow or turning the mouse wheel over the switcher scrolls the row.
+//! When more windows are open than fit across the screen, they wrap onto
+//! more rows, as evenly filled as possible, with the last row centred.
+//! When the rows that fit on the screen are not enough, the thumbnails
+//! shrink, down to [`MIN_THUMB_SCALE`] of their size. Only past that does
+//! the grid scroll by whole rows to keep the highlight in view, with an
+//! arrow and a count such as "+4" at either end for the windows hidden
+//! before and after the shown ones. Clicking an arrow or turning the mouse
+//! wheel over the switcher moves the selection.
+//!
+//! Tab, Left and Right step through the windows, onto the next row at the
+//! end of one; Up and Down move a row up or down.
 //!
 //! Stepping only moves the highlight; the highlighted window is raised and
 //! focused when Alt is released. A quick Alt+Tab finishes before
@@ -63,8 +70,15 @@ const TILE_PADDING: i32 = 12;
 const THUMB_WIDTH: i32 = 208;
 const THUMB_HEIGHT: i32 = 130;
 const NAME_HEIGHT: i32 = 32;
+#[cfg(test)]
 const TILE_WIDTH: i32 = THUMB_WIDTH + 2 * TILE_PADDING;
+#[cfg(test)]
 const TILE_HEIGHT: i32 = TILE_PADDING + THUMB_HEIGHT + NAME_HEIGHT;
+/// The smallest the thumbnails shrink to, as a share of their full size,
+/// before the grid scrolls instead.
+const MIN_THUMB_SCALE: f64 = 0.6;
+/// The sizes tried, from full size down to the smallest.
+const THUMB_SCALES: [f64; 5] = [1.0, 0.9, 0.8, 0.7, MIN_THUMB_SCALE];
 const TITLE_HEIGHT: i32 = 36;
 const ICON_SIZE: i32 = 48;
 /// How far the icon reaches past the thumbnail's lower right corner.
@@ -168,7 +182,9 @@ pub struct Switcher {
 #[derive(PartialEq)]
 struct CacheKey {
     view: View,
-    screen: (i32, i32),
+    /// The layout, which also changes with the screen size and with
+    /// `switcher.wrap` when the config is reloaded.
+    panel: Panel,
     scale: u64,
 }
 
@@ -202,10 +218,10 @@ impl Switcher {
     }
 
     /// Draws the panel and icons for `view`, or reuses the last drawing.
-    fn images(&mut self, view: &View, panel: &Panel, screen: (i32, i32), scale: f64) -> &Images {
+    fn images(&mut self, view: &View, panel: &Panel, scale: f64) -> &Images {
         let key = CacheKey {
             view: view.clone(),
-            screen,
+            panel: panel.clone(),
             scale: scale.to_bits(),
         };
         let stale = self.cache.as_ref().is_none_or(|(cached, _)| *cached != key);
@@ -346,7 +362,43 @@ impl State {
         true
     }
 
-    /// Selects entry `index` without ending the switch; the row scrolls to
+    /// Moves the Alt+Tab selection a row down or up the grid (Down and Up),
+    /// as laid out on the output under the pointer, where clicks are tested
+    /// too. Stops at the first and last rows; on the row above a shorter
+    /// last row, Down goes to the last window when nothing is right below.
+    /// With one row, whether it shows every window or scrolls, and before
+    /// the switcher shows, it steps through the windows as Left and Right
+    /// do.
+    pub fn switch_row(&mut self, down: bool) {
+        let Some((len, selected)) = self.focus.switch_list().map(|(ids, i)| (ids.len(), i)) else {
+            self.step_switch(down);
+            return;
+        };
+        let pointer = self.seat.get_pointer().map(|p| p.current_location());
+        let screen = pointer
+            .and_then(|pos| self.space.output_under(pos).next().cloned())
+            .or_else(|| self.primary_output())
+            .and_then(|output| self.space.output_geometry(&output))
+            .map(|geometry| (geometry.size.w, geometry.size.h));
+        let panel = match screen {
+            Some(screen) if self.switcher.visible => {
+                Panel::new(len, selected, screen, self.config.switcher.wrap)
+            }
+            _ => {
+                self.step_switch(down);
+                return;
+            }
+        };
+        if panel.rows() <= 1 {
+            self.step_switch(down);
+            return;
+        }
+        if let Some(index) = row_target(len, selected, panel.columns, down) {
+            self.switcher_select(index);
+        }
+    }
+
+    /// Selects entry `index` without ending the switch; the grid scrolls to
     /// show it.
     fn switcher_select(&mut self, index: usize) {
         self.focus.select(index);
@@ -381,7 +433,7 @@ impl State {
             return Hit::Outside;
         };
         let screen = (geometry.size.w, geometry.size.h);
-        let panel = Panel::new(len, selected, screen);
+        let panel = Panel::new(len, selected, screen, self.config.switcher.wrap);
         let origin = geometry.loc + panel.origin();
         panel.hit(pos - origin.to_f64())
     }
@@ -496,7 +548,12 @@ impl State {
         };
         let screen = (geometry.size.w, geometry.size.h);
         let scale = output.current_scale().fractional_scale();
-        let panel = Panel::new(view.entries.len(), view.selected, screen);
+        let panel = Panel::new(
+            view.entries.len(),
+            view.selected,
+            screen,
+            self.config.switcher.wrap,
+        );
         let output_loc = geometry.loc;
         // Whole physical pixels, so the images are not blurred.
         let origin = panel
@@ -505,7 +562,7 @@ impl State {
             .to_physical(scale)
             .to_i32_round::<i32>();
 
-        let images = self.switcher.images(&view, &panel, screen, scale);
+        let images = self.switcher.images(&view, &panel, scale);
         let renderer = self.backend.renderer();
         let image_element = |renderer: &mut GlesRenderer, buffer: &MemoryRenderBuffer| {
             MemoryRenderBufferRenderElement::from_buffer(
@@ -613,17 +670,22 @@ pub(crate) fn app_id_and_title(surface: &WlSurface) -> (String, String) {
 
 /// Where the switcher's parts go, in logical pixels relative to its top
 /// left corner.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct Panel {
     width: i32,
     height: i32,
-    /// The first window shown; long lists scroll to keep the highlight in
-    /// view.
+    /// The first window shown; long lists scroll by whole rows to keep the
+    /// highlight in view.
     first: usize,
     /// How many windows are shown.
     count: usize,
     /// How many windows there are, shown or not.
     windows: usize,
+    /// Tiles per row.
+    columns: usize,
+    /// The size of a thumbnail's box, smaller than [`THUMB_WIDTH`] by
+    /// [`THUMB_HEIGHT`] when many windows are open.
+    thumb: (i32, i32),
     /// The room for the arrow at each end, between the padding and the
     /// tiles: none when every window is shown.
     edge_width: i32,
@@ -632,34 +694,104 @@ struct Panel {
 }
 
 impl Panel {
-    fn new(windows: usize, selected: usize, screen: (i32, i32)) -> Self {
-        let tiles_across = |room: i32| (room / TILE_WIDTH).max(1) as usize;
-        let room = screen.0 - 2 * SCREEN_MARGIN - 2 * PADDING;
-        let mut count = windows.min(tiles_across(room));
-        // A row that does not show every window needs room at its ends
-        // for the arrows, which can leave space for one tile fewer.
-        if count < windows {
-            count = tiles_across(room - 2 * EDGE_WIDTH);
-        }
-        let first = selected
-            .saturating_sub(count / 2)
-            .min(windows.saturating_sub(count));
-        // On a screen too narrow for one tile and the arrows, the arrows
-        // get what is left beside the tile rather than widening the panel.
-        let edge_width = if count < windows {
-            ((room - count as i32 * TILE_WIDTH) / 2).clamp(0, EDGE_WIDTH)
-        } else {
-            0
+    /// Lays `windows` out on `screen` around the selected one: in rows if
+    /// `wrap` (`switcher.wrap` in the config), or else in one row of
+    /// full-size thumbnails that scrolls.
+    fn new(windows: usize, selected: usize, screen: (i32, i32), wrap: bool) -> Self {
+        let room_width = screen.0 - 2 * SCREEN_MARGIN - 2 * PADDING;
+        let room_height = screen.1 - 2 * SCREEN_MARGIN - 2 * PADDING - TITLE_HEIGHT;
+        let max_rows = if wrap { usize::MAX } else { 1 };
+        // How many tiles of a thumbnail size fit across and down.
+        let fits = |thumb: (i32, i32), room_width: i32| {
+            let (tile_width, tile_height) = tile_size(thumb);
+            (
+                (room_width / tile_width).max(1) as usize,
+                ((room_height / tile_height).max(1) as usize).min(max_rows),
+            )
         };
+        let scales: &[f64] = if wrap { &THUMB_SCALES } else { &[1.0] };
+        // The biggest thumbnails that let every window fit.
+        let fitting = scales.iter().find_map(|&scale| {
+            let thumb = (
+                (THUMB_WIDTH as f64 * scale).round() as i32,
+                (THUMB_HEIGHT as f64 * scale).round() as i32,
+            );
+            let (columns, rows) = fits(thumb, room_width);
+            (columns * rows >= windows).then_some((thumb, columns))
+        });
+        let (thumb, columns, first, count, edge_width) = match fitting {
+            Some((thumb, columns)) => {
+                // As few rows as needed, filled as evenly as they can be.
+                let rows = windows.div_ceil(columns).max(1);
+                let columns = windows.div_ceil(rows).max(1);
+                (thumb, columns, 0, windows, 0)
+            }
+            None => {
+                let smallest = scales.last().copied().unwrap_or(1.0);
+                let thumb = (
+                    (THUMB_WIDTH as f64 * smallest).round() as i32,
+                    (THUMB_HEIGHT as f64 * smallest).round() as i32,
+                );
+                // The grid does not show every window, so it needs room at
+                // its ends for the arrows, which can leave space for one
+                // column fewer.
+                let (columns, rows) = fits(thumb, room_width - 2 * EDGE_WIDTH);
+                let first = if rows == 1 {
+                    // A single row scrolls a window at a time, keeping the
+                    // selection in the middle.
+                    selected
+                        .saturating_sub(columns / 2)
+                        .min(windows.saturating_sub(columns))
+                } else {
+                    // Rows scroll whole, so windows keep their columns.
+                    let total_rows = windows.div_ceil(columns);
+                    let first_row = (selected / columns)
+                        .saturating_sub(rows / 2)
+                        .min(total_rows.saturating_sub(rows));
+                    first_row * columns
+                };
+                let count = (columns * rows).min(windows - first);
+                // On a screen too narrow for one tile and the arrows, the
+                // arrows get what is left beside the tile rather than
+                // widening the panel.
+                let tile_width = tile_size(thumb).0;
+                let edge_width =
+                    ((room_width - columns as i32 * tile_width) / 2).clamp(0, EDGE_WIDTH);
+                (thumb, columns, first, count, edge_width)
+            }
+        };
+        let (tile_width, tile_height) = tile_size(thumb);
+        let rows = count.div_ceil(columns).max(1) as i32;
         Self {
-            width: count as i32 * TILE_WIDTH + 2 * (PADDING + edge_width),
-            height: PADDING + TILE_HEIGHT + TITLE_HEIGHT + PADDING,
+            width: columns as i32 * tile_width + 2 * (PADDING + edge_width),
+            height: PADDING + rows * tile_height + TITLE_HEIGHT + PADDING,
             first,
             count,
             windows,
+            columns,
+            thumb,
             edge_width,
             screen,
         }
+    }
+
+    /// How many rows are shown.
+    fn rows(&self) -> usize {
+        self.count.div_ceil(self.columns).max(1)
+    }
+
+    /// Where the arrows go from the top, level with the middle of the
+    /// shown thumbnails.
+    fn arrow_middle(&self) -> f32 {
+        let tile_height = tile_size(self.thumb).1 as f32;
+        (PADDING + TILE_PADDING) as f32
+            + self.thumb.1 as f32 / 2.0
+            + (self.rows() - 1) as f32 * tile_height / 2.0
+    }
+
+    /// Where the title goes from the top: under the grid.
+    fn title_middle(&self) -> i32 {
+        PADDING + self.rows() as i32 * tile_size(self.thumb).1 + TITLE_HEIGHT / 2
     }
 
     /// How many windows are hidden beyond `side` of the row.
@@ -688,14 +820,25 @@ impl Panel {
         ))
     }
 
+    /// The tile of the shown window in `slot`. A last row that is not full
+    /// is centred when every window shows; in a grid that scrolls it stays
+    /// in its columns, so windows keep their place as rows scroll.
     fn tile(&self, slot: usize) -> Rectangle<i32, Logical> {
+        let (tile_width, tile_height) = tile_size(self.thumb);
+        let (row, column) = (slot / self.columns, slot % self.columns);
+        let in_row = self.columns.min(self.count - row * self.columns) as i32;
+        let indent = if self.count == self.windows {
+            (self.columns as i32 - in_row) * tile_width / 2
+        } else {
+            0
+        };
         Rectangle::new(
             (
-                PADDING + self.edge_width + slot as i32 * TILE_WIDTH,
-                PADDING,
+                PADDING + self.edge_width + indent + column as i32 * tile_width,
+                PADDING + row as i32 * tile_height,
             )
                 .into(),
-            (TILE_WIDTH, TILE_HEIGHT).into(),
+            (tile_width, tile_height).into(),
         )
     }
 
@@ -727,7 +870,7 @@ impl Panel {
         let tile = self.tile(slot);
         Rectangle::new(
             tile.loc + Point::from((TILE_PADDING, TILE_PADDING)),
-            (THUMB_WIDTH, THUMB_HEIGHT).into(),
+            self.thumb.into(),
         )
     }
 
@@ -745,6 +888,31 @@ impl Panel {
             (ICON_SIZE, ICON_SIZE).into(),
         )
     }
+}
+
+/// The window a row down or up from `selected` in a grid of `len` windows
+/// and `columns` columns; None on the first or last row.
+fn row_target(len: usize, selected: usize, columns: usize, down: bool) -> Option<usize> {
+    if !down {
+        return selected.checked_sub(columns);
+    }
+    if selected + columns < len {
+        Some(selected + columns)
+    } else if selected / columns < (len - 1) / columns {
+        // Nothing right below on a shorter last row.
+        Some(len - 1)
+    } else {
+        None
+    }
+}
+
+/// The size of a tile around a thumbnail box of `thumb`, with its padding
+/// and the name under it.
+fn tile_size(thumb: (i32, i32)) -> (i32, i32) {
+    (
+        thumb.0 + 2 * TILE_PADDING,
+        TILE_PADDING + thumb.1 + NAME_HEIGHT,
+    )
 }
 
 /// Where on the switcher a click landed.
@@ -915,7 +1083,7 @@ fn draw(
             Side::Left => PADDING as f32 * s + edge_width / 2.0,
             Side::Right => area.loc.x as f32 * s + edge_width / 2.0,
         };
-        let middle = (PADDING + TILE_PADDING + THUMB_HEIGHT / 2) as f32 * s;
+        let middle = panel.arrow_middle() * s;
         let (w, h) = (ARROW_WIDTH * s, ARROW_HEIGHT * s);
         let (back, tip) = match side {
             Side::Left => (centre + w / 2.0, centre - w / 2.0),
@@ -934,8 +1102,9 @@ fn draw(
             size: NAME_SIZE * s,
             color: EDGE_COLOR,
         };
-        let name_middle = (PADDING + TILE_PADDING + THUMB_HEIGHT) as f32 * s
-            + (ICON_OVERHANG as f32 + NAME_HEIGHT as f32) * s / 2.0;
+        // Under the arrow, as a name is under its thumbnail.
+        let name_middle =
+            middle + (panel.thumb.1 as f32 / 2.0 + (ICON_OVERHANG + NAME_HEIGHT) as f32 / 2.0) * s;
         below.centred_text(
             font,
             &format!("+{}", panel.hidden(side)),
@@ -951,7 +1120,7 @@ fn draw(
             size: TITLE_SIZE * s,
             color: TEXT_COLOR,
         };
-        let middle = (PADDING + TILE_HEIGHT) as f32 * s + TITLE_HEIGHT as f32 * s / 2.0;
+        let middle = panel.title_middle() as f32 * s;
         below.centred_text(
             font,
             &entry.title,
@@ -1257,8 +1426,106 @@ mod tests {
     }
 
     #[test]
+    fn wrapping_fills_rows_evenly_and_centres_the_last() {
+        let panel = Panel::new(9, 0, (1920, 1080), true);
+        assert_eq!((panel.first, panel.count), (0, 9));
+        assert_eq!((panel.columns, panel.rows()), (5, 2));
+        assert_eq!(panel.thumb, (THUMB_WIDTH, THUMB_HEIGHT));
+        assert_eq!(panel.tile(5).loc.y, panel.tile(0).loc.y + TILE_HEIGHT);
+        // The four on the last row are shifted half a tile in.
+        assert_eq!(panel.tile(5).loc.x, panel.tile(0).loc.x + TILE_WIDTH / 2);
+        assert_eq!(panel.edge(Side::Left), None);
+        assert_eq!(
+            panel.height,
+            PADDING + 2 * TILE_HEIGHT + TITLE_HEIGHT + PADDING
+        );
+    }
+
+    #[test]
+    fn wrapping_shrinks_the_thumbnails_before_scrolling() {
+        let panel = Panel::new(20, 15, (1000, 800), true);
+        assert_eq!((panel.first, panel.count), (0, 20));
+        assert!(panel.thumb.0 < THUMB_WIDTH);
+        assert!(panel.thumb.0 >= (THUMB_WIDTH as f64 * MIN_THUMB_SCALE) as i32);
+        assert_eq!(panel.edge(Side::Right), None);
+    }
+
+    #[test]
+    fn wrapping_scrolls_whole_rows_past_the_smallest_size() {
+        let panel = Panel::new(200, 120, (1000, 800), true);
+        assert!(panel.count < 200);
+        assert_eq!(panel.first % panel.columns, 0);
+        assert!((panel.first..panel.first + panel.count).contains(&120));
+        assert!(panel.edge(Side::Left).is_some() && panel.edge(Side::Right).is_some());
+        assert_eq!(
+            panel.hidden(Side::Left) + panel.count + panel.hidden(Side::Right),
+            200
+        );
+        // The last rows end at the last window.
+        let panel = Panel::new(200, 199, (1000, 800), true);
+        assert_eq!(panel.first + panel.count, 200);
+    }
+
+    #[test]
+    fn wrapped_grid_stays_on_the_screen() {
+        for screen in [
+            (1000, 800),
+            (1280, 720),
+            (1920, 1080),
+            (2560, 1440),
+            (600, 500),
+        ] {
+            for windows in 1..120 {
+                let panel = Panel::new(windows, windows / 2, screen, true);
+                let fits = panel.width <= screen.0 - 2 * SCREEN_MARGIN
+                    && panel.height <= screen.1 - 2 * SCREEN_MARGIN;
+                assert!(fits, "{windows} windows on {screen:?}: {panel:?}");
+                for slot in 0..panel.count {
+                    let tile = panel.tile(slot);
+                    assert!(tile.loc.x + tile.size.w <= panel.width - PADDING);
+                    assert!(tile.loc.y + tile.size.h <= panel.height - PADDING - TITLE_HEIGHT);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn rows_step_by_columns_and_stop_at_the_ends() {
+        // 5 + 4 windows.
+        assert_eq!(row_target(9, 1, 5, true), Some(6));
+        assert_eq!(row_target(9, 4, 5, true), Some(8));
+        assert_eq!(row_target(9, 6, 5, true), None);
+        assert_eq!(row_target(9, 6, 5, false), Some(1));
+        assert_eq!(row_target(9, 2, 5, false), None);
+    }
+
+    #[test]
+    fn a_scrolling_grid_keeps_its_last_row_in_its_columns() {
+        let panel = Panel::new(203, 202, (1000, 800), true);
+        assert!(panel.count < 203);
+        let last = panel.count - 1;
+        assert_eq!(
+            panel.tile(last).loc.x,
+            panel.tile(last - last % panel.columns).loc.x
+                + (last % panel.columns) as i32 * panel.tile(0).size.w
+        );
+        assert_eq!(
+            panel.tile(last - last % panel.columns).loc.x,
+            panel.tile(0).loc.x
+        );
+    }
+
+    #[test]
+    fn hit_finds_tiles_on_later_rows() {
+        let panel = Panel::new(9, 0, (1920, 1080), true);
+        let tile = panel.tile(7).to_f64();
+        let middle = tile.loc + tile.size.downscale(2.0).to_point();
+        assert_eq!(panel.hit(middle), Hit::Entry(7));
+    }
+
+    #[test]
     fn panel_fits_all_windows_on_a_wide_screen() {
-        let panel = Panel::new(3, 1, (1920, 1080));
+        let panel = Panel::new(3, 1, (1920, 1080), false);
         assert_eq!(panel.count, 3);
         assert_eq!(panel.first, 0);
         assert_eq!(panel.width, 3 * TILE_WIDTH + 2 * PADDING);
@@ -1267,7 +1534,7 @@ mod tests {
 
     #[test]
     fn hit_finds_the_tile_under_the_pointer() {
-        let panel = Panel::new(3, 1, (1920, 1080));
+        let panel = Panel::new(3, 1, (1920, 1080), false);
         let middle = |slot: usize| {
             let tile = panel.tile(slot).to_f64();
             tile.loc + tile.size.downscale(2.0).to_point()
@@ -1285,7 +1552,7 @@ mod tests {
 
     #[test]
     fn hit_counts_from_the_first_shown_window() {
-        let panel = Panel::new(20, 15, (1000, 800));
+        let panel = Panel::new(20, 15, (1000, 800), false);
         assert!(panel.first > 0);
         let tile = panel.tile(0).to_f64();
         let middle = tile.loc + tile.size.downscale(2.0).to_point();
@@ -1294,22 +1561,22 @@ mod tests {
 
     #[test]
     fn long_lists_scroll_to_keep_the_highlight_in_view() {
-        let panel = Panel::new(20, 15, (1000, 800));
+        let panel = Panel::new(20, 15, (1000, 800), false);
         assert_eq!(panel.count, 3);
         assert!(panel.width <= 1000 - 2 * SCREEN_MARGIN);
         assert!((panel.first..panel.first + panel.count).contains(&15));
 
         // Near the end the row stops at the last window.
-        let panel = Panel::new(20, 19, (1000, 800));
+        let panel = Panel::new(20, 19, (1000, 800), false);
         assert_eq!(panel.first + panel.count, 20);
 
         // A screen too narrow for even one tile still shows one.
-        assert_eq!(Panel::new(5, 0, (100, 800)).count, 1);
+        assert_eq!(Panel::new(5, 0, (100, 800), false).count, 1);
     }
 
     #[test]
     fn a_row_that_shows_every_window_has_no_arrows() {
-        let panel = Panel::new(3, 1, (1920, 1080));
+        let panel = Panel::new(3, 1, (1920, 1080), false);
         assert_eq!(panel.edge(Side::Left), None);
         assert_eq!(panel.edge(Side::Right), None);
         assert_eq!(panel.tile(0).loc.x, PADDING);
@@ -1318,14 +1585,14 @@ mod tests {
     #[test]
     fn arrows_count_the_windows_hidden_beyond_each_end() {
         // At the start only the right end has windows beyond it.
-        let panel = Panel::new(20, 0, (1000, 800));
+        let panel = Panel::new(20, 0, (1000, 800), false);
         assert_eq!(panel.hidden(Side::Left), 0);
         assert_eq!(panel.hidden(Side::Right), 20 - panel.count);
         assert_eq!(panel.edge(Side::Left), None);
         assert!(panel.edge(Side::Right).is_some());
 
         // In the middle both ends do, and they add up to what is not shown.
-        let panel = Panel::new(20, 10, (1000, 800));
+        let panel = Panel::new(20, 10, (1000, 800), false);
         assert!(panel.hidden(Side::Left) > 0);
         assert!(panel.hidden(Side::Right) > 0);
         assert_eq!(
@@ -1334,7 +1601,7 @@ mod tests {
         );
 
         // At the end only the left end does.
-        let panel = Panel::new(20, 19, (1000, 800));
+        let panel = Panel::new(20, 19, (1000, 800), false);
         assert_eq!(panel.hidden(Side::Right), 0);
         assert_eq!(panel.edge(Side::Right), None);
     }
@@ -1343,8 +1610,8 @@ mod tests {
     fn the_arrows_room_leaves_the_row_on_the_screen() {
         // Four tiles fit exactly, but not with the arrows beside them.
         let screen = 4 * TILE_WIDTH + 2 * (SCREEN_MARGIN + PADDING);
-        assert_eq!(Panel::new(4, 0, (screen, 800)).count, 4);
-        let panel = Panel::new(5, 0, (screen, 800));
+        assert_eq!(Panel::new(4, 0, (screen, 800), false).count, 4);
+        let panel = Panel::new(5, 0, (screen, 800), false);
         assert_eq!(panel.count, 3);
         assert!(panel.width <= screen - 2 * SCREEN_MARGIN);
         // The tiles start after the left arrow's room.
@@ -1356,7 +1623,7 @@ mod tests {
     #[test]
     fn arrows_do_not_widen_the_panel_past_a_narrow_screen() {
         for screen in 320..600 {
-            let panel = Panel::new(20, 10, (screen, 800));
+            let panel = Panel::new(20, 10, (screen, 800), false);
             assert!(
                 panel.width <= screen - 2 * SCREEN_MARGIN,
                 "screen {screen}: panel {}",
@@ -1367,7 +1634,7 @@ mod tests {
 
     #[test]
     fn hit_on_an_arrow_names_the_nearest_hidden_window() {
-        let panel = Panel::new(20, 10, (1000, 800));
+        let panel = Panel::new(20, 10, (1000, 800), false);
         let middle = |side| {
             let (area, _) = panel.edge(side).unwrap();
             let area = area.to_f64();
@@ -1379,13 +1646,13 @@ mod tests {
             Hit::More(panel.first + panel.count)
         );
         // Without hidden windows the end is just the panel.
-        let panel = Panel::new(20, 0, (1000, 800));
+        let panel = Panel::new(20, 0, (1000, 800), false);
         assert_eq!(panel.hit((2.0, 50.0).into()), Hit::Panel);
     }
 
     #[test]
     fn arrows_are_drawn_only_towards_hidden_windows() {
-        let panel = Panel::new(20, 0, (1000, 800));
+        let panel = Panel::new(20, 0, (1000, 800), false);
         let (below, _) = draw(None, &view(20, 0), &panel, &[], 1.0);
         let arrow = |x: i32| pixel(&below, x, PADDING + TILE_PADDING + THUMB_HEIGHT / 2)[0];
         let left = PADDING + EDGE_WIDTH / 2;
@@ -1411,7 +1678,7 @@ mod tests {
 
     #[test]
     fn icon_sits_on_the_thumbnails_lower_right_corner() {
-        let panel = Panel::new(2, 0, (1920, 1080));
+        let panel = Panel::new(2, 0, (1920, 1080), false);
         let thumb = panel.thumb_box(1);
         let icon = panel.icon(1);
         assert_eq!(
@@ -1438,7 +1705,7 @@ mod tests {
 
     #[test]
     fn image_src_covers_the_whole_image() {
-        let panel = Panel::new(3, 0, (1920, 1080));
+        let panel = Panel::new(3, 0, (1920, 1080), false);
         let view = view(3, 0);
         let (below, _) = draw(None, &view, &panel, &[None, None, None], 1.25);
         let src = image_src((panel.width, panel.height).into(), 1.25);
@@ -1450,7 +1717,7 @@ mod tests {
 
     #[test]
     fn images_follow_panel_size_and_scale() {
-        let panel = Panel::new(3, 1, (1920, 1080));
+        let panel = Panel::new(3, 1, (1920, 1080), false);
         let (below, above) = draw(None, &view(3, 1), &panel, &[], 1.25);
         assert_eq!(below.width, (panel.width as f64 * 1.25).round() as i32);
         assert_eq!(below.height, (panel.height as f64 * 1.25).round() as i32);
@@ -1459,7 +1726,7 @@ mod tests {
 
     #[test]
     fn corners_are_transparent_and_middle_is_opaque() {
-        let panel = Panel::new(2, 0, (1920, 1080));
+        let panel = Panel::new(2, 0, (1920, 1080), false);
         let (below, _) = draw(None, &view(2, 0), &panel, &[], 1.0);
         assert_eq!(pixel(&below, 0, 0)[3], 0);
         assert!(pixel(&below, below.width / 2, below.height / 2)[3] > 200);
@@ -1468,7 +1735,7 @@ mod tests {
     #[test]
     fn highlight_follows_selection() {
         let brightness = |selected| {
-            let panel = Panel::new(2, selected, (1920, 1080));
+            let panel = Panel::new(2, selected, (1920, 1080), false);
             let (below, _) = draw(None, &view(2, selected), &panel, &[], 1.0);
             // Inside the first tile, next to its thumbnail.
             pixel(&below, PADDING + 4, PADDING + 4)[0]
@@ -1478,7 +1745,7 @@ mod tests {
 
     #[test]
     fn hover_highlights_instead_of_the_selection() {
-        let panel = Panel::new(3, 0, (1920, 1080));
+        let panel = Panel::new(3, 0, (1920, 1080), false);
         let brightness = |hovered, slot: usize| {
             let view = View {
                 hovered,
@@ -1498,7 +1765,7 @@ mod tests {
 
     #[test]
     fn icons_are_drawn_above_and_placeholders_without_them() {
-        let panel = Panel::new(2, 0, (1920, 1080));
+        let panel = Panel::new(2, 0, (1920, 1080), false);
         let mut red = Pixmap::new(ICON_SIZE as u32, ICON_SIZE as u32).unwrap();
         red.fill(resvg::tiny_skia::Color::from_rgba8(255, 0, 0, 255));
         let (_, above) = draw(None, &view(2, 0), &panel, &[Some(&red), None], 1.0);
@@ -1522,7 +1789,7 @@ mod tests {
 
     #[test]
     fn a_group_gets_a_screen_shaped_backdrop_and_no_icon() {
-        let panel = Panel::new(2, 1, (1600, 1000));
+        let panel = Panel::new(2, 1, (1600, 1000), false);
         let plain = view(2, 1);
         let mut view = plain.clone();
         view.entries[0] = Entry {

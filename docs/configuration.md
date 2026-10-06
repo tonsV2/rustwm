@@ -30,6 +30,7 @@ Settings live in `~/.config/rustwm/config.toml`. Copy [resources/config.toml](..
 | `panel.slide_in_ms`, `slide_out_ms` | `200`, `200` | In auto-hide mode, how long the panel takes to slide in and out, in milliseconds. `0` moves it at once |
 | `panel.namespace` | `"waybar"` | The layer-shell namespace of the bar's surface, for auto-hide with another bar |
 | `notifications.command` | `rustwm-notifications` | The notification daemon to start; `""` for none. `rustwm-notifications` runs mako with the config in `resources/mako/`, or `~/.config/rustwm/mako/` if you copy it there |
+| `switcher.wrap` | `true` | Whether the Alt+Tab switcher wraps windows onto more rows, shrinking the thumbnails when even those are not enough, so every window shows at once. `false` keeps one row of full-size thumbnails that scrolls |
 | `overview.file_search` | `plocate -i -- "$HOME/" "$1" \| grep -v '/\.' \| head -20` | What the overview's search runs to find files, with `sh -c` and the typed text as `$1`, one path per line. The default searches the plocate database (updated daily by `plocate-updatedb.timer`) under your home directory, leaving out hidden directories. `""` searches applications only |
 
 Commands run with `sh -c`, so quoting, `&&` and `$HOME` work as in a terminal. An empty command (`""`) passes the key on to the focused application.

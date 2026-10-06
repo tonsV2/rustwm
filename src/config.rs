@@ -26,6 +26,7 @@ pub struct Config {
     pub panel: PanelConfig,
     pub notifications: NotificationsConfig,
     pub overview: OverviewConfig,
+    pub switcher: SwitcherConfig,
     pub lock: LockConfig,
 }
 
@@ -234,6 +235,22 @@ impl Default for OverviewConfig {
 /// Files under the home directory whose path contains the text, leaving
 /// out hidden directories, from the plocate database.
 const FILE_SEARCH: &str = "plocate -i -- \"$HOME/\" \"$1\" | grep -v '/\\.' | head -20";
+
+/// The Alt+Tab switcher.
+#[derive(Debug, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct SwitcherConfig {
+    /// Wrap the windows onto more rows, shrinking the thumbnails when even
+    /// those are not enough, so every window shows at once. Off keeps one
+    /// row of full-size thumbnails that scrolls.
+    pub wrap: bool,
+}
+
+impl Default for SwitcherConfig {
+    fn default() -> Self {
+        Self { wrap: true }
+    }
+}
 
 /// The screen lock's fade to black.
 #[derive(Debug, Deserialize, PartialEq)]
@@ -514,6 +531,13 @@ mod tests {
         );
         let config = Config::parse("[notifications]\ncommand = \"\"\n").unwrap();
         assert!(config.notifications.command.is_empty());
+    }
+
+    #[test]
+    fn switcher_parses() {
+        assert!(Config::default().switcher.wrap);
+        let config = Config::parse("[switcher]\nwrap = false\n").unwrap();
+        assert!(!config.switcher.wrap);
     }
 
     #[test]

@@ -185,6 +185,7 @@ impl State {
                 }
             }
             Action::Switch { forward } => self.step_switch(forward),
+            Action::SwitchRow { down } => self.switch_row(down),
             Action::FinishSwitch => {
                 if self.focus.is_switching() {
                     self.focus.finish_switch();
