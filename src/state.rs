@@ -217,7 +217,10 @@ impl State {
         let xdg_shell_state = XdgShellState::new::<Self>(&dh);
         let xdg_decoration_state = XdgDecorationState::new::<Self>(&dh);
         let xdg_dialog_state = XdgDialogState::new::<Self>(&dh);
-        let layer_shell_state = WlrLayerShellState::new::<Self>(&dh);
+        // A layer surface can take the keyboard and cover the screen, so
+        // sandboxed apps get none.
+        let layer_shell_state =
+            WlrLayerShellState::new_with_filter::<Self, _>(&dh, crate::security::is_privileged);
         let shm_state = ShmState::new::<Self>(&dh, vec![]);
         let viewporter_state = ViewporterState::new::<Self>(&dh);
         let fractional_scale_state = FractionalScaleManagerState::new::<Self>(&dh);
