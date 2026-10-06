@@ -173,6 +173,11 @@ impl State {
 }
 
 impl GlobalDispatch<ExtIdleNotifierV1, ()> for State {
+    /// Hidden from sandboxed clients: when the user is away is their business.
+    fn can_view(client: Client, _global_data: &()) -> bool {
+        crate::security::is_privileged(&client)
+    }
+
     fn bind(
         _state: &mut Self,
         _dh: &DisplayHandle,

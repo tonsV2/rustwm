@@ -106,6 +106,11 @@ impl<D> GlobalDispatch<ZwlrScreencopyManagerV1, (), D> for ScreencopyState
 where
     D: Dispatch<ZwlrScreencopyManagerV1, ManagerData> + 'static,
 {
+    /// Hidden from sandboxed clients.
+    fn can_view(client: Client, _global_data: &()) -> bool {
+        crate::security::is_privileged(&client)
+    }
+
     fn bind(
         _state: &mut D,
         _dh: &DisplayHandle,
