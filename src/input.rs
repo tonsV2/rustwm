@@ -10,7 +10,7 @@ use smithay::{
     desktop::layer_map_for_output,
     input::{
         keyboard::{FilterResult, Keysym},
-        pointer::{AxisFrame, ButtonEvent, MotionEvent},
+        pointer::{AxisFrame, ButtonEvent, MotionEvent, RelativeMotionEvent},
     },
     reexports::calloop::timer::{TimeoutAction, Timer},
     utils::{Logical, Point, SERIAL_COUNTER},
@@ -20,6 +20,7 @@ use smithay::{
 use crate::{
     commands,
     focus::WindowId,
+    handlers::Held,
     keyboard::{Action, App, Command, Key, Mods},
     layout::{Direction, Layout},
     state::{Backend, State},
@@ -184,13 +185,17 @@ impl State {
                     self.snap_window(id, direction, first_in_hold);
                 }
             }
-            Action::Switch { forward } => self.step_switch(forward),
+            Action::Switch { forward } => {
+                self.step_switch(forward);
+                self.release_pointer_constraint();
+            }
             Action::SwitchRow { down } => self.switch_row(down),
             Action::FinishSwitch => {
                 if self.focus.is_switching() {
                     self.focus.finish_switch();
                     self.switcher.hide();
                     self.sync_focus();
+                    self.update_pointer_constraint();
                 }
             }
             Action::CancelSwitch => {
@@ -198,6 +203,7 @@ impl State {
                 self.switcher.hide();
                 // A dialog that became modal during the switch takes the focus.
                 self.sync_focus();
+                self.update_pointer_constraint();
             }
             Action::SwitchVt(vt) => {
                 if let Backend::Udev(udev) = &mut self.backend {
@@ -314,6 +320,11 @@ impl State {
             return;
         };
         let mut pos = pointer.current_location() + event.delta();
+        let relative = RelativeMotionEvent {
+            delta: event.delta(),
+            delta_unaccel: event.delta_unaccel(),
+            utime: event.time(),
+        };
 
         // Keep the pointer on the screen.
         if let Some(geo) = self
@@ -326,7 +337,7 @@ impl State {
             pos.y = pos.y.clamp(geo.loc.y as f64, max_y);
         }
 
-        self.move_pointer(pos, event.time_msec());
+        self.move_pointer(pos, Some(relative), event.time_msec());
     }
 
     fn on_pointer_motion_absolute<I: InputBackend>(
@@ -340,11 +351,36 @@ impl State {
             return;
         };
         let pos = event.position_transformed(output_geo.size) + output_geo.loc.to_f64();
-        self.move_pointer(pos, event.time_msec());
+        self.move_pointer(pos, None, event.time_msec());
     }
 
-    fn move_pointer(&mut self, pos: Point<f64, Logical>, time: u32) {
+    /// Moves the pointer to `pos`, as far as a pointer constraint lets it,
+    /// and sends `relative`, the raw motion of a mouse, to clients that use
+    /// relative-pointer.
+    fn move_pointer(
+        &mut self,
+        pos: Point<f64, Logical>,
+        relative: Option<RelativeMotionEvent>,
+        time: u32,
+    ) {
         let Some(pointer) = self.seat.get_pointer() else {
+            return;
+        };
+        let pos = match self.held_pointer() {
+            Some(Held::Locked) => None,
+            // A confined pointer slides along the edge it meets.
+            Some(held) => {
+                let old = pointer.current_location();
+                [pos, (pos.x, old.y).into(), (old.x, pos.y).into()]
+                    .into_iter()
+                    .find(|&p| self.confined_allows(&held, p))
+            }
+            None => Some(pos),
+        };
+        let Some(pos) = pos else {
+            // Held in place: the client only gets the raw motion.
+            self.send_relative_motion(relative);
+            pointer.frame(self);
             return;
         };
         self.panel_pointer_moved(pos);
@@ -360,7 +396,9 @@ impl State {
                 time,
             },
         );
+        self.send_relative_motion(relative);
         pointer.frame(self);
+        self.update_pointer_constraint();
     }
 
     fn on_pointer_button<I: InputBackend>(&mut self, event: I::PointerButtonEvent) {

@@ -43,6 +43,8 @@ use smithay::{
         fractional_scale::FractionalScaleManagerState,
         idle_inhibit::IdleInhibitManagerState,
         output::OutputManagerState,
+        pointer_constraints::PointerConstraintsState,
+        relative_pointer::RelativePointerManagerState,
         selection::{data_device::DataDeviceState, primary_selection::PrimarySelectionState},
         session_lock::SessionLockManagerState,
         shell::{
@@ -143,6 +145,10 @@ pub struct State {
     pub idle_notify: IdleNotifyState,
     #[allow(dead_code)]
     pub idle_inhibit_state: IdleInhibitManagerState,
+    #[allow(dead_code)]
+    pub relative_pointer_state: RelativePointerManagerState,
+    #[allow(dead_code)]
+    pub pointer_constraints_state: PointerConstraintsState,
     pub output_power: OutputPowerState,
     pub seat_state: SeatState<State>,
     pub data_device_state: DataDeviceState,
@@ -236,6 +242,8 @@ impl State {
         let session_lock_state = SessionLockManagerState::new::<Self, _>(&dh, |_| true);
         let idle_notify = IdleNotifyState::new(&dh);
         let idle_inhibit_state = IdleInhibitManagerState::new::<Self>(&dh);
+        let relative_pointer_state = RelativePointerManagerState::new::<Self>(&dh);
+        let pointer_constraints_state = PointerConstraintsState::new::<Self>(&dh);
         let output_power = OutputPowerState::new(&dh);
         let data_device_state = DataDeviceState::new::<Self>(&dh);
         let primary_selection_state = PrimarySelectionState::new::<Self>(&dh);
@@ -278,6 +286,8 @@ impl State {
             session_lock_state,
             idle_notify,
             idle_inhibit_state,
+            relative_pointer_state,
+            pointer_constraints_state,
             output_power,
             seat_state,
             data_device_state,
@@ -593,6 +603,10 @@ impl State {
             return;
         }
         keyboard.set_focus(self, surface, SERIAL_COUNTER.next_serial());
+        // A pointer constraint follows the keyboard: it ends when its window
+        // loses the keyboard and can start when one with a constraint gets it.
+        self.release_pointer_constraint();
+        self.update_pointer_constraint();
     }
 
     /// Finds the surface under `pos`, in stacking order: overlay and top

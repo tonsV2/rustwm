@@ -16,6 +16,10 @@ Alt+Tab walks the windows, most recently used first, and releasing Alt brings th
 
 A dialog opens centred over the window it belongs to and moves with it when that window is snapped. A modal dialog, one its window waits on (marked through `xdg-dialog`, as GTK 4 does), also stays above its window and takes the focus whenever the window would get it: clicking the window, picking it in the overview or with Alt+Tab brings the dialog forward with its window behind it.
 
+## Games and grabbed pointers
+
+Games, Blender and virtual machines can lock the pointer in place and read the mouse's raw motion for mouse-look, or keep it inside their window (`pointer-constraints`, `relative-pointer`). A lock or confinement only holds while that window has the keyboard and the pointer is over it: Alt+Tab, a Super tap, a click elsewhere or the lock screen frees the pointer, and it is caught again when you come back to the window, if the app still wants it. A confined pointer slides along the edge it meets. Nested, rustwm only gets absolute positions from the host, so locks hold the pointer still but raw motion is not sent.
+
 ## Locking the screen
 
 rustwm draws no lock screen of its own; [swaylock](https://github.com/swaywm/swaylock) does, and [swayidle](https://github.com/swaywm/swayidle) runs it after a while without input. Start swayidle with rustwm through [autostart](configuration.md) in `config.toml` (the sample config has this line):
