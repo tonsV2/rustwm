@@ -63,4 +63,4 @@ A second `gnome-keyring-daemon` on the private bus does not help: `--start` find
 
 ## Protocols
 
-xdg-shell, wlr-layer-shell, clipboard and primary selection, linux-dmabuf, viewporter, fractional scale, single-pixel buffers, alpha modifier, content type, cursor shape, xdg-decoration (the compositor draws no decorations), xdg-activation, xdg-system-bell, ext-session-lock, ext-idle-notify, idle-inhibit, wlr-output-power-management, wlr-screencopy and ext-image-copy-capture. X11 apps run through [xwayland-satellite](https://github.com/Supreeeme/xwayland-satellite), which rustwm starts on a free display when it is installed.
+xdg-shell, wlr-layer-shell, clipboard and primary selection, linux-dmabuf, viewporter, fractional scale, single-pixel buffers, alpha modifier, content type, cursor shape, xdg-decoration (the compositor draws no decorations), xdg-activation, xdg-system-bell, xdg-dialog, ext-session-lock, ext-idle-notify, idle-inhibit, wlr-output-power-management, wlr-screencopy and ext-image-copy-capture. X11 apps run through [xwayland-satellite](https://github.com/Supreeeme/xwayland-satellite), which rustwm starts on a free display when it is installed.

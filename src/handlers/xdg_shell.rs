@@ -230,13 +230,17 @@ impl State {
                 let geo = layout.geometry(area);
                 (geo.x, geo.y)
             }
-            None => {
-                let size = window.window.geometry().size;
-                (
-                    area.x + (area.width - size.w).max(0) / 2,
-                    area.y + (area.height - size.h).max(0) / 2,
-                )
-            }
+            // Dialogs go over their parent, or the middle without one.
+            None => match self.dialog_location(&window) {
+                Some(location) => (location.x, location.y),
+                None => {
+                    let size = window.window.geometry().size;
+                    (
+                        area.x + (area.width - size.w).max(0) / 2,
+                        area.y + (area.height - size.h).max(0) / 2,
+                    )
+                }
+            },
         };
         self.space
             .map_element(window.window.clone(), location, false);

@@ -56,6 +56,7 @@ use tracing::warn;
 use crate::{
     apps::{self, AppInfo},
     focus::WindowId,
+    group::GroupId,
     state::State,
 };
 
@@ -267,8 +268,23 @@ impl State {
     /// Moves the Alt+Tab highlight, starting a switch if none is running.
     pub fn step_switch(&mut self, forward: bool) {
         let starting = !self.focus.is_switching();
-        let groups = &self.groups;
-        if self.focus.step(forward, |id| groups.group_of(id)).is_none() {
+        // Windows share an entry when they are in one group, or are a window
+        // and the modal dialog it waits on.
+        let entry_of: HashMap<WindowId, (Option<GroupId>, WindowId)> = self
+            .focus
+            .order()
+            .iter()
+            .map(|&id| {
+                let root = self.modal_root_of(id);
+                (id, (self.groups.group_of(root), root))
+            })
+            .collect();
+        let entry = |id: WindowId| {
+            entry_of
+                .get(&id)
+                .map(|&(group, root)| (group, group.is_none().then_some(root)))
+        };
+        if self.focus.step(forward, entry).is_none() {
             return;
         }
         // The keyboard moved the selection; highlight it again rather than

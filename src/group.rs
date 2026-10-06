@@ -125,7 +125,12 @@ impl State {
 
     /// Focuses the next or previous member of the focused window's group, in reading order of where they sit on screen.
     pub fn cycle_group(&mut self, forward: bool) {
-        let Some(current) = self.focus.current() else {
+        // A focused modal dialog cycles for the grouped window it belongs to.
+        let Some(current) = self
+            .focus
+            .current()
+            .and_then(|id| self.grouped_window_of(id))
+        else {
             return;
         };
         let Some(group) = self.groups.group_of(current) else {
@@ -169,13 +174,7 @@ impl State {
             .collect();
         others.reverse();
         for id in others {
-            if let Some(element) = self
-                .window(id)
-                .filter(|w| w.mapped)
-                .map(|w| w.window.clone())
-            {
-                self.space.raise_element(&element, false);
-            }
+            self.raise_with_dialogs(id, false);
         }
     }
 }

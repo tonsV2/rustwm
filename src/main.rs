@@ -4,6 +4,7 @@ mod capture;
 mod commands;
 mod config;
 mod cursor;
+mod dialog;
 mod fade;
 mod focus;
 mod group;
