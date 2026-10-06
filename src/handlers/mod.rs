@@ -13,9 +13,10 @@ mod xdg_shell;
 
 use smithay::{
     backend::{allocator::dmabuf::Dmabuf, renderer::ImportDma},
-    delegate_alpha_modifier, delegate_content_type, delegate_cursor_shape, delegate_data_device,
-    delegate_dmabuf, delegate_fractional_scale, delegate_output, delegate_primary_selection,
-    delegate_seat, delegate_single_pixel_buffer, delegate_viewporter, delegate_xdg_decoration,
+    delegate_alpha_modifier, delegate_content_type, delegate_cursor_shape, delegate_data_control,
+    delegate_data_device, delegate_dmabuf, delegate_ext_data_control, delegate_fractional_scale,
+    delegate_output, delegate_primary_selection, delegate_seat, delegate_single_pixel_buffer,
+    delegate_viewporter, delegate_xdg_decoration,
     input::{Seat, SeatHandler, SeatState, pointer::CursorImageStatus},
     reexports::{
         wayland_protocols::xdg::decoration::zv1::server::zxdg_toplevel_decoration_v1::Mode as DecorationMode,
@@ -32,9 +33,11 @@ use smithay::{
                 ClientDndGrabHandler, DataDeviceHandler, DataDeviceState, ServerDndGrabHandler,
                 set_data_device_focus,
             },
+            ext_data_control,
             primary_selection::{
                 PrimarySelectionHandler, PrimarySelectionState, set_primary_focus,
             },
+            wlr_data_control,
         },
         shell::xdg::{ToplevelSurface, decoration::XdgDecorationHandler},
         tablet_manager::TabletSeatHandler,
@@ -92,6 +95,23 @@ impl PrimarySelectionHandler for State {
     }
 }
 delegate_primary_selection!(State);
+
+// Clipboard managers and `wl-paste --watch` read and set the clipboard and
+// the primary selection without a focused window. Both protocols are
+// hidden from sandboxed clients (see `crate::security`).
+impl ext_data_control::DataControlHandler for State {
+    fn data_control_state(&self) -> &ext_data_control::DataControlState {
+        &self.ext_data_control_state
+    }
+}
+delegate_ext_data_control!(State);
+
+impl wlr_data_control::DataControlHandler for State {
+    fn data_control_state(&self) -> &wlr_data_control::DataControlState {
+        &self.wlr_data_control_state
+    }
+}
+delegate_data_control!(State);
 
 impl OutputHandler for State {}
 delegate_output!(State);
