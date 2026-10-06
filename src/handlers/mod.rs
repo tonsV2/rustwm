@@ -98,7 +98,10 @@ delegate_primary_selection!(State);
 
 // Clipboard managers and `wl-paste --watch` read and set the clipboard and
 // the primary selection without a focused window. Both protocols are
-// hidden from sandboxed clients (see `crate::security`).
+// hidden from sandboxed clients (see `crate::security`). Smithay 0.7 only
+// forgets a data control device its client destroys, not one whose client
+// just exits, as `wl-copy` does, so each run leaves a small dead entry that
+// selection changes skip over until rustwm restarts.
 impl ext_data_control::DataControlHandler for State {
     fn data_control_state(&self) -> &ext_data_control::DataControlState {
         &self.ext_data_control_state

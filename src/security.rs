@@ -2,8 +2,8 @@
 //! It hands over a listening socket of its own, and every client that
 //! connects through it is marked with the sandbox's details. Globals that
 //! read the screen, list the windows, lock the screen, turn monitors off,
-//! tell when the user is away or put surfaces above windows (layer-shell)
-//! are hidden from those clients, as [`is_privileged`] decides.
+//! tell when the user is away, put surfaces above windows (layer-shell) or
+//! read the clipboard at any time (data control) are hidden from those clients, as [`is_privileged`] decides.
 
 use std::{io, os::unix::net::UnixStream, sync::Arc};
 
