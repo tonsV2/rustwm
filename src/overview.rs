@@ -382,6 +382,23 @@ impl Overview {
         &self.caret_image.as_ref().expect("cache was just filled").1
     }
 
+    /// The highlighted window, or None when the highlight is on a search
+    /// result or nothing is shown. Uses the highlight as last moved, which
+    /// may not have been drawn yet.
+    pub fn highlighted_window(&self) -> Option<WindowId> {
+        // The windows show only without a query; the last drawn scene may
+        // still have them for a moment after typing.
+        if !self.query.trim().is_empty() {
+            return None;
+        }
+        let items = &self.scene.as_ref()?.items;
+        let selected = self.selected.min(items.len().checked_sub(1)?);
+        match &items[selected].item {
+            Item::Window { id, .. } => Some(*id),
+            _ => None,
+        }
+    }
+
     /// Highlights item `index` of the last drawn scene.
     fn select(&mut self, index: usize) {
         self.selected = index;

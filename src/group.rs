@@ -80,11 +80,9 @@ impl Groups {
 }
 
 impl State {
-    /// Groups the snapped windows that can be seen on the focused window's output (Super+g).
-    pub fn group_visible(&mut self) {
-        let Some(output) = self
-            .focus
-            .current()
+    /// Groups the snapped windows that can be seen on window `around`'s output, or the primary output without one (Super+g).
+    pub fn group_visible(&mut self, around: Option<WindowId>) {
+        let Some(output) = around
             .and_then(|id| self.window(id))
             .map(|w| w.output.clone())
             .or_else(|| self.primary_output())
@@ -113,11 +111,8 @@ impl State {
         }
     }
 
-    /// Takes the focused window out of its group (Super+Shift+g).
-    pub fn ungroup_focused(&mut self) {
-        let Some(id) = self.focus.current() else {
-            return;
-        };
+    /// Takes window `id` out of its group (Super+Shift+g).
+    pub fn ungroup(&mut self, id: WindowId) {
         if self.groups.group_of(id).is_none() {
             return;
         }
