@@ -16,6 +16,10 @@ Alt+Tab walks the windows, most recently used first, and releasing Alt brings th
 
 A dialog opens centred over the window it belongs to and moves with it when that window is snapped. A modal dialog, one its window waits on (marked through `xdg-dialog`, as GTK 4 does), also stays above its window and takes the focus whenever the window would get it: clicking the window, picking it in the overview or with Alt+Tab brings the dialog forward with its window behind it.
 
+## Virtual machines and remote desktops
+
+A virtual machine (virt-manager, GNOME Boxes), a remote desktop client or Moonlight can ask for rustwm's shortcuts while it has the keyboard (`keyboard-shortcuts-inhibit`), so that Super, Alt+Tab, `Super+arrows` and the rest reach the desktop inside it. rustwm grants this as soon as it is asked, as sway does, and only while that window has the keyboard: clicking another window gives rustwm its shortcuts back. `Super+Escape` takes them back while staying in the window, and pressing it again hands them over again; the window cannot take them back by asking again. Without a window asking, `Super+Escape` reaches the window as any key does. Print goes to the window too, for the desktop inside it. `Ctrl+Alt+Backspace`, `Ctrl+Alt+F1`…`F12` and the brightness, volume and mic mute keys always stay with rustwm, so a window cannot trap you. X11 viewers grab the keyboard differently, through Xwayland, and do not get rustwm's shortcuts.
+
 ## Locking the screen
 
 rustwm draws no lock screen of its own; [swaylock](https://github.com/swaywm/swaylock) does, and [swayidle](https://github.com/swaywm/swayidle) runs it after a while without input. Start swayidle with rustwm through [autostart](configuration.md) in `config.toml` (the sample config has this line):

@@ -147,6 +147,9 @@ pub enum Action {
     CycleGroup {
         forward: bool,
     },
+    /// Turn the focused window's keyboard shortcuts inhibitor off, or on
+    /// again (Super+Escape).
+    ToggleShortcutsInhibit,
     /// Stop the compositor. On real hardware this is the way out when
     /// something goes wrong.
     Quit,
@@ -241,6 +244,14 @@ pub struct Bindings {
     /// Whether the overview's search has text. The caller sets this before
     /// each key; with text, Left, Right and Escape work on the text.
     pub overview_text: bool,
+    /// Whether the focused window inhibits rustwm's shortcuts, as a virtual
+    /// machine does. The caller sets this before each key. While set, every
+    /// key reaches the window except the ones in [`inhibited_action`].
+    pub inhibited: bool,
+    /// Whether the focused window has a shortcuts inhibitor, active or not,
+    /// so that Super+Escape has one to turn off or on. The caller sets this
+    /// before each key; without one, Super+Escape reaches the window.
+    pub has_inhibitor: bool,
 }
 
 impl Bindings {
@@ -263,6 +274,12 @@ impl Bindings {
             self.super_tap = false;
             return self.consume(keycode, locked_action(key));
         }
+        if self.inhibited {
+            // Super goes to the window, so its release must not open the
+            // overview.
+            self.super_tap = false;
+            return self.consume(keycode, inhibited_action(key, mods));
+        }
         if key == Key::Super {
             self.super_tap = !(mods.ctrl || mods.alt || mods.shift);
             self.first_in_hold = true;
@@ -278,6 +295,9 @@ impl Bindings {
         }
         if let Some(action) = self.super_shortcut(key, mods) {
             return self.consume(keycode, Some(action));
+        }
+        if self.has_inhibitor && is_super_escape(key, mods) {
+            return self.consume(keycode, Some(Action::ToggleShortcutsInhibit));
         }
 
         let action = match key {
@@ -348,6 +368,11 @@ impl Bindings {
         }
         if self.locked {
             return Outcome::forward(None);
+        }
+        // Focus can move to an inhibiting window while Super is held; its
+        // release then belongs to that window.
+        if self.inhibited {
+            self.super_tap = false;
         }
         let action = match key {
             Key::Super if std::mem::take(&mut self.super_tap) => Some(Action::ToggleOverview),
@@ -426,6 +451,28 @@ fn locked_action(key: Key) -> Option<Action> {
         Key::Command(command) => Some(Action::Run(command)),
         _ => None,
     }
+}
+
+/// The only bindings that work while the focused window inhibits
+/// shortcuts: the ways out, so a misbehaving client cannot trap the user.
+/// `Super+Escape` gives rustwm its shortcuts back; Ctrl+Alt+Backspace, the
+/// virtual terminal keys and the brightness, volume and mic mute keys work
+/// as ever. Print goes to the window, for the desktop inside it.
+fn inhibited_action(key: Key, mods: Mods) -> Option<Action> {
+    match key {
+        _ if is_super_escape(key, mods) => Some(Action::ToggleShortcutsInhibit),
+        Key::Backspace if mods.ctrl && mods.alt && !mods.logo && !mods.shift => Some(Action::Quit),
+        Key::SwitchVt(vt) => Some(Action::SwitchVt(vt)),
+        Key::Command(Command::Screenshot) => None,
+        Key::Command(command) => Some(Action::Run(command)),
+        _ => None,
+    }
+}
+
+/// Super+Escape, which turns the focused window's shortcuts inhibitor off
+/// and on.
+fn is_super_escape(key: Key, mods: Mods) -> bool {
+    key == Key::Escape && mods.logo && !(mods.alt || mods.ctrl || mods.shift)
 }
 
 #[cfg(test)]
@@ -1117,6 +1164,118 @@ mod tests {
         b.switching = true;
         assert_eq!(b.key(LEFT, left, true, alt()), Outcome::forward(None));
         assert_eq!(b.key(ALT, Key::Alt, false, none()), Outcome::forward(None));
+    }
+
+    #[test]
+    fn inhibited_forwards_shortcuts_to_the_window() {
+        let mut b = Bindings {
+            inhibited: true,
+            grouped: true,
+            ..Bindings::default()
+        };
+        let left = Key::Arrow(Direction::Left);
+        let presses = [
+            (LEFT, left, logo()),
+            (TAB, Key::Tab, alt()),
+            (F4, Key::F4, alt()),
+            (L, Key::Char('l'), logo()),
+            (Q, Key::Char('q'), logo()),
+            (G, Key::Char('g'), logo()),
+            (TAB, Key::Tab, logo()),
+            (THREE, Key::Digit(3), logo()),
+            (RETURN, Key::Return, logo()),
+        ];
+        for (keycode, key, mods) in presses {
+            assert_eq!(b.key(keycode, key, true, mods), Outcome::forward(None));
+            assert_eq!(b.key(keycode, key, false, mods), Outcome::forward(None));
+        }
+        // A Super tap reaches the window and leaves the overview closed.
+        assert_eq!(
+            b.key(SUPER, Key::Super, true, none()),
+            Outcome::forward(None)
+        );
+        assert_eq!(
+            b.key(SUPER, Key::Super, false, none()),
+            Outcome::forward(None)
+        );
+    }
+
+    #[test]
+    fn inhibited_keeps_the_ways_out() {
+        let mut b = Bindings {
+            inhibited: true,
+            ..Bindings::default()
+        };
+        assert_eq!(
+            b.key(ESCAPE, Key::Escape, true, logo()),
+            Outcome::intercept(Some(Action::ToggleShortcutsInhibit))
+        );
+        assert_eq!(
+            b.key(ESCAPE, Key::Escape, false, logo()),
+            Outcome::intercept(None)
+        );
+        assert_eq!(
+            b.key(ESCAPE, Key::Escape, true, none()),
+            Outcome::forward(None)
+        );
+        assert_eq!(
+            b.key(BACKSPACE, Key::Backspace, true, ctrl_alt()),
+            Outcome::intercept(Some(Action::Quit))
+        );
+        assert_eq!(
+            b.key(F2, Key::SwitchVt(2), true, ctrl_alt()),
+            Outcome::intercept(Some(Action::SwitchVt(2)))
+        );
+        assert_eq!(
+            b.key(F4, Key::Command(Command::VolumeUp), true, none()),
+            Outcome::intercept(Some(Action::Run(Command::VolumeUp)))
+        );
+    }
+
+    #[test]
+    fn super_escape_turns_the_inhibitor_back_on() {
+        let mut b = Bindings {
+            has_inhibitor: true,
+            ..Bindings::default()
+        };
+        assert_eq!(
+            b.key(ESCAPE, Key::Escape, true, logo()),
+            Outcome::intercept(Some(Action::ToggleShortcutsInhibit))
+        );
+    }
+
+    #[test]
+    fn super_escape_reaches_a_window_without_an_inhibitor() {
+        let mut b = Bindings::default();
+        assert_eq!(
+            b.key(ESCAPE, Key::Escape, true, logo()),
+            Outcome::forward(None)
+        );
+    }
+
+    #[test]
+    fn print_reaches_an_inhibiting_window() {
+        let mut b = Bindings {
+            inhibited: true,
+            ..Bindings::default()
+        };
+        let print = Key::Command(Command::Screenshot);
+        assert_eq!(b.key(F4, print, true, none()), Outcome::forward(None));
+    }
+
+    #[test]
+    fn super_released_in_an_inhibiting_window_does_not_open_the_overview() {
+        let mut b = Bindings::default();
+        assert_eq!(
+            b.key(SUPER, Key::Super, true, logo()),
+            Outcome::forward(None)
+        );
+        // The focus moved to a window that inhibits shortcuts.
+        b.inhibited = true;
+        assert_eq!(
+            b.key(SUPER, Key::Super, false, none()),
+            Outcome::forward(None)
+        );
     }
 
     #[test]

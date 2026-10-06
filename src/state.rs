@@ -42,6 +42,7 @@ use smithay::{
         foreign_toplevel_list::ForeignToplevelListState,
         fractional_scale::FractionalScaleManagerState,
         idle_inhibit::IdleInhibitManagerState,
+        keyboard_shortcuts_inhibit::KeyboardShortcutsInhibitState,
         output::OutputManagerState,
         selection::{data_device::DataDeviceState, primary_selection::PrimarySelectionState},
         session_lock::SessionLockManagerState,
@@ -143,6 +144,11 @@ pub struct State {
     pub idle_notify: IdleNotifyState,
     #[allow(dead_code)]
     pub idle_inhibit_state: IdleInhibitManagerState,
+    pub keyboard_shortcuts_inhibit_state: KeyboardShortcutsInhibitState,
+    /// Surfaces whose shortcuts inhibitor the user turned off with
+    /// Super+Escape. A new inhibitor from one of them is not turned on, so a
+    /// client cannot undo that by asking again.
+    pub shortcuts_revoked: Vec<WlSurface>,
     pub output_power: OutputPowerState,
     pub seat_state: SeatState<State>,
     pub data_device_state: DataDeviceState,
@@ -236,6 +242,7 @@ impl State {
         let session_lock_state = SessionLockManagerState::new::<Self, _>(&dh, |_| true);
         let idle_notify = IdleNotifyState::new(&dh);
         let idle_inhibit_state = IdleInhibitManagerState::new::<Self>(&dh);
+        let keyboard_shortcuts_inhibit_state = KeyboardShortcutsInhibitState::new::<Self>(&dh);
         let output_power = OutputPowerState::new(&dh);
         let data_device_state = DataDeviceState::new::<Self>(&dh);
         let primary_selection_state = PrimarySelectionState::new::<Self>(&dh);
@@ -278,6 +285,8 @@ impl State {
             session_lock_state,
             idle_notify,
             idle_inhibit_state,
+            keyboard_shortcuts_inhibit_state,
+            shortcuts_revoked: Vec::new(),
             output_power,
             seat_state,
             data_device_state,
