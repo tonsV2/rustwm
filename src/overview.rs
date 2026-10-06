@@ -120,6 +120,10 @@ pub struct Overview {
     caret_image: Option<(u64, MemoryRenderBuffer)>,
     /// The highlighted window or result.
     selected: usize,
+    /// The highlighted window, so the highlight stays on it when a newly
+    /// opened window, such as a save dialog, moves it in the grid. When the
+    /// window goes away, the highlight stays at the same position instead.
+    selected_window: Option<WindowId>,
     /// The installed applications, read when the overview opens.
     apps: Vec<DesktopApp>,
     /// The last file search's results.
@@ -232,6 +236,7 @@ impl Overview {
             blink_timer: None,
             caret_image: None,
             selected: 0,
+            selected_window: None,
             apps: Vec::new(),
             files: Vec::new(),
             search_seq: 0,
@@ -377,15 +382,34 @@ impl Overview {
         &self.caret_image.as_ref().expect("cache was just filled").1
     }
 
+    /// Highlights item `index` of the last drawn scene.
+    fn select(&mut self, index: usize) {
+        self.selected = index;
+        self.selected_window =
+            self.scene
+                .as_ref()
+                .and_then(|scene| match scene.items.get(index)?.item {
+                    Item::Window { id, .. } => Some(id),
+                    _ => None,
+                });
+    }
+
     /// The highlighted window, if `pos` is on its close button. Only the
-    /// highlighted window shows one.
+    /// highlighted window shows one. Uses the highlight as last moved, which
+    /// may not have been drawn yet: the pointer moving onto a window
+    /// highlights it before a click in the same moment is handled.
     fn close_button_at(&self, pos: Point<f64, Logical>) -> Option<WindowId> {
         let scene = self.scene.as_ref()?;
-        let Item::Window { id, thumb, .. } = &scene.items.get(scene.selected)?.item else {
+        let selected = self.selected.min(scene.items.len().checked_sub(1)?);
+        let Item::Window { id, thumb, .. } = &scene.items[selected].item else {
             return None;
         };
         let pos = pos - scene.output.to_f64();
-        close_button(*thumb).to_f64().contains(pos).then_some(*id)
+        let button = close_button(*thumb).to_f64();
+        let centre = button.loc + button.size.downscale(2.0).to_point();
+        // The button is round; its square's corners are the thumbnail's.
+        let reach = (pos.x - centre.x).hypot(pos.y - centre.y);
+        (reach <= button.size.w / 2.0).then_some(*id)
     }
 
     /// The item under `pos`.
@@ -420,6 +444,7 @@ impl State {
         self.overview.query.clear();
         self.overview.caret = 0;
         self.overview.selected = 0;
+        self.overview.selected_window = None;
         self.overview.files.clear();
         self.overview.apps = apps::all_apps();
         self.overview.cache = None;
@@ -439,6 +464,7 @@ impl State {
         self.overview.query.clear();
         self.overview.caret = 0;
         self.overview.selected = 0;
+        self.overview.selected_window = None;
         self.stop_blink();
         self.overview.files.clear();
         self.overview.search_seq += 1;
@@ -474,6 +500,7 @@ impl State {
 
     fn query_changed(&mut self) {
         self.overview.selected = 0;
+        self.overview.selected_window = None;
         self.restart_blink();
         self.search_files();
     }
@@ -545,7 +572,7 @@ impl State {
         }
         let selected = scene.selected.min(count - 1);
         let columns = scene.columns.max(1);
-        self.overview.selected = match direction {
+        let index = match direction {
             Direction::Left => (selected + count - 1) % count,
             Direction::Right => (selected + 1) % count,
             Direction::Up if columns == 1 => selected.saturating_sub(1),
@@ -556,6 +583,7 @@ impl State {
                 if below < count { below } else { selected }
             }
         };
+        self.overview.select(index);
     }
 
     /// Focuses the highlighted window, or starts the highlighted result.
@@ -577,7 +605,7 @@ impl State {
             return;
         }
         if let Some(index) = self.overview.item_at(pos) {
-            self.overview.selected = index;
+            self.overview.select(index);
         }
     }
 
@@ -675,6 +703,14 @@ impl State {
                 };
                 windows.push((id, app, title));
             }
+            // Keep the highlight on its window when the order changed.
+            if let Some(index) = self
+                .overview
+                .selected_window
+                .and_then(|selected| windows.iter().position(|(id, _, _)| *id == selected))
+            {
+                self.overview.selected = index;
+            }
             let content = content_area(area);
             let (boxes, columns) = grid(windows.len(), content, screen);
             let items = windows
@@ -764,6 +800,15 @@ impl State {
             return Vec::new();
         };
         self.overview.selected = scene.selected;
+        // A window that went away leaves the highlight at its position, on
+        // the window that took its place.
+        self.overview.selected_window = match scene.items.get(scene.selected) {
+            Some(Placed {
+                item: Item::Window { id, .. },
+                ..
+            }) => Some(*id),
+            _ => None,
+        };
         let scale = output.current_scale().fractional_scale();
         // Whole physical pixels, so the images are not blurred.
         let origin = scene
