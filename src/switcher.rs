@@ -182,7 +182,9 @@ pub struct Switcher {
 #[derive(PartialEq)]
 struct CacheKey {
     view: View,
-    screen: (i32, i32),
+    /// The layout, which also changes with the screen size and with
+    /// `switcher.wrap` when the config is reloaded.
+    panel: Panel,
     scale: u64,
 }
 
@@ -216,10 +218,10 @@ impl Switcher {
     }
 
     /// Draws the panel and icons for `view`, or reuses the last drawing.
-    fn images(&mut self, view: &View, panel: &Panel, screen: (i32, i32), scale: f64) -> &Images {
+    fn images(&mut self, view: &View, panel: &Panel, scale: f64) -> &Images {
         let key = CacheKey {
             view: view.clone(),
-            screen,
+            panel: panel.clone(),
             scale: scale.to_bits(),
         };
         let stale = self.cache.as_ref().is_none_or(|(cached, _)| *cached != key);
@@ -360,34 +362,38 @@ impl State {
         true
     }
 
-    /// Moves the Alt+Tab selection a row down or up the grid (Down and Up).
-    /// Stops at the first and last rows. With everything in one row, it
-    /// steps through the windows as Left and Right do.
+    /// Moves the Alt+Tab selection a row down or up the grid (Down and Up),
+    /// as laid out on the output under the pointer, where clicks are tested
+    /// too. Stops at the first and last rows; on the row above a shorter
+    /// last row, Down goes to the last window when nothing is right below.
+    /// With one row, whether it shows every window or scrolls, and before
+    /// the switcher shows, it steps through the windows as Left and Right
+    /// do.
     pub fn switch_row(&mut self, down: bool) {
         let Some((len, selected)) = self.focus.switch_list().map(|(ids, i)| (ids.len(), i)) else {
             self.step_switch(down);
             return;
         };
-        let screen = self
-            .primary_output()
+        let pointer = self.seat.get_pointer().map(|p| p.current_location());
+        let screen = pointer
+            .and_then(|pos| self.space.output_under(pos).next().cloned())
+            .or_else(|| self.primary_output())
             .and_then(|output| self.space.output_geometry(&output))
             .map(|geometry| (geometry.size.w, geometry.size.h));
-        let columns = match screen {
+        let panel = match screen {
             Some(screen) if self.switcher.visible => {
-                Panel::new(len, selected, screen, self.config.switcher.wrap).columns
+                Panel::new(len, selected, screen, self.config.switcher.wrap)
             }
-            _ => len,
+            _ => {
+                self.step_switch(down);
+                return;
+            }
         };
-        if columns >= len {
+        if panel.rows() <= 1 {
             self.step_switch(down);
             return;
         }
-        let target = if down {
-            Some(selected + columns).filter(|&index| index < len)
-        } else {
-            selected.checked_sub(columns)
-        };
-        if let Some(index) = target {
+        if let Some(index) = row_target(len, selected, panel.columns, down) {
             self.switcher_select(index);
         }
     }
@@ -556,7 +562,7 @@ impl State {
             .to_physical(scale)
             .to_i32_round::<i32>();
 
-        let images = self.switcher.images(&view, &panel, screen, scale);
+        let images = self.switcher.images(&view, &panel, scale);
         let renderer = self.backend.renderer();
         let image_element = |renderer: &mut GlesRenderer, buffer: &MemoryRenderBuffer| {
             MemoryRenderBufferRenderElement::from_buffer(
@@ -664,7 +670,7 @@ pub(crate) fn app_id_and_title(surface: &WlSurface) -> (String, String) {
 
 /// Where the switcher's parts go, in logical pixels relative to its top
 /// left corner.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct Panel {
     width: i32,
     height: i32,
@@ -776,9 +782,11 @@ impl Panel {
 
     /// Where the arrows go from the top, level with the middle of the
     /// shown thumbnails.
-    fn arrow_middle(&self) -> i32 {
-        let tile_height = tile_size(self.thumb).1;
-        PADDING + TILE_PADDING + self.thumb.1 / 2 + (self.rows() as i32 - 1) * tile_height / 2
+    fn arrow_middle(&self) -> f32 {
+        let tile_height = tile_size(self.thumb).1 as f32;
+        (PADDING + TILE_PADDING) as f32
+            + self.thumb.1 as f32 / 2.0
+            + (self.rows() - 1) as f32 * tile_height / 2.0
     }
 
     /// Where the title goes from the top: under the grid.
@@ -812,13 +820,18 @@ impl Panel {
         ))
     }
 
-    /// The tile of the shown window in `slot`; a last row that is not full
-    /// is centred.
+    /// The tile of the shown window in `slot`. A last row that is not full
+    /// is centred when every window shows; in a grid that scrolls it stays
+    /// in its columns, so windows keep their place as rows scroll.
     fn tile(&self, slot: usize) -> Rectangle<i32, Logical> {
         let (tile_width, tile_height) = tile_size(self.thumb);
         let (row, column) = (slot / self.columns, slot % self.columns);
         let in_row = self.columns.min(self.count - row * self.columns) as i32;
-        let indent = (self.columns as i32 - in_row) * tile_width / 2;
+        let indent = if self.count == self.windows {
+            (self.columns as i32 - in_row) * tile_width / 2
+        } else {
+            0
+        };
         Rectangle::new(
             (
                 PADDING + self.edge_width + indent + column as i32 * tile_width,
@@ -874,6 +887,22 @@ impl Panel {
             corner - Point::from((ICON_SIZE, ICON_SIZE)),
             (ICON_SIZE, ICON_SIZE).into(),
         )
+    }
+}
+
+/// The window a row down or up from `selected` in a grid of `len` windows
+/// and `columns` columns; None on the first or last row.
+fn row_target(len: usize, selected: usize, columns: usize, down: bool) -> Option<usize> {
+    if !down {
+        return selected.checked_sub(columns);
+    }
+    if selected + columns < len {
+        Some(selected + columns)
+    } else if selected / columns < (len - 1) / columns {
+        // Nothing right below on a shorter last row.
+        Some(len - 1)
+    } else {
+        None
     }
 }
 
@@ -1054,7 +1083,7 @@ fn draw(
             Side::Left => PADDING as f32 * s + edge_width / 2.0,
             Side::Right => area.loc.x as f32 * s + edge_width / 2.0,
         };
-        let middle = panel.arrow_middle() as f32 * s;
+        let middle = panel.arrow_middle() * s;
         let (w, h) = (ARROW_WIDTH * s, ARROW_HEIGHT * s);
         let (back, tip) = match side {
             Side::Left => (centre + w / 2.0, centre - w / 2.0),
@@ -1458,6 +1487,32 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn rows_step_by_columns_and_stop_at_the_ends() {
+        // 5 + 4 windows.
+        assert_eq!(row_target(9, 1, 5, true), Some(6));
+        assert_eq!(row_target(9, 4, 5, true), Some(8));
+        assert_eq!(row_target(9, 6, 5, true), None);
+        assert_eq!(row_target(9, 6, 5, false), Some(1));
+        assert_eq!(row_target(9, 2, 5, false), None);
+    }
+
+    #[test]
+    fn a_scrolling_grid_keeps_its_last_row_in_its_columns() {
+        let panel = Panel::new(203, 202, (1000, 800), true);
+        assert!(panel.count < 203);
+        let last = panel.count - 1;
+        assert_eq!(
+            panel.tile(last).loc.x,
+            panel.tile(last - last % panel.columns).loc.x
+                + (last % panel.columns) as i32 * panel.tile(0).size.w
+        );
+        assert_eq!(
+            panel.tile(last - last % panel.columns).loc.x,
+            panel.tile(0).loc.x
+        );
     }
 
     #[test]
