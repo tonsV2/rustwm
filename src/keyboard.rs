@@ -121,6 +121,10 @@ pub enum Action {
     Switch {
         forward: bool,
     },
+    /// Move the Alt+Tab highlight a row down or up the switcher's grid.
+    SwitchRow {
+        down: bool,
+    },
     FinishSwitch,
     /// Close the switcher and keep the current window.
     CancelSwitch,
@@ -286,8 +290,10 @@ impl Bindings {
                     forward: !mods.shift,
                 })
             }
+            Key::Arrow(Direction::Up) if self.switching => Some(Action::SwitchRow { down: false }),
+            Key::Arrow(Direction::Down) if self.switching => Some(Action::SwitchRow { down: true }),
             Key::Arrow(direction) if self.switching => Some(Action::Switch {
-                forward: matches!(direction, Direction::Right | Direction::Down),
+                forward: direction == Direction::Right,
             }),
             Key::Escape if self.switching => Some(Action::CancelSwitch),
             Key::F4 if mods.alt && !mods.ctrl && !mods.logo && !mods.shift => Some(Action::Close),
@@ -742,7 +748,12 @@ mod tests {
         );
 
         b.switching = true;
-        assert_eq!(b.key(UP, up, true, alt()), Outcome::intercept(PREV));
+        assert_eq!(
+            b.key(UP, up, true, alt()),
+            Outcome::intercept(Some(Action::SwitchRow { down: false }))
+        );
+        let left = Key::Arrow(Direction::Left);
+        assert_eq!(b.key(LEFT, left, true, alt()).action, PREV);
         let right = Key::Arrow(Direction::Right);
         assert_eq!(b.key(LEFT, right, true, alt()).action, NEXT);
         assert_eq!(
