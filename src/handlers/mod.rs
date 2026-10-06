@@ -13,9 +13,9 @@ mod xdg_shell;
 
 use smithay::{
     backend::{allocator::dmabuf::Dmabuf, renderer::ImportDma},
-    delegate_alpha_modifier, delegate_cursor_shape, delegate_data_device, delegate_dmabuf,
-    delegate_fractional_scale, delegate_output, delegate_primary_selection, delegate_seat,
-    delegate_single_pixel_buffer, delegate_viewporter, delegate_xdg_decoration,
+    delegate_alpha_modifier, delegate_content_type, delegate_cursor_shape, delegate_data_device,
+    delegate_dmabuf, delegate_fractional_scale, delegate_output, delegate_primary_selection,
+    delegate_seat, delegate_single_pixel_buffer, delegate_viewporter, delegate_xdg_decoration,
     input::{Seat, SeatHandler, SeatState, pointer::CursorImageStatus},
     reexports::{
         wayland_protocols::xdg::decoration::zv1::server::zxdg_toplevel_decoration_v1::Mode as DecorationMode,
@@ -99,6 +99,7 @@ delegate_output!(State);
 delegate_viewporter!(State);
 delegate_single_pixel_buffer!(State);
 delegate_alpha_modifier!(State);
+delegate_content_type!(State);
 
 impl TabletSeatHandler for State {}
 delegate_cursor_shape!(State);
