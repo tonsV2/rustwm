@@ -46,7 +46,10 @@ use smithay::{
         pointer_constraints::PointerConstraintsState,
         relative_pointer::RelativePointerManagerState,
         security_context::{SecurityContext, SecurityContextState},
-        selection::{data_device::DataDeviceState, primary_selection::PrimarySelectionState},
+        selection::{
+            data_device::DataDeviceState, ext_data_control,
+            primary_selection::PrimarySelectionState, wlr_data_control,
+        },
         session_lock::SessionLockManagerState,
         shell::{
             wlr_layer::{Layer, WlrLayerShellState},
@@ -156,6 +159,8 @@ pub struct State {
     pub seat_state: SeatState<State>,
     pub data_device_state: DataDeviceState,
     pub primary_selection_state: PrimarySelectionState,
+    pub ext_data_control_state: ext_data_control::DataControlState,
+    pub wlr_data_control_state: wlr_data_control::DataControlState,
     pub seat: Seat<State>,
     /// The pointer image clients asked for. Only the DRM backend draws it;
     /// nested, the host shows its own cursor.
@@ -259,6 +264,18 @@ impl State {
         let output_power = OutputPowerState::new(&dh);
         let data_device_state = DataDeviceState::new::<Self>(&dh);
         let primary_selection_state = PrimarySelectionState::new::<Self>(&dh);
+        // Any client with these reads the clipboard at any time, so
+        // sandboxed apps get neither.
+        let ext_data_control_state = ext_data_control::DataControlState::new::<Self, _>(
+            &dh,
+            Some(&primary_selection_state),
+            crate::security::is_privileged,
+        );
+        let wlr_data_control_state = wlr_data_control::DataControlState::new::<Self, _>(
+            &dh,
+            Some(&primary_selection_state),
+            crate::security::is_privileged,
+        );
 
         let mut seat_state = SeatState::new();
         let mut seat = seat_state.new_wl_seat(&dh, "seat0");
@@ -305,6 +322,8 @@ impl State {
             seat_state,
             data_device_state,
             primary_selection_state,
+            ext_data_control_state,
+            wlr_data_control_state,
             seat,
             cursor_status: CursorImageStatus::default_named(),
             space: Space::default(),
