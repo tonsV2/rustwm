@@ -107,7 +107,7 @@ impl State {
                 state.bindings.grouped = state
                     .focus
                     .current()
-                    .is_some_and(|id| state.groups.group_of(id).is_some());
+                    .is_some_and(|id| state.grouped_window_of(id).is_some());
                 state.bindings.locked = state.is_locked();
                 state.bindings.overview = state.overview.open;
                 state.bindings.overview_text = state.overview.has_text();
@@ -196,6 +196,8 @@ impl State {
             Action::CancelSwitch => {
                 self.focus.cancel_switch();
                 self.switcher.hide();
+                // A dialog that became modal during the switch takes the focus.
+                self.sync_focus();
             }
             Action::SwitchVt(vt) => {
                 if let Backend::Udev(udev) = &mut self.backend {
