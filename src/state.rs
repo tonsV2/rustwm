@@ -54,11 +54,13 @@ use smithay::{
         socket::ListeningSocketSource,
         viewporter::ViewporterState,
         xdg_activation::XdgActivationState,
+        xdg_system_bell::XdgSystemBellState,
     },
 };
 use tracing::{error, info, warn};
 
 use crate::{
+    bell::Bell,
     capture::{image_copy::ImageCopyState, screencopy::ScreencopyState},
     config::{Config, KeyboardConfig},
     fade::Fade,
@@ -129,6 +131,8 @@ pub struct State {
     #[allow(dead_code)]
     pub output_manager_state: OutputManagerState,
     pub xdg_activation_state: XdgActivationState,
+    #[allow(dead_code)]
+    pub system_bell_state: XdgSystemBellState,
     pub screencopy_state: ScreencopyState,
     pub image_copy_state: ImageCopyState,
     /// Shown windows, for screen sharing tools to offer.
@@ -190,6 +194,8 @@ pub struct State {
     pub idle_inhibitors: Vec<WlSurface>,
     /// The screen fading to black before the lock and back on input.
     pub fade: Fade,
+    /// The visual bell's flash.
+    pub bell: Bell,
 }
 
 impl State {
@@ -220,6 +226,7 @@ impl State {
         let content_type_state = ContentTypeState::new::<Self>(&dh);
         let output_manager_state = OutputManagerState::new_with_xdg_output::<Self>(&dh);
         let xdg_activation_state = XdgActivationState::new::<Self>(&dh);
+        let system_bell_state = XdgSystemBellState::new::<Self>(&dh);
         let screencopy_state = ScreencopyState::new::<Self>(&dh);
         let image_copy_state = ImageCopyState::new::<Self>(&dh);
         let foreign_toplevel_list = ForeignToplevelListState::new::<Self>(&dh);
@@ -260,6 +267,7 @@ impl State {
             content_type_state,
             output_manager_state,
             xdg_activation_state,
+            system_bell_state,
             screencopy_state,
             image_copy_state,
             foreign_toplevel_list,
@@ -293,6 +301,7 @@ impl State {
             screen_lock: ScreenLock::default(),
             idle_inhibitors: Vec::new(),
             fade: Fade::default(),
+            bell: Bell::default(),
         })
     }
 

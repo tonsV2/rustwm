@@ -46,6 +46,10 @@ They show in the bottom-right corner above windows, at most three at a time, for
 
 The look is in [resources/mako/config](../resources/mako/config). Copy it to `~/.config/rustwm/mako/config` to change it (see `man 5 mako`) and run `makoctl reload`. To use another daemon, set `notifications.command` to it, or to `""` and start it yourself.
 
+## Bell
+
+Applications that ring the bell through the system bell protocol (`xdg-system-bell`), such as foot with `bell.system = yes`, get a visual bell instead of a sound: the window that rang flashes white for a quarter of a second, only where it can be seen, or the whole screen when no window did. A menu rings for its window. Rings closer together than 0.4 seconds are let go, so a program ringing nonstop cannot make the screen strobe. Nothing flashes while the screen is locked or the overview is open.
+
 ## Screenshots and screen sharing
 
 rustwm lets outside tools read the screen through the wlr-screencopy and ext-image-copy-capture protocols, and a single window through ext-image-copy-capture, with the windows listed through ext-foreign-toplevel-list. It has no capture interface of its own. Any app connected to rustwm can use these protocols, as on other wlroots-style desktops: it can read window titles, and capture a window's contents even while other windows cover it.
