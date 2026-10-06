@@ -3,7 +3,9 @@
 //! as live previews in a grid. Typing searches the installed
 //! applications and, through an outside command, files. The arrow keys or
 //! the pointer pick a window or a result, Return or a click takes it, and
-//! Escape or another Super tap closes the overview.
+//! Escape or another Super tap closes the overview. The highlighted window
+//! shows a close button, and a middle click on a preview closes that window
+//! too; the overview stays open while windows close.
 //!
 //! While it is open no key reaches a window. The windows stay where they
 //! are underneath; the overview is only a picture of them.
@@ -78,6 +80,11 @@ const TILE_PADDING: i32 = 10;
 const ICON_SIZE: i32 = 48;
 /// How far the icon reaches past the thumbnail's lower right corner.
 const ICON_OVERHANG: i32 = 8;
+/// The round close button on the highlighted window's thumbnail.
+const CLOSE_SIZE: i32 = 28;
+/// How far the close button reaches past the thumbnail's upper right
+/// corner, staying inside the tile's padding.
+const CLOSE_OVERHANG: i32 = 8;
 const ROW_HEIGHT: i32 = 56;
 const RESULTS_WIDTH: i32 = 720;
 const ROW_ICON: i32 = 32;
@@ -95,6 +102,11 @@ const FIELD: [f32; 4] = [1.0, 1.0, 1.0, 0.10];
 const HINT_COLOR: [f32; 4] = [0.95, 0.95, 0.95, 0.45];
 /// Behind a thumbnail that does not fill its box.
 const THUMB_BACKGROUND: [f32; 4] = [0.0, 0.0, 0.0, 0.5];
+const CLOSE_BACKGROUND: [f32; 4] = [0.22, 0.22, 0.24, 0.95];
+
+/// Linux input event codes for the mouse buttons the overview tells apart.
+const BTN_LEFT: u32 = 0x110;
+const BTN_MIDDLE: u32 = 0x112;
 
 pub struct Overview {
     pub open: bool,
@@ -108,6 +120,10 @@ pub struct Overview {
     caret_image: Option<(u64, MemoryRenderBuffer)>,
     /// The highlighted window or result.
     selected: usize,
+    /// The highlighted window, so the highlight stays on it when a newly
+    /// opened window, such as a save dialog, moves it in the grid. When the
+    /// window goes away, the highlight stays at the same position instead.
+    selected_window: Option<WindowId>,
     /// The installed applications, read when the overview opens.
     apps: Vec<DesktopApp>,
     /// The last file search's results.
@@ -220,6 +236,7 @@ impl Overview {
             blink_timer: None,
             caret_image: None,
             selected: 0,
+            selected_window: None,
             apps: Vec::new(),
             files: Vec::new(),
             search_seq: 0,
@@ -365,6 +382,36 @@ impl Overview {
         &self.caret_image.as_ref().expect("cache was just filled").1
     }
 
+    /// Highlights item `index` of the last drawn scene.
+    fn select(&mut self, index: usize) {
+        self.selected = index;
+        self.selected_window =
+            self.scene
+                .as_ref()
+                .and_then(|scene| match scene.items.get(index)?.item {
+                    Item::Window { id, .. } => Some(id),
+                    _ => None,
+                });
+    }
+
+    /// The highlighted window, if `pos` is on its close button. Only the
+    /// highlighted window shows one. Uses the highlight as last moved, which
+    /// may not have been drawn yet: the pointer moving onto a window
+    /// highlights it before a click in the same moment is handled.
+    fn close_button_at(&self, pos: Point<f64, Logical>) -> Option<WindowId> {
+        let scene = self.scene.as_ref()?;
+        let selected = self.selected.min(scene.items.len().checked_sub(1)?);
+        let Item::Window { id, thumb, .. } = &scene.items[selected].item else {
+            return None;
+        };
+        let pos = pos - scene.output.to_f64();
+        let button = close_button(*thumb).to_f64();
+        let centre = button.loc + button.size.downscale(2.0).to_point();
+        // The button is round; its square's corners are the thumbnail's.
+        let reach = (pos.x - centre.x).hypot(pos.y - centre.y);
+        (reach <= button.size.w / 2.0).then_some(*id)
+    }
+
     /// The item under `pos`.
     fn item_at(&self, pos: Point<f64, Logical>) -> Option<usize> {
         let scene = self.scene.as_ref()?;
@@ -397,6 +444,7 @@ impl State {
         self.overview.query.clear();
         self.overview.caret = 0;
         self.overview.selected = 0;
+        self.overview.selected_window = None;
         self.overview.files.clear();
         self.overview.apps = apps::all_apps();
         self.overview.cache = None;
@@ -416,6 +464,7 @@ impl State {
         self.overview.query.clear();
         self.overview.caret = 0;
         self.overview.selected = 0;
+        self.overview.selected_window = None;
         self.stop_blink();
         self.overview.files.clear();
         self.overview.search_seq += 1;
@@ -451,6 +500,7 @@ impl State {
 
     fn query_changed(&mut self) {
         self.overview.selected = 0;
+        self.overview.selected_window = None;
         self.restart_blink();
         self.search_files();
     }
@@ -522,7 +572,7 @@ impl State {
         }
         let selected = scene.selected.min(count - 1);
         let columns = scene.columns.max(1);
-        self.overview.selected = match direction {
+        let index = match direction {
             Direction::Left => (selected + count - 1) % count,
             Direction::Right => (selected + 1) % count,
             Direction::Up if columns == 1 => selected.saturating_sub(1),
@@ -533,6 +583,7 @@ impl State {
                 if below < count { below } else { selected }
             }
         };
+        self.overview.select(index);
     }
 
     /// Focuses the highlighted window, or starts the highlighted result.
@@ -554,23 +605,37 @@ impl State {
             return;
         }
         if let Some(index) = self.overview.item_at(pos) {
-            self.overview.selected = index;
+            self.overview.select(index);
         }
     }
 
-    /// A click in the overview takes the item under the pointer. Returns
-    /// whether the click was the overview's; clicks on the panel are not.
-    pub fn overview_click(&mut self, pos: Point<f64, Logical>) -> bool {
+    /// A left click in the overview takes the item under the pointer, or
+    /// closes the highlighted window when it is on its close button; a
+    /// middle click on a window closes it. Returns whether the click was
+    /// the overview's; clicks on the panel are not.
+    pub fn overview_click(&mut self, pos: Point<f64, Logical>, button: u32) -> bool {
         if !self.overview.open || self.surface_under(pos).is_some() {
             return false;
+        }
+        if button == BTN_LEFT
+            && let Some(id) = self.overview.close_button_at(pos)
+        {
+            info!(window = id.0, "window closed from the overview");
+            self.close_window(id);
+            return true;
         }
         let item = self
             .overview
             .item_at(pos)
             .and_then(|index| self.overview.scene.as_ref()?.items.get(index))
             .map(|placed| placed.item.clone());
-        if let Some(item) = item {
-            self.activate_item(item);
+        match (button, item) {
+            (BTN_LEFT, Some(item)) => self.activate_item(item),
+            (BTN_MIDDLE, Some(Item::Window { id, .. })) => {
+                info!(window = id.0, "window closed from the overview");
+                self.close_window(id);
+            }
+            _ => {}
         }
         true
     }
@@ -637,6 +702,14 @@ impl State {
                     title
                 };
                 windows.push((id, app, title));
+            }
+            // Keep the highlight on its window when the order changed.
+            if let Some(index) = self
+                .overview
+                .selected_window
+                .and_then(|selected| windows.iter().position(|(id, _, _)| *id == selected))
+            {
+                self.overview.selected = index;
             }
             let content = content_area(area);
             let (boxes, columns) = grid(windows.len(), content, screen);
@@ -727,6 +800,15 @@ impl State {
             return Vec::new();
         };
         self.overview.selected = scene.selected;
+        // A window that went away leaves the highlight at its position, on
+        // the window that took its place.
+        self.overview.selected_window = match scene.items.get(scene.selected) {
+            Some(Placed {
+                item: Item::Window { id, .. },
+                ..
+            }) => Some(*id),
+            _ => None,
+        };
         let scale = output.current_scale().fractional_scale();
         // Whole physical pixels, so the images are not blurred.
         let origin = scene
@@ -966,9 +1048,12 @@ fn draw(
         let icon = icons.get(index).copied().flatten();
         match &placed.item {
             Item::Window {
-                thumb, app, title, ..
+                thumb: thumb_box,
+                app,
+                title,
+                ..
             } => {
-                let thumb = rect(*thumb);
+                let thumb = rect(*thumb_box);
                 below.rounded_rect(thumb, 6.0 * s, THUMB_BACKGROUND);
                 let icon_size = ICON_SIZE as f32 * s;
                 let icon_box = (
@@ -978,6 +1063,10 @@ fn draw(
                     icon_size,
                 );
                 draw_icon(&mut above, font, icon, icon_box, &app.name);
+                if index == scene.selected {
+                    let button = rect(close_button(*thumb_box));
+                    draw_close_button(&mut above, button);
+                }
                 if let Some(font) = font {
                     let middle = thumb.1 + thumb.3 + (ICON_OVERHANG + NAME_HEIGHT) as f32 * s / 2.0;
                     below.centred_text(
@@ -1016,6 +1105,43 @@ fn draw(
     }
 
     (below.into_image(), above.into_image())
+}
+
+/// Where the close button goes on a window thumbnail: over its upper right
+/// corner.
+fn close_button(thumb: Rectangle<i32, Logical>) -> Rectangle<i32, Logical> {
+    Rectangle::new(
+        (
+            thumb.loc.x + thumb.size.w + CLOSE_OVERHANG - CLOSE_SIZE,
+            thumb.loc.y - CLOSE_OVERHANG,
+        )
+            .into(),
+        (CLOSE_SIZE, CLOSE_SIZE).into(),
+    )
+}
+
+/// A dark circle with a white cross, like GNOME's.
+fn draw_close_button(canvas: &mut Canvas, (x, y, size, _): (f32, f32, f32, f32)) {
+    canvas.rounded_rect((x, y, size, size), size / 2.0, CLOSE_BACKGROUND);
+    let (cx, cy) = (x + size / 2.0, y + size / 2.0);
+    // Half the length of each stroke along each axis, and half its width
+    // split over both axes, since the strokes run diagonally.
+    let reach = size * 0.2;
+    let half_width = size * 0.05 / std::f32::consts::SQRT_2;
+    for (dx, dy) in [(1.0, 1.0), (1.0, -1.0)] {
+        let (ex, ey) = (reach * dx, reach * dy);
+        // Perpendicular to the stroke.
+        let (nx, ny) = (half_width * dy, -half_width * dx);
+        canvas.convex_polygon(
+            &[
+                (cx - ex + nx, cy - ey + ny),
+                (cx + ex + nx, cy + ey + ny),
+                (cx + ex - nx, cy + ey - ny),
+                (cx - ex - nx, cy - ey - ny),
+            ],
+            TEXT_COLOR,
+        );
+    }
 }
 
 fn row_icon_box((x, y, _, h): (f32, f32, f32, f32), s: f32) -> (f32, f32, f32, f32) {
@@ -1246,6 +1372,40 @@ mod tests {
 
     fn area(w: i32, h: i32) -> Rectangle<i32, Logical> {
         Rectangle::new((0, 0).into(), (w, h).into())
+    }
+
+    #[test]
+    fn close_button_sits_on_the_corner_inside_the_tile() {
+        let thumb = Rectangle::new((100, 100).into(), (320, 200).into());
+        let button = close_button(thumb);
+        // Over the thumbnail's upper right corner...
+        assert!(button.contains((420, 100)));
+        // ...but inside the tile, so hovering it keeps the window highlighted.
+        let tile = Rectangle::new(
+            thumb.loc - Point::from((TILE_PADDING, TILE_PADDING)),
+            (
+                thumb.size.w + 2 * TILE_PADDING,
+                thumb.size.h + 2 * TILE_PADDING,
+            )
+                .into(),
+        );
+        assert!(tile.contains_rect(button));
+    }
+
+    #[test]
+    fn close_button_draws_a_cross_in_a_circle() {
+        let mut canvas = Canvas::new(28, 28);
+        draw_close_button(&mut canvas, (0.0, 0.0, 28.0, 28.0));
+        let image = canvas.into_image();
+        let pixel = |x: i32, y: i32| {
+            let i = ((y * image.width + x) * 4) as usize;
+            [image.pixels[i], image.pixels[i + 3]]
+        };
+        // White where the strokes cross, dark between them, and nothing
+        // outside the circle.
+        assert!(pixel(14, 14)[0] > 200);
+        assert!(pixel(14, 8)[0] < 100 && pixel(14, 8)[1] > 200);
+        assert_eq!(pixel(0, 0)[1], 0);
     }
 
     #[test]

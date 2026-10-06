@@ -202,9 +202,8 @@ impl State {
                 commands::run(self.config.commands.app(app), &self.child_env(), || {});
             }
             Action::Close => {
-                let focused = self.focus.current().and_then(|id| self.window(id));
-                if let Some(toplevel) = focused.and_then(|w| w.window.toplevel()) {
-                    toplevel.send_close();
+                if let Some(id) = self.focus.current() {
+                    self.close_window(id);
                 }
             }
             Action::FocusNth(n) => {
@@ -331,7 +330,7 @@ impl State {
             // was lost, such as when the mouse was unplugged mid-click.
             self.suppressed_buttons.remove(&button);
             self.bindings.pointer_button();
-            if self.overview_click(pointer.current_location())
+            if self.overview_click(pointer.current_location(), button)
                 || self.switcher_click(pointer.current_location())
             {
                 self.suppressed_buttons.insert(button);
