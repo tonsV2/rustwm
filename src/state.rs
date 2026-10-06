@@ -208,7 +208,8 @@ impl State {
         let fractional_scale_state = FractionalScaleManagerState::new::<Self>(&dh);
         let cursor_shape_state = CursorShapeManagerState::new::<Self>(&dh);
         // Smithay's surface render elements draw single-pixel buffers and
-        // apply the alpha multiplier themselves, so both only need the globals.
+        // apply the alpha multiplier themselves, so both need little more than
+        // the globals; the exception is the hardware cursor plane (udev.rs).
         let single_pixel_buffer_state = SinglePixelBufferState::new::<Self>(&dh);
         let alpha_modifier_state = AlphaModifierState::new::<Self>(&dh);
         let output_manager_state = OutputManagerState::new_with_xdg_output::<Self>(&dh);

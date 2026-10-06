@@ -24,7 +24,7 @@ use smithay::{
         renderer::{
             ImportDma, ImportMemWl,
             element::{
-                Kind,
+                Element, Kind,
                 memory::MemoryRenderBufferRenderElement,
                 render_elements,
                 surface::{WaylandSurfaceRenderElement, render_elements_from_surface_tree},
@@ -621,8 +621,13 @@ pub fn render(state: &mut State) {
         BACKGROUND
     };
     // While fading, the cursor must not go on a plane of its own, which
-    // would leave it lit in front of the fade.
-    let flags = if fading {
+    // would leave it lit in front of the fade. Nor may a client cursor made
+    // translucent with the alpha modifier: Smithay copies its pixels to the
+    // cursor plane as they are, dropping the alpha.
+    let translucent_cursor = elements
+        .iter()
+        .any(|element| element.kind() == Kind::Cursor && element.alpha() < 1.0);
+    let flags = if fading || translucent_cursor {
         FrameFlags::empty()
     } else {
         FrameFlags::DEFAULT
