@@ -484,6 +484,14 @@ impl State {
 
     /// Focuses a window because the user or a new window asked for it,
     /// recording it as most recently used.
+    /// Asks window `id` to close. The application may ask to save first, so
+    /// the window stays until it actually goes away.
+    pub fn close_window(&mut self, id: WindowId) {
+        if let Some(toplevel) = self.window(id).and_then(|w| w.window.toplevel()) {
+            toplevel.send_close();
+        }
+    }
+
     pub fn focus_window(&mut self, id: WindowId) {
         self.focus.promote(id);
         self.sync_focus();
