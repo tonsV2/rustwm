@@ -1,4 +1,5 @@
 mod apps;
+mod bell;
 mod capture;
 mod commands;
 mod config;
