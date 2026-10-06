@@ -56,7 +56,7 @@ Applications that ring the bell through the system bell protocol (`xdg-system-be
 
 ## Screenshots and screen sharing
 
-rustwm lets outside tools read the screen through the wlr-screencopy and ext-image-copy-capture protocols, and a single window through ext-image-copy-capture, with the windows listed through ext-foreign-toplevel-list. It has no capture interface of its own. Any app connected to rustwm can use these protocols, as on other wlroots-style desktops: it can read window titles, and capture a window's contents even while other windows cover it.
+rustwm lets outside tools read the screen through the wlr-screencopy and ext-image-copy-capture protocols, and a single window through ext-image-copy-capture, with the windows listed through ext-foreign-toplevel-list. It has no capture interface of its own. Any app connected to rustwm can use these protocols, as on other wlroots-style desktops: it can read window titles, and capture a window's contents even while other windows cover it. Flatpak apps cannot: Flatpak connects them through a socket of its own (`security-context`), and rustwm hides screen capture, the window list, the screen lock and monitor power from every app that comes in that way. They share the screen through the desktop portal, which asks first.
 
 Screenshots use [grim](https://gitlab.freedesktop.org/emersion/grim), and [slurp](https://github.com/emersion/slurp) to select an area:
 
