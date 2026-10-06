@@ -255,6 +255,11 @@ impl<D> GlobalDispatch<ExtOutputImageCaptureSourceManagerV1, (), D> for ImageCop
 where
     D: Dispatch<ExtOutputImageCaptureSourceManagerV1, ()> + 'static,
 {
+    /// Hidden from sandboxed clients.
+    fn can_view(client: Client, _global_data: &()) -> bool {
+        crate::security::is_privileged(&client)
+    }
+
     fn bind(
         _state: &mut D,
         _dh: &DisplayHandle,
@@ -292,6 +297,11 @@ impl<D> GlobalDispatch<ExtForeignToplevelImageCaptureSourceManagerV1, (), D> for
 where
     D: Dispatch<ExtForeignToplevelImageCaptureSourceManagerV1, ()> + 'static,
 {
+    /// Hidden from sandboxed clients.
+    fn can_view(client: Client, _global_data: &()) -> bool {
+        crate::security::is_privileged(&client)
+    }
+
     fn bind(
         _state: &mut D,
         _dh: &DisplayHandle,
@@ -347,6 +357,11 @@ impl<D> GlobalDispatch<ExtImageCopyCaptureManagerV1, (), D> for ImageCopyState
 where
     D: Dispatch<ExtImageCopyCaptureManagerV1, ()> + 'static,
 {
+    /// Hidden from sandboxed clients.
+    fn can_view(client: Client, _global_data: &()) -> bool {
+        crate::security::is_privileged(&client)
+    }
+
     fn bind(
         _state: &mut D,
         _dh: &DisplayHandle,

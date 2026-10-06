@@ -17,6 +17,7 @@ mod osd;
 mod overview;
 mod panel;
 mod reload;
+mod security;
 mod session;
 mod state;
 mod switcher;

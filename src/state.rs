@@ -43,6 +43,7 @@ use smithay::{
         fractional_scale::FractionalScaleManagerState,
         idle_inhibit::IdleInhibitManagerState,
         output::OutputManagerState,
+        security_context::{SecurityContext, SecurityContextState},
         selection::{data_device::DataDeviceState, primary_selection::PrimarySelectionState},
         session_lock::SessionLockManagerState,
         shell::{
@@ -143,6 +144,8 @@ pub struct State {
     pub idle_notify: IdleNotifyState,
     #[allow(dead_code)]
     pub idle_inhibit_state: IdleInhibitManagerState,
+    #[allow(dead_code)]
+    pub security_context_state: SecurityContextState,
     pub output_power: OutputPowerState,
     pub seat_state: SeatState<State>,
     pub data_device_state: DataDeviceState,
@@ -214,7 +217,10 @@ impl State {
         let xdg_shell_state = XdgShellState::new::<Self>(&dh);
         let xdg_decoration_state = XdgDecorationState::new::<Self>(&dh);
         let xdg_dialog_state = XdgDialogState::new::<Self>(&dh);
-        let layer_shell_state = WlrLayerShellState::new::<Self>(&dh);
+        // A layer surface can take the keyboard and cover the screen, so
+        // sandboxed apps get none.
+        let layer_shell_state =
+            WlrLayerShellState::new_with_filter::<Self, _>(&dh, crate::security::is_privileged);
         let shm_state = ShmState::new::<Self>(&dh, vec![]);
         let viewporter_state = ViewporterState::new::<Self>(&dh);
         let fractional_scale_state = FractionalScaleManagerState::new::<Self>(&dh);
@@ -232,10 +238,16 @@ impl State {
         let system_bell_state = XdgSystemBellState::new::<Self>(&dh);
         let screencopy_state = ScreencopyState::new::<Self>(&dh);
         let image_copy_state = ImageCopyState::new::<Self>(&dh);
-        let foreign_toplevel_list = ForeignToplevelListState::new::<Self>(&dh);
-        let session_lock_state = SessionLockManagerState::new::<Self, _>(&dh, |_| true);
+        let foreign_toplevel_list =
+            ForeignToplevelListState::new_with_filter::<Self>(&dh, crate::security::is_privileged);
+        let session_lock_state =
+            SessionLockManagerState::new::<Self, _>(&dh, crate::security::is_privileged);
         let idle_notify = IdleNotifyState::new(&dh);
         let idle_inhibit_state = IdleInhibitManagerState::new::<Self>(&dh);
+        // A sandboxed client must not make a socket of its own, which would
+        // also let it out of the sandbox.
+        let security_context_state =
+            SecurityContextState::new::<Self, _>(&dh, crate::security::is_privileged);
         let output_power = OutputPowerState::new(&dh);
         let data_device_state = DataDeviceState::new::<Self>(&dh);
         let primary_selection_state = PrimarySelectionState::new::<Self>(&dh);
@@ -278,6 +290,7 @@ impl State {
             session_lock_state,
             idle_notify,
             idle_inhibit_state,
+            security_context_state,
             output_power,
             seat_state,
             data_device_state,
@@ -754,6 +767,9 @@ fn init_wayland_listener(
 #[derive(Default)]
 pub struct ClientState {
     pub compositor_state: CompositorClientState,
+    /// The sandbox the client runs in, for one that connected through a
+    /// sandbox's socket (security-context).
+    pub security_context: Option<SecurityContext>,
 }
 
 impl ClientData for ClientState {

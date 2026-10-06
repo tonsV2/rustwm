@@ -89,6 +89,11 @@ impl State {
 }
 
 impl GlobalDispatch<ZwlrOutputPowerManagerV1, ()> for State {
+    /// Hidden from sandboxed clients.
+    fn can_view(client: Client, _global_data: &()) -> bool {
+        crate::security::is_privileged(&client)
+    }
+
     fn bind(
         _state: &mut Self,
         _dh: &DisplayHandle,
