@@ -46,7 +46,7 @@ use smithay::{
         session_lock::SessionLockManagerState,
         shell::{
             wlr_layer::{Layer, WlrLayerShellState},
-            xdg::{XdgShellState, decoration::XdgDecorationState},
+            xdg::{XdgShellState, decoration::XdgDecorationState, dialog::XdgDialogState},
         },
         shm::ShmState,
         single_pixel_buffer::SinglePixelBufferState,
@@ -110,6 +110,8 @@ pub struct State {
     // Wayland globals.
     #[allow(dead_code)]
     pub xdg_decoration_state: XdgDecorationState,
+    #[allow(dead_code)]
+    pub xdg_dialog_state: XdgDialogState,
     pub layer_shell_state: WlrLayerShellState,
     pub shm_state: ShmState,
     pub dmabuf_state: DmabufState,
@@ -202,6 +204,7 @@ impl State {
         let compositor_state = CompositorState::new::<Self>(&dh);
         let xdg_shell_state = XdgShellState::new::<Self>(&dh);
         let xdg_decoration_state = XdgDecorationState::new::<Self>(&dh);
+        let xdg_dialog_state = XdgDialogState::new::<Self>(&dh);
         let layer_shell_state = WlrLayerShellState::new::<Self>(&dh);
         let shm_state = ShmState::new::<Self>(&dh, vec![]);
         let viewporter_state = ViewporterState::new::<Self>(&dh);
@@ -243,6 +246,7 @@ impl State {
             compositor_state,
             xdg_shell_state,
             xdg_decoration_state,
+            xdg_dialog_state,
             layer_shell_state,
             shm_state,
             dmabuf_state,
@@ -453,23 +457,12 @@ impl State {
         };
 
         if window.mapped {
+            // Keeping the stacking order, or re-laying out an output, as when
+            // a notification closes, would bring the newest window to the
+            // front.
             let element = window.window.clone();
-            // Mapping moves the window to the top, so the windows that were
-            // above it are raised again in their order. Otherwise re-laying
-            // out an output, as when a notification closes, would bring the
-            // newest window to the front.
-            let above: Vec<Window> = self
-                .space
-                .elements()
-                .skip_while(|e| *e != &element)
-                .skip(1)
-                .cloned()
-                .collect();
-            self.space
-                .map_element(element, (geometry.x, geometry.y), false);
-            for window in above {
-                self.space.raise_element(&window, false);
-            }
+            self.move_element(element, (geometry.x, geometry.y).into());
+            self.place_dialogs_of(id);
         }
     }
 
@@ -515,13 +508,25 @@ impl State {
     /// keyboard focus unless a layer surface holds it or the overview is
     /// open.
     pub fn sync_focus(&mut self) {
-        let current = self.focus.current();
+        let mut current = self.focus.current();
+        // A window waiting on a modal dialog passes the focus to the dialog.
+        if !self.focus.is_switching()
+            && let Some(modal) = current.and_then(|id| self.modal_dialog_of(id))
+        {
+            self.focus.promote(modal);
+            current = Some(modal);
+        }
         let current_window = current.and_then(|id| self.window(id)).cloned();
 
         match &current_window {
             Some(window) if window.mapped => {
+                // A dialog comes forward with the windows it belongs to.
+                for ancestor in self.ancestors_of(window.id).into_iter().rev() {
+                    self.raise_group_of(ancestor);
+                    self.raise_with_dialogs(ancestor, false);
+                }
                 self.raise_group_of(window.id);
-                self.space.raise_element(&window.window, true);
+                self.raise_with_dialogs(window.id, true);
             }
             _ => {
                 for element in self.space.elements() {

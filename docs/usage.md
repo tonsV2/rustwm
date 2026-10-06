@@ -12,6 +12,10 @@ The windows stay where they are underneath; the overview is only a picture of th
 
 Alt+Tab walks the windows, most recently used first, and releasing Alt brings the highlighted one to the front; Shift+Tab, Left and Right step back and forth, Up and Down move a row, Escape cancels. A quick Alt+Tab toggles between the two most recent windows without the switcher showing. While it shows, the thumbnail under the pointer is highlighted and clicking it brings that window to the front at once; moving the pointer off the thumbnails puts the highlight back on the window Alt+Tab picked, and releasing Alt still picks that one, which keeps a fainter highlight while another thumbnail is hovered. When more windows are open than fit across the screen, they wrap onto more rows, filled as evenly as possible, reading left to right and then top to bottom; when the rows that fit are not enough, the thumbnails shrink. Only past the smallest size does the grid scroll by whole rows to keep the highlight in view, with an arrow at either end and a count such as "+4" for the windows hidden before and after. With `switcher.wrap = false` in the [configuration](configuration.md) the switcher stays one row of full-size thumbnails that scrolls a window at a time. Clicking an arrow selects the nearest hidden window, and the mouse wheel or a touchpad scroll over the switcher moves the selection one window at a time, stopping at the first and last.
 
+## Dialogs
+
+A dialog opens centred over the window it belongs to and moves with it when that window is snapped. A modal dialog, one its window waits on (marked through `xdg-dialog`, as GTK 4 does), also stays above its window and takes the focus whenever the window would get it: clicking the window, picking it in the overview or with Alt+Tab brings the dialog forward with its window behind it.
+
 ## Locking the screen
 
 rustwm draws no lock screen of its own; [swaylock](https://github.com/swaywm/swaylock) does, and [swayidle](https://github.com/swaywm/swayidle) runs it after a while without input. Start swayidle with rustwm through [autostart](configuration.md) in `config.toml` (the sample config has this line):

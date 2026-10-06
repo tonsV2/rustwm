@@ -169,13 +169,7 @@ impl State {
             .collect();
         others.reverse();
         for id in others {
-            if let Some(element) = self
-                .window(id)
-                .filter(|w| w.mapped)
-                .map(|w| w.window.clone())
-            {
-                self.space.raise_element(&element, false);
-            }
+            self.raise_with_dialogs(id, false);
         }
     }
 }
