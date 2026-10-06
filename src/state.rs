@@ -145,6 +145,10 @@ pub struct State {
     #[allow(dead_code)]
     pub idle_inhibit_state: IdleInhibitManagerState,
     pub keyboard_shortcuts_inhibit_state: KeyboardShortcutsInhibitState,
+    /// Surfaces whose shortcuts inhibitor the user turned off with
+    /// Super+Escape. A new inhibitor from one of them is not turned on, so a
+    /// client cannot undo that by asking again.
+    pub shortcuts_revoked: Vec<WlSurface>,
     pub output_power: OutputPowerState,
     pub seat_state: SeatState<State>,
     pub data_device_state: DataDeviceState,
@@ -282,6 +286,7 @@ impl State {
             idle_notify,
             idle_inhibit_state,
             keyboard_shortcuts_inhibit_state,
+            shortcuts_revoked: Vec::new(),
             output_power,
             seat_state,
             data_device_state,

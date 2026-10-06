@@ -18,7 +18,7 @@ A dialog opens centred over the window it belongs to and moves with it when that
 
 ## Virtual machines and remote desktops
 
-A virtual machine (virt-manager, GNOME Boxes), a remote desktop client or Moonlight can ask for rustwm's shortcuts while it has the keyboard (`keyboard-shortcuts-inhibit`), so that Super, Alt+Tab, `Super+arrows` and the rest reach the desktop inside it. rustwm grants this as soon as it is asked, as sway does, and only while that window has the keyboard: clicking another window gives rustwm its shortcuts back. `Super+Escape` takes them back while staying in the window, and pressing it again hands them over again. `Ctrl+Alt+Backspace`, `Ctrl+Alt+F1`…`F12` and the brightness and volume keys always stay with rustwm, so a window cannot trap you.
+A virtual machine (virt-manager, GNOME Boxes), a remote desktop client or Moonlight can ask for rustwm's shortcuts while it has the keyboard (`keyboard-shortcuts-inhibit`), so that Super, Alt+Tab, `Super+arrows` and the rest reach the desktop inside it. rustwm grants this as soon as it is asked, as sway does, and only while that window has the keyboard: clicking another window gives rustwm its shortcuts back. `Super+Escape` takes them back while staying in the window, and pressing it again hands them over again; the window cannot take them back by asking again. Without a window asking, `Super+Escape` reaches the window as any key does. Print goes to the window too, for the desktop inside it. `Ctrl+Alt+Backspace`, `Ctrl+Alt+F1`…`F12` and the brightness, volume and mic mute keys always stay with rustwm, so a window cannot trap you. X11 viewers grab the keyboard differently, through Xwayland, and do not get rustwm's shortcuts.
 
 ## Locking the screen
 
