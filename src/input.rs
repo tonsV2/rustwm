@@ -178,7 +178,11 @@ impl State {
             Action::Snap {
                 direction,
                 first_in_hold,
-            } => self.snap_focused(direction, first_in_hold),
+            } => {
+                if let Some(id) = self.shortcut_window() {
+                    self.snap_window(id, direction, first_in_hold);
+                }
+            }
             Action::Switch { forward } => self.step_switch(forward),
             Action::FinishSwitch => {
                 if self.focus.is_switching() {
@@ -198,15 +202,18 @@ impl State {
             }
             Action::Run(command) => self.run_command(command),
             Action::Spawn(app) => {
+                // As if the overview had not been open.
+                self.close_overview();
                 info!(?app, "starting from shortcut");
                 commands::run(self.config.commands.app(app), &self.child_env(), || {});
             }
             Action::Close => {
-                if let Some(id) = self.focus.current() {
+                if let Some(id) = self.shortcut_window() {
                     self.close_window(id);
                 }
             }
             Action::FocusNth(n) => {
+                self.close_overview();
                 // Dialogs are left out, so the numbers stay put when one opens.
                 let nth = self
                     .windows
@@ -219,8 +226,17 @@ impl State {
                     self.focus_window(id);
                 }
             }
-            Action::Group => self.group_visible(),
-            Action::Ungroup => self.ungroup_focused(),
+            Action::Group => {
+                // In the overview, only with a window highlighted.
+                if !self.overview.open || self.shortcut_window().is_some() {
+                    self.group_visible(self.shortcut_window());
+                }
+            }
+            Action::Ungroup => {
+                if let Some(id) = self.shortcut_window() {
+                    self.ungroup(id);
+                }
+            }
             Action::CycleGroup { forward } => self.cycle_group(forward),
             Action::Quit => {
                 info!("quit requested");
@@ -229,9 +245,21 @@ impl State {
         }
     }
 
-    /// Snaps the focused window. A group member snapped to full screen is zoomed: the first Super+arrow of a later hold puts it back in the tile it had when the zooming hold began.
-    fn snap_focused(&mut self, direction: Direction, first_in_hold: bool) {
-        let Some(window) = self.focus.current().and_then(|id| self.window(id)) else {
+    /// The window a window shortcut such as Super+q acts on: the focused
+    /// one, or in the overview the highlighted one, since that is the window
+    /// the user is looking at. None in the overview when the highlight is on
+    /// a search result.
+    fn shortcut_window(&self) -> Option<WindowId> {
+        if self.overview.open {
+            self.overview.highlighted_window()
+        } else {
+            self.focus.current()
+        }
+    }
+
+    /// Snaps window `id`. A group member snapped to full screen is zoomed: the first Super+arrow of a later hold puts it back in the tile it had when the zooming hold began.
+    fn snap_window(&mut self, id: WindowId, direction: Direction, first_in_hold: bool) {
+        let Some(window) = self.window(id) else {
             return;
         };
         let (id, zoomed_from) = (window.id, window.unzoomed);
