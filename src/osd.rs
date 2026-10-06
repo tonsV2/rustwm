@@ -85,9 +85,10 @@ impl Device {
         let (program, args): (&str, &[&str]) = match self {
             Device::Speakers => ("wpctl", &["get-volume", "@DEFAULT_AUDIO_SINK@"]),
             Device::Microphone => ("wpctl", &["get-volume", "@DEFAULT_AUDIO_SOURCE@"]),
-            // `-e` reports the level on the same perceptual curve the
-            // default keys step along, so each press moves the bar evenly.
-            Device::Screen => ("brightnessctl", &["-m", "-e"]),
+            // The raw value and maximum, not brightnessctl's percentage:
+            // `parse_brightness` puts them on the perceptual curve itself so
+            // that the dimmest lit level shows an empty bar.
+            Device::Screen => ("brightnessctl", &["-m"]),
         };
         let output = process::Command::new(program)
             .args(args)
@@ -337,11 +338,29 @@ fn parse_volume(text: &str) -> Option<(f64, bool)> {
     Some((value.max(0.0), muted))
 }
 
+/// The curve `brightnessctl -e` steps along: its percentage is
+/// (value / max)^(1/4), which the eye sees as even steps.
+const BRIGHTNESS_EXPONENT: f64 = 4.0;
+
 /// Parses `brightnessctl -m` output such as
-/// `intel_backlight,backlight,25070,65%,38787` into a fraction.
+/// `intel_backlight,backlight,25070,65%,38787` into a fraction on the
+/// perceptual curve the default keys step along, so each press moves the
+/// bar evenly.
+///
+/// The curve is stretched so that raw value 1, the dimmest level that keeps
+/// the panel lit and the floor the default keys stop at (`-n1`), shows an
+/// empty bar. On the plain curve it would show about 7% on a 38787-step
+/// backlight, though the screen cannot go any dimmer without turning off.
 fn parse_brightness(text: &str) -> Option<f64> {
-    let percent = text.lines().next()?.split(',').nth(3)?.strip_suffix('%')?;
-    Some((percent.parse::<f64>().ok()? / 100.0).clamp(0.0, 1.0))
+    let mut fields = text.lines().next()?.split(',');
+    let value = fields.nth(2)?.parse::<f64>().ok()?;
+    let max = fields.nth(1)?.parse::<f64>().ok()?;
+    if max <= 1.0 {
+        return Some(if value >= max { 1.0 } else { 0.0 });
+    }
+    let curve = |raw: f64| (raw / max).powf(1.0 / BRIGHTNESS_EXPONENT);
+    let floor = curve(1.0);
+    Some(((curve(value) - floor) / (1.0 - floor)).clamp(0.0, 1.0))
 }
 
 /// `icon` with every pixel painted `color`, keeping its shape. Symbolic
@@ -430,16 +449,37 @@ mod tests {
 
     #[test]
     fn brightness_parses() {
+        let parse = |text| parse_brightness(text).map(|v| (v * 1000.0).round() / 1000.0);
+        assert_eq!(parse("amdgpu_bl0,backlight,255,100%,255"), Some(1.0));
         assert_eq!(
-            parse_brightness("intel_backlight,backlight,25070,65%,38787\n"),
-            Some(0.65)
-        );
-        assert_eq!(
-            parse_brightness("amdgpu_bl0,backlight,255,100%,255"),
+            parse("intel_backlight,backlight,38787,100%,38787\n"),
             Some(1.0)
         );
-        assert_eq!(parse_brightness("intel_backlight,backlight,25070"), None);
-        assert_eq!(parse_brightness(""), None);
+        // Midway on the perceptual curve: (19394 / 38787)^(1/4) is 0.841,
+        // stretched over the 0.071 floor.
+        assert_eq!(
+            parse("intel_backlight,backlight,19394,50%,38787"),
+            Some(0.829)
+        );
+        assert_eq!(parse("intel_backlight,backlight,25070"), None);
+        assert_eq!(parse("intel_backlight,backlight,x,0%,38787"), None);
+        assert_eq!(parse(""), None);
+    }
+
+    #[test]
+    fn dimmest_lit_brightness_shows_an_empty_bar() {
+        assert_eq!(
+            parse_brightness("intel_backlight,backlight,1,7%,38787"),
+            Some(0.0)
+        );
+        assert_eq!(
+            parse_brightness("intel_backlight,backlight,0,0%,38787"),
+            Some(0.0)
+        );
+        assert!(parse_brightness("intel_backlight,backlight,2,8%,38787").unwrap() > 0.0);
+        // A backlight that is only on or off.
+        assert_eq!(parse_brightness("tpacpi,backlight,0,0%,1"), Some(0.0));
+        assert_eq!(parse_brightness("tpacpi,backlight,1,100%,1"), Some(1.0));
     }
 
     #[test]
