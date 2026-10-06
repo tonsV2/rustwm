@@ -18,7 +18,7 @@ A dialog opens centred over the window it belongs to and moves with it when that
 
 ## Games and grabbed pointers
 
-Games, Blender and virtual machines can lock the pointer in place and read the mouse's raw motion for mouse-look, or keep it inside their window (`pointer-constraints`, `relative-pointer`). A lock or confinement only holds while that window has the keyboard and the pointer is over it: Alt+Tab, a Super tap, a click elsewhere or the lock screen frees the pointer, and it is caught again when you come back to the window, if the app still wants it. A confined pointer slides along the edge it meets. Nested, rustwm only gets absolute positions from the host, so locks hold the pointer still but raw motion is not sent.
+Games, Blender and virtual machines can lock the pointer in place and read the mouse's raw motion for mouse-look, or keep it inside their window (`pointer-constraints`, `relative-pointer`). A lock or confinement only starts while that window has the keyboard and the pointer is over it, and Alt+Tab, a Super tap or the lock screen frees the pointer; it is caught again when you come back to the window, if the app still wants it. A confined pointer goes right up to the edge and slides along it, and stays in the window even where the panel or a notification covers it; the auto-hide panel does not come down for it. Nested, rustwm only gets absolute positions from the host, so locks hold the pointer still but raw motion is not sent.
 
 ## Locking the screen
 

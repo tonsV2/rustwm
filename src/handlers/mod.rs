@@ -46,7 +46,6 @@ use tracing::info;
 pub use idle::IdleNotifyState;
 pub use layer_shell::handle_commit as handle_layer_commit;
 pub use output_power::OutputPowerState;
-pub use pointer_constraints::Held;
 pub use session_lock::{LOCKED_BACKGROUND, ScreenLock};
 pub use xdg_shell::handle_commit as handle_xdg_commit;
 

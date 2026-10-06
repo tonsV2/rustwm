@@ -661,7 +661,11 @@ impl State {
             return;
         };
         let pos = pointer.current_location();
-        let under = self.surface_under(pos);
+        // A held pointer stays on its surface, whatever now covers it.
+        let under = match self.held_pointer() {
+            Some(held) => Some(held.focus()),
+            None => self.surface_under(pos),
+        };
         let time = self.start_time.elapsed().as_millis() as u32;
         pointer.motion(
             self,
@@ -673,6 +677,8 @@ impl State {
             },
         );
         pointer.frame(self);
+        // A window that wants the pointer may now be under it.
+        self.update_pointer_constraint();
     }
 
     /// Whether the backend shows a picture at all: not while another VT has

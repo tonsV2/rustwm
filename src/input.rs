@@ -20,7 +20,6 @@ use smithay::{
 use crate::{
     commands,
     focus::WindowId,
-    handlers::Held,
     keyboard::{Action, App, Command, Key, Mods},
     layout::{Direction, Layout},
     state::{Backend, State},
@@ -366,37 +365,37 @@ impl State {
         let Some(pointer) = self.seat.get_pointer() else {
             return;
         };
-        let pos = match self.held_pointer() {
-            Some(Held::Locked) => None,
-            // A confined pointer slides along the edge it meets.
-            Some(held) => {
-                let old = pointer.current_location();
-                [pos, (pos.x, old.y).into(), (old.x, pos.y).into()]
-                    .into_iter()
-                    .find(|&p| self.confined_allows(&held, p))
-            }
-            None => Some(pos),
-        };
-        let Some(pos) = pos else {
+        let held = self.held_pointer();
+        if let Some(held) = held.as_ref().filter(|h| h.locked) {
             // Held in place: the client only gets the raw motion.
-            self.send_relative_motion(relative);
+            self.send_relative_motion(Some(held.focus()), relative);
             pointer.frame(self);
             return;
+        }
+        let (pos, under) = match &held {
+            // The pointer keeps to the confining surface, even where the
+            // panel or a notification covers it.
+            Some(held) => (
+                self.confine(held, pointer.current_location(), pos),
+                Some(held.focus()),
+            ),
+            None => {
+                self.panel_pointer_moved(pos);
+                self.overview_pointer_moved(pos);
+                self.switcher_pointer_moved();
+                (pos, self.surface_under(pos))
+            }
         };
-        self.panel_pointer_moved(pos);
-        self.overview_pointer_moved(pos);
-        self.switcher_pointer_moved();
-        let under = self.surface_under(pos);
         pointer.motion(
             self,
-            under,
+            under.clone(),
             &MotionEvent {
                 location: pos,
                 serial: SERIAL_COUNTER.next_serial(),
                 time,
             },
         );
-        self.send_relative_motion(relative);
+        self.send_relative_motion(under, relative);
         pointer.frame(self);
         self.update_pointer_constraint();
     }
