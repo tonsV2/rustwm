@@ -43,6 +43,8 @@ use smithay::{
         fractional_scale::FractionalScaleManagerState,
         idle_inhibit::IdleInhibitManagerState,
         output::OutputManagerState,
+        pointer_constraints::PointerConstraintsState,
+        relative_pointer::RelativePointerManagerState,
         security_context::{SecurityContext, SecurityContextState},
         selection::{data_device::DataDeviceState, primary_selection::PrimarySelectionState},
         session_lock::SessionLockManagerState,
@@ -145,6 +147,10 @@ pub struct State {
     #[allow(dead_code)]
     pub idle_inhibit_state: IdleInhibitManagerState,
     #[allow(dead_code)]
+    pub relative_pointer_state: RelativePointerManagerState,
+    #[allow(dead_code)]
+    pub pointer_constraints_state: PointerConstraintsState,
+    #[allow(dead_code)]
     pub security_context_state: SecurityContextState,
     pub output_power: OutputPowerState,
     pub seat_state: SeatState<State>,
@@ -244,6 +250,8 @@ impl State {
             SessionLockManagerState::new::<Self, _>(&dh, crate::security::is_privileged);
         let idle_notify = IdleNotifyState::new(&dh);
         let idle_inhibit_state = IdleInhibitManagerState::new::<Self>(&dh);
+        let relative_pointer_state = RelativePointerManagerState::new::<Self>(&dh);
+        let pointer_constraints_state = PointerConstraintsState::new::<Self>(&dh);
         // A sandboxed client must not make a socket of its own, which would
         // also let it out of the sandbox.
         let security_context_state =
@@ -290,6 +298,8 @@ impl State {
             session_lock_state,
             idle_notify,
             idle_inhibit_state,
+            relative_pointer_state,
+            pointer_constraints_state,
             security_context_state,
             output_power,
             seat_state,
@@ -606,6 +616,10 @@ impl State {
             return;
         }
         keyboard.set_focus(self, surface, SERIAL_COUNTER.next_serial());
+        // A pointer constraint follows the keyboard: it ends when its window
+        // loses the keyboard and can start when one with a constraint gets it.
+        self.release_pointer_constraint();
+        self.update_pointer_constraint();
     }
 
     /// Finds the surface under `pos`, in stacking order: overlay and top
@@ -660,7 +674,11 @@ impl State {
             return;
         };
         let pos = pointer.current_location();
-        let under = self.surface_under(pos);
+        // A held pointer stays on its surface, whatever now covers it.
+        let under = match self.held_pointer() {
+            Some(held) => Some(held.focus()),
+            None => self.surface_under(pos),
+        };
         let time = self.start_time.elapsed().as_millis() as u32;
         pointer.motion(
             self,
@@ -672,6 +690,8 @@ impl State {
             },
         );
         pointer.frame(self);
+        // A window that wants the pointer may now be under it.
+        self.update_pointer_constraint();
     }
 
     /// Whether the backend shows a picture at all: not while another VT has

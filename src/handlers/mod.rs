@@ -7,6 +7,7 @@ mod foreign_toplevel;
 mod idle;
 mod layer_shell;
 mod output_power;
+mod pointer_constraints;
 mod session_lock;
 mod xdg_activation;
 mod xdg_shell;
