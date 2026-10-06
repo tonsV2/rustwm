@@ -34,6 +34,7 @@ use smithay::{
     },
     utils::{Logical, Point, SERIAL_COUNTER},
     wayland::{
+        alpha_modifier::AlphaModifierState,
         compositor::{CompositorClientState, CompositorState},
         cursor_shape::CursorShapeManagerState,
         dmabuf::DmabufState,
@@ -48,6 +49,7 @@ use smithay::{
             xdg::{XdgShellState, decoration::XdgDecorationState},
         },
         shm::ShmState,
+        single_pixel_buffer::SinglePixelBufferState,
         socket::ListeningSocketSource,
         viewporter::ViewporterState,
         xdg_activation::XdgActivationState,
@@ -117,6 +119,10 @@ pub struct State {
     pub fractional_scale_state: FractionalScaleManagerState,
     #[allow(dead_code)]
     pub cursor_shape_state: CursorShapeManagerState,
+    #[allow(dead_code)]
+    pub single_pixel_buffer_state: SinglePixelBufferState,
+    #[allow(dead_code)]
+    pub alpha_modifier_state: AlphaModifierState,
     #[allow(dead_code)]
     pub output_manager_state: OutputManagerState,
     pub xdg_activation_state: XdgActivationState,
@@ -201,6 +207,11 @@ impl State {
         let viewporter_state = ViewporterState::new::<Self>(&dh);
         let fractional_scale_state = FractionalScaleManagerState::new::<Self>(&dh);
         let cursor_shape_state = CursorShapeManagerState::new::<Self>(&dh);
+        // Smithay's surface render elements draw single-pixel buffers and
+        // apply the alpha multiplier themselves, so both need little more than
+        // the globals; the exception is the hardware cursor plane (udev.rs).
+        let single_pixel_buffer_state = SinglePixelBufferState::new::<Self>(&dh);
+        let alpha_modifier_state = AlphaModifierState::new::<Self>(&dh);
         let output_manager_state = OutputManagerState::new_with_xdg_output::<Self>(&dh);
         let xdg_activation_state = XdgActivationState::new::<Self>(&dh);
         let screencopy_state = ScreencopyState::new::<Self>(&dh);
@@ -238,6 +249,8 @@ impl State {
             viewporter_state,
             fractional_scale_state,
             cursor_shape_state,
+            single_pixel_buffer_state,
+            alpha_modifier_state,
             output_manager_state,
             xdg_activation_state,
             screencopy_state,
@@ -479,6 +492,14 @@ impl State {
         ChildEnv {
             wayland_display: self.socket_name.clone(),
             x_display: self.xwayland.as_ref().map(|s| s.display.clone()),
+        }
+    }
+
+    /// Asks window `id` to close. The application may ask to save first, so
+    /// the window stays until it actually goes away.
+    pub fn close_window(&mut self, id: WindowId) {
+        if let Some(toplevel) = self.window(id).and_then(|w| w.window.toplevel()) {
+            toplevel.send_close();
         }
     }
 

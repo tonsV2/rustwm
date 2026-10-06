@@ -235,7 +235,8 @@ pub struct Bindings {
     pub locked: bool,
     /// Whether the overview is open. The caller sets this before each key.
     /// While open, no key reaches a window: they type into the search, move
-    /// the highlight, or are the few in [`overview_action`].
+    /// the highlight, are Super shortcuts, or are the few in
+    /// [`overview_action`].
     pub overview: bool,
     /// Whether the overview's search has text. The caller sets this before
     /// each key; with text, Left, Right and Escape work on the text.
@@ -270,18 +271,16 @@ impl Bindings {
         self.super_tap = false;
         if self.overview {
             self.suppressed.insert(keycode);
-            return Outcome::intercept(overview_action(key, mods, self.overview_text));
+            let action = self
+                .super_shortcut(key, mods)
+                .or_else(|| overview_action(key, mods, self.overview_text));
+            return Outcome::intercept(action);
+        }
+        if let Some(action) = self.super_shortcut(key, mods) {
+            return self.consume(keycode, Some(action));
         }
 
         let action = match key {
-            Key::Arrow(direction) if mods.logo && !mods.alt && !mods.ctrl && !mods.shift => {
-                let first_in_hold = self.first_in_hold;
-                self.first_in_hold = false;
-                Some(Action::Snap {
-                    direction,
-                    first_in_hold,
-                })
-            }
             Key::Tab if mods.alt && !mods.logo && !mods.ctrl => Some(Action::Switch {
                 forward: !mods.shift,
             }),
@@ -304,16 +303,31 @@ impl Bindings {
             // With any modifiers, and while switching, since these keys
             // mean nothing else.
             Key::Command(command) => Some(Action::Run(command)),
-            key if mods.logo && !mods.alt && !mods.ctrl && !mods.shift => super_action(key),
-            Key::Char('g') if mods.logo && mods.shift && !mods.alt && !mods.ctrl => {
-                Some(Action::Ungroup)
-            }
-            key if mods.logo && mods.shift && !mods.alt && !mods.ctrl => {
-                App::for_key(key, true).map(Action::Spawn)
-            }
             _ => None,
         };
         self.consume(keycode, action)
+    }
+
+    /// What Super plus `key`, with or without Shift, does: snap, close,
+    /// group, focus by number or start an app. These work the same on the
+    /// desktop and in the overview.
+    fn super_shortcut(&mut self, key: Key, mods: Mods) -> Option<Action> {
+        if !mods.logo || mods.alt || mods.ctrl {
+            return None;
+        }
+        match key {
+            Key::Arrow(direction) if !mods.shift => {
+                let first_in_hold = self.first_in_hold;
+                self.first_in_hold = false;
+                Some(Action::Snap {
+                    direction,
+                    first_in_hold,
+                })
+            }
+            Key::Char('g') if mods.shift => Some(Action::Ungroup),
+            key if mods.shift => App::for_key(key, true).map(Action::Spawn),
+            key => super_action(key),
+        }
     }
 
     /// Intercepts a press that triggers `action`, and remembers to intercept
@@ -362,7 +376,8 @@ fn super_action(key: Key) -> Option<Action> {
 /// Backspace, Delete, Left and Right works on words, Ctrl+w and Ctrl+u
 /// delete a word and the line as in a shell. With `text` in the field, Left
 /// and Right move the caret and Escape clears the text; otherwise they move
-/// the highlight and close the overview. Other Ctrl, Alt and Super
+/// the highlight and close the overview. The Super shortcuts are handled
+/// before this, in [`Bindings::super_shortcut`]. Other Ctrl, Alt and Super
 /// combinations do nothing, except the ones that work everywhere:
 /// Ctrl+Alt+Backspace, the virtual terminal keys and the brightness and
 /// volume keys.
@@ -480,6 +495,63 @@ mod tests {
     }
 
     #[test]
+    fn super_shortcuts_work_in_the_overview() {
+        let mut b = Bindings {
+            overview: true,
+            ..Bindings::default()
+        };
+        let shift_logo = Mods {
+            shift: true,
+            logo: true,
+            ..none()
+        };
+        b.key(SUPER, Key::Super, true, logo());
+        let cases = [
+            (RETURN, Key::Return, logo(), Action::Spawn(App::Terminal)),
+            (L, Key::Char('l'), logo(), Action::Spawn(App::Lock)),
+            (Q, Key::Char('q'), logo(), Action::Close),
+            (G, Key::Char('g'), logo(), Action::Group),
+            (G, Key::Char('g'), shift_logo, Action::Ungroup),
+            (THREE, Key::Digit(3), logo(), Action::FocusNth(3)),
+            (
+                LEFT,
+                Key::Arrow(Direction::Left),
+                logo(),
+                Action::Snap {
+                    direction: Direction::Left,
+                    first_in_hold: true,
+                },
+            ),
+            (
+                UP,
+                Key::Arrow(Direction::Up),
+                logo(),
+                Action::Snap {
+                    direction: Direction::Up,
+                    first_in_hold: false,
+                },
+            ),
+        ];
+        for (keycode, key, mods, action) in cases {
+            assert_eq!(
+                b.key(keycode, key, true, mods),
+                Outcome::intercept(Some(action)),
+                "{key:?}"
+            );
+            assert_eq!(
+                b.key(keycode, key, false, mods),
+                Outcome::intercept(None),
+                "{key:?}"
+            );
+        }
+        // Super was used for shortcuts, so releasing it is not a tap.
+        assert_eq!(
+            b.key(SUPER, Key::Super, false, none()),
+            Outcome::forward(None)
+        );
+    }
+
+    #[test]
     fn overview_takes_every_key() {
         let mut b = Bindings {
             overview: true,
@@ -569,9 +641,9 @@ mod tests {
                 },
                 Some(Action::OverviewMove(Direction::Left)),
             ),
-            // Shortcuts do nothing, but their keys still do not reach a window.
+            // Other shortcuts do nothing, but their keys still do not reach a window.
             (TAB, Key::Tab, alt(), None),
-            (Q, Key::Char('q'), logo(), None),
+            (TAB, Key::Tab, logo(), None),
             (
                 L,
                 Key::Char('l'),
