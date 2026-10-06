@@ -36,6 +36,7 @@ use smithay::{
     wayland::{
         alpha_modifier::AlphaModifierState,
         compositor::{CompositorClientState, CompositorState},
+        content_type::ContentTypeState,
         cursor_shape::CursorShapeManagerState,
         dmabuf::DmabufState,
         foreign_toplevel_list::ForeignToplevelListState,
@@ -123,6 +124,8 @@ pub struct State {
     pub single_pixel_buffer_state: SinglePixelBufferState,
     #[allow(dead_code)]
     pub alpha_modifier_state: AlphaModifierState,
+    #[allow(dead_code)]
+    pub content_type_state: ContentTypeState,
     #[allow(dead_code)]
     pub output_manager_state: OutputManagerState,
     pub xdg_activation_state: XdgActivationState,
@@ -212,6 +215,9 @@ impl State {
         // the globals; the exception is the hardware cursor plane (udev.rs).
         let single_pixel_buffer_state = SinglePixelBufferState::new::<Self>(&dh);
         let alpha_modifier_state = AlphaModifierState::new::<Self>(&dh);
+        // Clients say whether a surface shows video or a game. Nothing reads
+        // it yet; it is there for tearing or VRR later.
+        let content_type_state = ContentTypeState::new::<Self>(&dh);
         let output_manager_state = OutputManagerState::new_with_xdg_output::<Self>(&dh);
         let xdg_activation_state = XdgActivationState::new::<Self>(&dh);
         let screencopy_state = ScreencopyState::new::<Self>(&dh);
@@ -251,6 +257,7 @@ impl State {
             cursor_shape_state,
             single_pixel_buffer_state,
             alpha_modifier_state,
+            content_type_state,
             output_manager_state,
             xdg_activation_state,
             screencopy_state,
