@@ -284,7 +284,11 @@ impl State {
         elements.extend(self.switcher_elements(output));
         elements.extend(self.overview_elements(output));
         // Behind the other overlays, in front of the windows.
-        elements.extend(self.bell_element(output).map(SwitcherElement::Solid));
+        elements.extend(
+            self.bell_elements(output)
+                .into_iter()
+                .map(SwitcherElement::Solid),
+        );
         elements
     }
 

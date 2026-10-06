@@ -48,7 +48,7 @@ The look is in [resources/mako/config](../resources/mako/config). Copy it to `~/
 
 ## Bell
 
-Applications that ring the bell through the system bell protocol (`xdg-system-bell`), such as foot with `bell.system = yes`, get a visual bell instead of a sound: the window that rang flashes white for a quarter of a second, or the whole screen when no window did. Nothing flashes while the screen is locked.
+Applications that ring the bell through the system bell protocol (`xdg-system-bell`), such as foot with `bell.system = yes`, get a visual bell instead of a sound: the window that rang flashes white for a quarter of a second, only where it can be seen, or the whole screen when no window did. A menu rings for its window. Rings closer together than 0.4 seconds are let go, so a program ringing nonstop cannot make the screen strobe. Nothing flashes while the screen is locked or the overview is open.
 
 ## Screenshots and screen sharing
 
