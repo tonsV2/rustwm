@@ -74,6 +74,13 @@ impl State {
             self.stop_key_repeat();
         }
 
+        // Only a window with the keyboard can inhibit shortcuts, so never
+        // while locked, in the overview or during Alt+Tab.
+        let inhibited = !self.is_locked()
+            && !self.overview.open
+            && !self.focus.is_switching()
+            && self.shortcuts_inhibited();
+
         // The filter runs after xkb has applied this key, so `mods` already
         // reflects it: on Super's release, `logo` is false.
         let mut action = None;
@@ -111,6 +118,7 @@ impl State {
                 state.bindings.locked = state.is_locked();
                 state.bindings.overview = state.overview.open;
                 state.bindings.overview_text = state.overview.has_text();
+                state.bindings.inhibited = inhibited;
                 let outcome = state.bindings.key(keycode.raw(), key, pressed, mods);
                 action = outcome.action;
                 if action == Some(Action::OverviewType) {
@@ -245,6 +253,7 @@ impl State {
                 }
             }
             Action::CycleGroup { forward } => self.cycle_group(forward),
+            Action::ToggleShortcutsInhibit => self.toggle_shortcuts_inhibit(),
             Action::Quit => {
                 info!("quit requested");
                 self.loop_signal.stop();

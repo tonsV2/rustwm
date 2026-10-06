@@ -29,6 +29,7 @@ Log out and pick "rustwm" from the gear menu on the login screen. Run `make && s
 | `Super+q` or `Alt+F4` | Close the window |
 | `Super+l` | Lock the screen |
 | `Print` / `Super+Shift+s` | Screenshot of the screen / of an area, to `~/Pictures/Screenshots` |
+| `Super+Escape` | Take the shortcuts back from a virtual machine or remote desktop window, or give them to it again |
 | `Ctrl+Alt+Backspace` | Quit rustwm |
 
 The brightness and volume keys work too; the volume keys keep your left/right balance.

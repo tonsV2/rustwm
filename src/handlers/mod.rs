@@ -8,6 +8,7 @@ mod idle;
 mod layer_shell;
 mod output_power;
 mod session_lock;
+mod shortcuts_inhibit;
 mod xdg_activation;
 mod xdg_shell;
 
