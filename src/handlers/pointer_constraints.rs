@@ -56,7 +56,7 @@ impl State {
             return None;
         }
         let origin = self.surface_origin(&surface)?;
-        with_pointer_constraint(&surface, &pointer, |constraint| {
+        let held = with_pointer_constraint(&surface, &pointer, |constraint| {
             let constraint = constraint.filter(|c| c.is_active())?;
             Some(Held {
                 surface: surface.clone(),
@@ -64,7 +64,11 @@ impl State {
                 locked: matches!(&*constraint, PointerConstraint::Locked(_)),
                 region: constraint.region().cloned(),
             })
-        })
+        })?;
+        // A window snapped or shrunk away from under a confined pointer
+        // would leave it nowhere to go; it is let go until it comes back.
+        let stranded = !held.locked && !self.confined_allows(&held, pointer.current_location());
+        (!stranded).then_some(held)
     }
 
     /// Where a confined pointer moving from `old` towards `pos` ends up: as
@@ -129,6 +133,10 @@ impl State {
             return;
         };
         let pos = pointer.current_location();
+        // The pointer focus can be stale, as after a window moved.
+        if !is_over(&surface, origin, pos) {
+            return;
+        }
         with_pointer_constraint(&surface, &pointer, |constraint| {
             let Some(constraint) = constraint else {
                 return;
@@ -217,10 +225,10 @@ fn root_of(surface: &WlSurface) -> WlSurface {
 }
 
 /// Whether `pos` is over the input region of `surface`, whose top left
-/// corner is at `origin`, rather than one of its subsurfaces.
+/// corner is at `origin`, or of one of its subsurfaces, such as a game's
+/// video or HUD.
 fn is_over(surface: &WlSurface, origin: Point<f64, Logical>, pos: Point<f64, Logical>) -> bool {
-    under_from_surface_tree(surface, pos, origin.to_i32_round(), WindowSurfaceType::ALL)
-        .is_some_and(|(under, _)| &under == surface)
+    under_from_surface_tree(surface, pos, origin.to_i32_round(), WindowSurfaceType::ALL).is_some()
 }
 
 /// Whether `pos`, relative to the surface, is in `region`; anywhere is
