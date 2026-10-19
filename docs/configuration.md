@@ -1,6 +1,6 @@
 # Configuration
 
-Settings live in `~/.config/rustwm/config.toml`. Copy [resources/config.toml](../resources/config.toml) there as a starting point. Everything is optional. Saving the file applies it right away: pointer and touchpad settings, the keyboard layout and repeat, the output scale, commands and the indicator. A file with a mistake is reported in the log and the current settings stay. The panel's `command`, `position` and `mode`, `notifications.command` and `[autostart]` apply the next time rustwm starts.
+Settings live in `~/.config/rustwm/config.toml`. Copy [resources/config.toml](../resources/config.toml) there as a starting point. Everything is optional. Saving the file applies it right away: pointer and touchpad settings, the keyboard layout and repeat, the output scale, commands and the indicator. A file with a mistake is reported in the log and the current settings stay. The panel's `command`, `position` and `mode`, `notifications.command`, `battery.command` and `[autostart]` apply the next time rustwm starts.
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
@@ -30,6 +30,7 @@ Settings live in `~/.config/rustwm/config.toml`. Copy [resources/config.toml](..
 | `panel.slide_in_ms`, `slide_out_ms` | `200`, `200` | In auto-hide mode, how long the panel takes to slide in and out, in milliseconds. `0` moves it at once |
 | `panel.namespace` | `"waybar"` | The layer-shell namespace of the bar's surface, for auto-hide with another bar |
 | `notifications.command` | `rustwm-notifications` | The notification daemon to start; `""` for none. `rustwm-notifications` runs mako with the config in `resources/mako/`, or `~/.config/rustwm/mako/` if you copy it there |
+| `battery.command` | `rustwm-battery 20 10 5` | The battery watcher to start; `""` for none. `rustwm-battery` sends a notification each time the battery, while discharging, falls to one of the given percentages, the lowest as a critical one that stays until dismissed. The panel's battery module turns yellow at 20% and red at 10% (`states` in `resources/waybar/config.jsonc`); keep the two in step |
 | `switcher.wrap` | `true` | Whether the Alt+Tab switcher wraps windows onto more rows, shrinking the thumbnails when even those are not enough, so every window shows at once. `false` keeps one row of full-size thumbnails that scrolls |
 | `overview.file_search` | `plocate -i -- "$HOME/" "$1" \| grep -v '/\.' \| head -20` | What the overview's search runs to find files, with `sh -c` and the typed text as `$1`, one path per line. The default searches the plocate database (updated daily by `plocate-updatedb.timer`) under your home directory, leaving out hidden directories. `""` searches applications only |
 

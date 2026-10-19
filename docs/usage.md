@@ -54,6 +54,12 @@ They show in the bottom-right corner above windows, at most three at a time, for
 
 The look is in [resources/mako/config](../resources/mako/config). Copy it to `~/.config/rustwm/mako/config` to change it (see `man 5 mako`) and run `makoctl reload`. To use another daemon, set `notifications.command` to it, or to `""` and start it yourself.
 
+## Battery
+
+The panel's battery module turns yellow at 20% and red at 10%, which is easy to miss with the panel hidden, so rustwm also warns before the battery runs out. `resources/rustwm-battery`, started right after the notification daemon, follows UPower's display device (the laptop's batteries as a whole) over D-Bus and, while the battery is discharging, sends a notification the first time the charge falls to 20%, 10% and 5%, with the time left as UPower estimates it. Each one replaces the one before; the last is critical, so it stays until dismissed. Plugging the charger in closes the notification and starts over. The percentages are the arguments of `battery.command` in the [configuration](configuration.md).
+
+Below that, UPower acts on its own: at 2% (`PercentageAction` in `/etc/UPower/UPower.conf`) it puts the machine into hybrid sleep, or hibernates or powers off when the system cannot (`CriticalPowerAction`). Without a battery, as on a desktop, the watcher exits at once.
+
 ## Bell
 
 Applications that ring the bell through the system bell protocol (`xdg-system-bell`), such as foot with `bell.system = yes`, get a visual bell instead of a sound: the window that rang flashes white for a quarter of a second, only where it can be seen, or the whole screen when no window did. A menu rings for its window. Rings closer together than 0.4 seconds are let go, so a program ringing nonstop cannot make the screen strobe. Nothing flashes while the screen is locked or the overview is open.

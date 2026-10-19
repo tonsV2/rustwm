@@ -100,6 +100,11 @@ fn main() -> anyhow::Result<()> {
         info!(command = notifications, "starting notifications");
         commands::run(notifications, &state.child_env(), || {});
     }
+    let battery = &state.config.battery.command;
+    if !battery.is_empty() {
+        info!(command = battery, "starting battery watcher");
+        commands::run(battery, &state.child_env(), || {});
+    }
     for command in &state.config.autostart.commands {
         info!(command, "autostart");
         commands::run(command, &state.child_env(), || {});
