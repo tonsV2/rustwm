@@ -9,22 +9,25 @@
 # while discharging, sends a notification the first time the charge falls to
 # each percentage, replacing the previous one. The lowest is critical, so it
 # stays until dismissed. Plugging the charger in closes the notification and
-# starts over. It exits once nothing listens on rustwm's Wayland socket any
-# more, since it is not a Wayland client and would not notice otherwise. The
-# socket file alone does not tell: a compositor killed by a signal leaves it
-# behind.
+# starts over. It exits once the rustwm that started it no longer listens on
+# its Wayland socket, since it is not a Wayland client and would not notice
+# otherwise. The socket file alone does not tell: a compositor killed by a
+# signal leaves it behind, and the next rustwm binds the same name again, so
+# the check goes by the listening socket's inode.
 set -euo pipefail
 
 if (($# == 0)); then
     set -- 20 10 5
 fi
+percentages=()
 for level in "$@"; do
-    if ! [[ "$level" =~ ^[0-9]+$ ]] || ((level > 100)); then
+    if ! [[ "$level" =~ ^[0-9]+$ ]] || ((10#$level > 100)); then
         echo "usage: rustwm-battery [PERCENT...]" >&2
         exit 2
     fi
+    percentages+=("$((10#$level))")
 done
-mapfile -t levels < <(printf '%s\n' "$@" | sort -rnu)
+mapfile -t levels < <(printf '%s\n' "${percentages[@]}" | sort -rnu)
 lowest=${levels[-1]}
 
 for tool in busctl gdbus ss; do
@@ -43,16 +46,29 @@ property() {
     busctl --system get-property "$upower" "$device" "$upower.Device" "$@" | cut -d' ' -f2-
 }
 
+if ! type=$(property Type); then
+    echo "rustwm-battery: cannot reach UPower" >&2
+    exit 1
+fi
 # Type 2 is a battery; desktops report 0 for the display device.
-if [[ "$(property Type)" != 2 ]]; then
+if [[ "$type" != 2 ]]; then
     echo "rustwm-battery: no battery, nothing to watch" >&2
     exit 0
 fi
 
 socket=${WAYLAND_DISPLAY:-}
 if [[ -n "$socket" && "$socket" != /* ]]; then
-    socket="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/$socket"
+    runtime=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
+    socket="${runtime%/}/$socket"
 fi
+
+# The inode of the socket rustwm listens on; empty when started by hand
+# without one, in which case the script runs until killed.
+listener() {
+    [[ -n "$socket" ]] || return 0
+    ss -xlH | awk -v socket="$socket" '$5 == socket { print $6 }'
+}
+compositor=$(listener)
 
 # The notification daemon starts just before this script.
 gdbus wait --session --timeout 20 "$notifications" || true
@@ -123,24 +139,32 @@ check() {
 }
 
 compositor_listens() {
-    [[ -n "$socket" ]] || return 0
-    ss -xlH | awk -v socket="$socket" '$5 == socket { found = 1 } END { exit !found }'
+    [[ -z "$compositor" || "$(listener)" == "$compositor" ]]
+}
+
+cleanup() {
+    kill "$monitor" 2>/dev/null || true
+    if ((id > 0)); then
+        close "$id" 2>/dev/null || true
+    fi
 }
 
 # Every property change on the display device wakes the loop, which re-reads
 # the properties rather than parsing the signal. The timeout keeps checking
-# that rustwm is still there.
+# that rustwm is still there, and re-reads too, in case a change slipped by
+# before the monitor had subscribed.
 exec 3< <(exec gdbus monitor --system --dest "$upower" --object-path "$device" 2>/dev/null)
 monitor=$!
-trap 'kill "$monitor" 2>/dev/null' EXIT
+trap cleanup EXIT
 
 check
 while true; do
-    if read -r -t 30 -u 3 _; then
-        check
-    elif (($? < 128)); then
+    # A timeout returns more than 128; anything else short of a line is EOF.
+    read -r -t 30 -u 3 _ && status=0 || status=$?
+    if ((status > 0 && status < 128)); then
         echo "rustwm-battery: lost the connection to UPower" >&2
         exit 1
     fi
     compositor_listens || exit 0
+    check
 done
