@@ -91,6 +91,9 @@ impl State {
         if old.notifications != self.config.notifications {
             info!("the notifications command applies after a restart");
         }
+        if old.battery != self.config.battery {
+            info!("the battery command applies after a restart");
+        }
         if old.lock != self.config.lock {
             self.schedule_idle_fade();
         }

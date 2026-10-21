@@ -8,7 +8,7 @@ Every app opens full screen. Snap windows to halves and quarters from the keyboa
 
 ```sh
 sudo dnf install cargo mesa-libEGL-devel libxkbcommon-devel wayland-devel libseat-devel libinput-devel mesa-libgbm-devel libdrm-devel systemd-devel
-sudo dnf install waybar network-manager-applet mako swaylock swayidle wlopm grim slurp xdg-desktop-portal-wlr fuzzel brightnessctl plocate xwayland-satellite
+sudo dnf install waybar network-manager-applet mako swaylock swayidle wlopm grim slurp xdg-desktop-portal-wlr fuzzel brightnessctl plocate xwayland-satellite upower
 make
 sudo make install
 ```
@@ -39,7 +39,7 @@ Copy [resources/config.toml](resources/config.toml) to `~/.config/rustwm/config.
 
 ## More
 
-- [Using rustwm](docs/usage.md): the overview, locking, notifications, screenshots and screen sharing
+- [Using rustwm](docs/usage.md): the overview, locking, notifications, battery warnings, screenshots and screen sharing
 - [Configuration](docs/configuration.md): settings, default apps, dark style
 - [Development](docs/development.md): building, running nested or from a console, the D-Bus session
 - [Code layout](docs/code-layout.md)

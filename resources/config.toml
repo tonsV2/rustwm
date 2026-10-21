@@ -1,7 +1,8 @@
 # rustwm settings. Copy to ~/.config/rustwm/config.toml and adjust.
 # Every setting is optional; delete a line to use its default.
 # Saving the file applies it, except the panel's command, position and mode, the
-# notifications command and [autostart], which apply when rustwm restarts.
+# notifications and battery commands and [autostart], which apply when rustwm
+# restarts.
 
 [output]
 # Output scale. Without this line, rustwm guesses from the monitor's pixel
@@ -89,6 +90,10 @@ file_search = "plocate -i -- \"$HOME/\" \"$1\" | grep -v '/\\.' | head -20"
 [notifications]
 # rustwm-notifications runs mako with the config in resources/mako (copy it to ~/.config/rustwm/mako to change it). "" for no notifications, or when you start your own daemon.
 command = "rustwm-notifications"
+
+[battery]
+# rustwm-battery sends a notification each time the battery, while discharging, falls to one of the given percentages; the lowest is critical and stays until dismissed. The panel's battery colours (resources/waybar/config.jsonc) change at 20% and 10%; keep them in step if you change these. "" for no warnings.
+command = "rustwm-battery 20 10 5"
 
 [autostart]
 # Started once when rustwm is ready, each with `sh -c`, with the same environment as apps started from the overview. They stop on their own when rustwm exits and its Wayland socket goes away. swayidle locks after 5 minutes without input, turns the monitor off after 10, and locks before suspend. nm-applet puts NetworkManager in the panel's tray, for picking a wifi network.

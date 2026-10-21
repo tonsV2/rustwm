@@ -19,7 +19,7 @@ PORTALDIR ?= /usr/share/xdg-desktop-portal
 WLRPORTALDIR ?= /etc/xdg/xdg-desktop-portal-wlr
 
 BINARY = target/release/rustwm
-SCRIPTS = rustwm-session rustwm-bus-relay rustwm-volume rustwm-terminal rustwm-panel rustwm-notifications rustwm-share-chooser
+SCRIPTS = rustwm-session rustwm-bus-relay rustwm-volume rustwm-terminal rustwm-panel rustwm-notifications rustwm-battery rustwm-share-chooser
 WAYBAR = config.jsonc style.css
 MAKODIR = $(PREFIX)/share/rustwm/mako
 DBUSDIR = $(PREFIX)/share/rustwm/dbus

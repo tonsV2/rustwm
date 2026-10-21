@@ -25,6 +25,7 @@ pub struct Config {
     pub autostart: AutostartConfig,
     pub panel: PanelConfig,
     pub notifications: NotificationsConfig,
+    pub battery: BatteryConfig,
     pub overview: OverviewConfig,
     pub switcher: SwitcherConfig,
     pub lock: LockConfig,
@@ -210,6 +211,22 @@ impl Default for NotificationsConfig {
     fn default() -> Self {
         Self {
             command: "rustwm-notifications".into(),
+        }
+    }
+}
+
+/// The battery watcher, which warns through the notification daemon before the battery runs out.
+#[derive(Debug, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct BatteryConfig {
+    /// Started right after the notification daemon. Empty means no warnings.
+    pub command: String,
+}
+
+impl Default for BatteryConfig {
+    fn default() -> Self {
+        Self {
+            command: "rustwm-battery 20 10 5".into(),
         }
     }
 }
@@ -531,6 +548,13 @@ mod tests {
         );
         let config = Config::parse("[notifications]\ncommand = \"\"\n").unwrap();
         assert!(config.notifications.command.is_empty());
+    }
+
+    #[test]
+    fn battery_parses() {
+        assert_eq!(Config::default().battery.command, "rustwm-battery 20 10 5");
+        let config = Config::parse("[battery]\ncommand = \"\"\n").unwrap();
+        assert!(config.battery.command.is_empty());
     }
 
     #[test]
