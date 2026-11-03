@@ -14,8 +14,9 @@ use std::{
 
 use tracing::{info, warn};
 
-/// Where distributions install it: Fedora and Debian use libexec, Arch
-/// puts it straight in /usr/lib.
+/// Where distributions install it: Fedora and current Debian use libexec,
+/// Arch puts it straight in /usr/lib, older Debian and Ubuntu releases in a
+/// directory of its own.
 const CANDIDATES: [&str; 3] = [
     "/usr/libexec/gsd-rfkill",
     "/usr/lib/gsd-rfkill",
@@ -30,13 +31,15 @@ pub struct Daemon {
 impl Daemon {
     /// Starts `gsd-rfkill` if gnome-settings-daemon is installed.
     ///
-    /// If another copy already owns the name, such as GNOME's when rustwm
-    /// runs nested on its bus, this one only idles until rustwm stops it.
+    /// If another copy already owns the name, such as one left behind by a
+    /// rustwm killed by a signal, this one only idles until rustwm stops it.
     pub fn start() -> Option<Self> {
         let Some(path) = find(|path| Path::new(path).is_file()) else {
             info!("gsd-rfkill not found; GNOME Settings will not show Bluetooth");
             return None;
         };
+        // Without gnome-session it logs "Unable to register client" at start;
+        // that registration only matters for GNOME's logout, so it is harmless.
         info!(path, "starting gsd-rfkill");
         // It has no window, so it gets none of the Wayland or X variables.
         let result = Command::new(path)
