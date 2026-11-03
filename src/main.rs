@@ -17,6 +17,7 @@ mod osd;
 mod overview;
 mod panel;
 mod reload;
+mod rfkill;
 mod security;
 mod session;
 mod state;
@@ -95,6 +96,11 @@ fn main() -> anyhow::Result<()> {
     let x_display = state.xwayland.as_ref().map(|s| s.display.clone());
     let graphical_session =
         session::export_to_dbus(&state.socket_name, x_display.as_deref(), nested);
+    // Kept until the end of main, so it stops when rustwm exits. On another
+    // desktop's bus that desktop runs its own.
+    let _rfkill = session::bus_is_ours(nested)
+        .then(rfkill::Daemon::start)
+        .flatten();
     let notifications = &state.config.notifications.command;
     if !notifications.is_empty() {
         info!(command = notifications, "starting notifications");

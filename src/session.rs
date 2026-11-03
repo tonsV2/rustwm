@@ -63,14 +63,8 @@ pub fn is_on_path(command: &str) -> bool {
 /// [`start_session_target`]) and returns true; [`stop_session_target`] ends
 /// it when rustwm exits.
 pub fn export_to_dbus(wayland_display: &OsStr, x_display: Option<&str>, nested: bool) -> bool {
-    let bus = env::var("DBUS_SESSION_BUS_ADDRESS").unwrap_or_default();
-    let shared_bus = env::var("XDG_RUNTIME_DIR")
-        .map(|dir| format!("unix:path={dir}/bus"))
-        .unwrap_or_default();
-    let on_shared_bus = bus.is_empty() || bus == shared_bus;
-    let shared_bus_ok = !nested && env::var_os("RUSTWM_SHARED_BUS").is_some_and(|v| v == "1");
-
-    if on_shared_bus && !shared_bus_ok {
+    let on_shared_bus = on_shared_bus();
+    if !bus_is_ours(nested) {
         warn!(
             "running on the shared D-Bus session bus; single-instance apps that are \
              already running in another session will open their windows there. \
@@ -104,6 +98,24 @@ pub fn export_to_dbus(wayland_display: &OsStr, x_display: Option<&str>, nested: 
         }
     }
     on_shared_bus && start_session_target()
+}
+
+/// Whether rustwm runs on the user's shared session bus rather than a
+/// private one from `rustwm-session`.
+fn on_shared_bus() -> bool {
+    let bus = env::var("DBUS_SESSION_BUS_ADDRESS").unwrap_or_default();
+    let shared_bus = env::var("XDG_RUNTIME_DIR")
+        .map(|dir| format!("unix:path={dir}/bus"))
+        .unwrap_or_default();
+    bus.is_empty() || bus == shared_bus
+}
+
+/// Whether rustwm may put session services on its D-Bus session bus: a
+/// private bus is always ours, the shared one only when `rustwm-session`
+/// found no other graphical session on it.
+pub fn bus_is_ours(nested: bool) -> bool {
+    let shared_bus_ok = !nested && env::var_os("RUSTWM_SHARED_BUS").is_some_and(|v| v == "1");
+    !on_shared_bus() || shared_bus_ok
 }
 
 /// Our session target, which pulls in `graphical-session.target`.
