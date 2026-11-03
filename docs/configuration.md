@@ -51,7 +51,7 @@ ln -s /usr/share/applications/gnome-mimeapps.list ~/.local/share/applications/ru
 
 Choices you made yourself in `~/.config/mimeapps.list` (Open With → Set as default) still come first.
 
-GNOME Settings starts from the overview, and its Sound, Bluetooth, Wi-Fi and similar panels work. Its display, mouse and keyboard panels configure GNOME's compositor, not rustwm; use `config.toml` for those. Settings that apps read themselves (dark style, fonts, text size) are stored in dconf and apply from either.
+GNOME Settings starts from the overview, and its Sound, Bluetooth, Wi-Fi and similar panels work. The Bluetooth panel and the airplane mode switches need `gsd-rfkill` from gnome-settings-daemon, which GNOME only starts in its own session, so rustwm starts it and stops it on exit; without gnome-settings-daemon installed, Settings shows no Bluetooth panel. Its display, mouse and keyboard panels configure GNOME's compositor, not rustwm; use `config.toml` for those. Settings that apps read themselves (dark style, fonts, text size) are stored in dconf and apply from either.
 
 ## Dark style
 
