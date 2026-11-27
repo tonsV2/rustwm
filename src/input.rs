@@ -397,6 +397,9 @@ impl State {
         );
         self.send_relative_motion(under, relative);
         pointer.frame(self);
+        if held.is_none() {
+            self.hot_corner_moved(pos);
+        }
         self.update_pointer_constraint();
     }
 

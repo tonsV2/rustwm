@@ -239,12 +239,16 @@ pub struct OverviewConfig {
     /// the typed text as `$1`. It prints one path per line. Empty means
     /// applications only.
     pub file_search: String,
+    /// Open or close the overview when the pointer touches the screen's
+    /// top left corner, as GNOME's hot corner does.
+    pub hot_corner: bool,
 }
 
 impl Default for OverviewConfig {
     fn default() -> Self {
         Self {
             file_search: FILE_SEARCH.into(),
+            hot_corner: true,
         }
     }
 }
@@ -569,6 +573,9 @@ mod tests {
         assert_eq!(Config::default().overview.file_search, FILE_SEARCH);
         let config = Config::parse("[overview]\nfile_search = \"\"\n").unwrap();
         assert!(config.overview.file_search.is_empty());
+        assert!(Config::default().overview.hot_corner);
+        let config = Config::parse("[overview]\nhot_corner = false\n").unwrap();
+        assert!(!config.overview.hot_corner);
     }
 
     #[test]

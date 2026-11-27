@@ -1,11 +1,12 @@
-//! The overview, opened with a Super tap and modelled on GNOME's: the panel
-//! stays at the top, and under it are a search field and the open windows
-//! as live previews in a grid. Typing searches the installed
-//! applications and, through an outside command, files. The arrow keys or
-//! the pointer pick a window or a result, Return or a click takes it, and
-//! Escape or another Super tap closes the overview. The highlighted window
-//! shows a close button, and a middle click on a preview closes that window
-//! too; the overview stays open while windows close.
+//! The overview, opened with a Super tap or the top left hot corner and
+//! modelled on GNOME's: the panel stays at the top, and under it are a
+//! search field and the open windows as live previews in a grid. Typing
+//! searches the installed applications and, through an outside command,
+//! files. The arrow keys or the pointer pick a window or a result, Return
+//! or a click takes it, and Escape, another Super tap or the corner closes
+//! the overview. The highlighted window shows a close button, and a middle
+//! click on a preview closes that window too; the overview stays open while
+//! windows close.
 //!
 //! While it is open no key reaches a window. The windows stay where they
 //! are underneath; the overview is only a picture of them.
@@ -142,6 +143,39 @@ pub struct Overview {
     /// The images last drawn, reused while the scene and scale are the
     /// same. Thumbnails are not cached; they show the windows as they are.
     cache: Option<(Scene, u64, Images)>,
+    hot_corner: HotCorner,
+}
+
+/// How far from the corner, in logical pixels, the pointer must go before
+/// the corner can fire again. A mouse pushed into the corner jitters a pixel
+/// or two away and back, which must not toggle the overview twice.
+const HOT_CORNER_REARM: f64 = 16.0;
+
+/// The screen's top left corner, which opens or closes the overview when
+/// the pointer reaches it. It fires once on the way in and again only after
+/// the pointer has gone some way off, so resting in the corner, or a shaky
+/// hand there, does not keep toggling.
+#[derive(Debug, Default)]
+struct HotCorner {
+    /// The corner has fired and the pointer has not gone far enough away
+    /// since.
+    fired: bool,
+}
+
+impl HotCorner {
+    /// Whether moving the pointer to `pos` fires the corner of a screen
+    /// with the given geometry.
+    fn moved(&mut self, pos: Point<f64, Logical>, screen: Rectangle<i32, Logical>) -> bool {
+        let (x, y) = (pos.x - screen.loc.x as f64, pos.y - screen.loc.y as f64);
+        if x >= HOT_CORNER_REARM || y >= HOT_CORNER_REARM {
+            self.fired = false;
+        }
+        if x < 1.0 && y < 1.0 && !self.fired {
+            self.fired = true;
+            return true;
+        }
+        false
+    }
 }
 
 /// A file the outside search command found.
@@ -246,6 +280,7 @@ impl Overview {
             icons: HashMap::new(),
             scene: None,
             cache: None,
+            hot_corner: HotCorner::default(),
         })
     }
 
@@ -614,6 +649,43 @@ impl State {
         if let Some(item) = item {
             self.activate_item(item);
         }
+    }
+
+    /// Opens or closes the overview when the pointer reaches the hot
+    /// corner. Called after the pointer has moved to `pos`, so closing the
+    /// overview sees the pointer where it now is, on the panel for one. The
+    /// corner does nothing while a button is held, so dragging a window or
+    /// selecting text into it does not set it off, nor over a full screen
+    /// window, such as a video, nor while the screen is locked.
+    pub fn hot_corner_moved(&mut self, pos: Point<f64, Logical>) {
+        let Some(screen) = self
+            .primary_output()
+            .and_then(|output| self.space.output_geometry(&output))
+        else {
+            return;
+        };
+        // Updated first, whatever else holds the corner back, so it does
+        // not fire later for a visit that started while it could not.
+        if !self.overview.hot_corner.moved(pos, screen) {
+            return;
+        }
+        // A press the overview or the switcher took never reaches the
+        // seat, so it leaves no grab behind and is checked on its own.
+        let button_held = self.seat.get_pointer().is_some_and(|p| p.is_grabbed())
+            || !self.suppressed_buttons.is_empty();
+        // Any full screen window, not just the focused one, since its dialog
+        // can have the focus while it still covers the corner. The open
+        // overview covers it in turn, so the corner can close that.
+        let fullscreen = !self.overview.open && self.windows.iter().any(|w| w.fullscreen);
+        if !self.config.overview.hot_corner || button_held || fullscreen || self.is_locked() {
+            return;
+        }
+        info!("hot corner");
+        // Super held on the way in is a modifier, so letting it go must
+        // not toggle the overview straight back.
+        self.bindings.pointer_button();
+        self.toggle_overview();
+        self.overview_pointer_moved(pos);
     }
 
     /// Highlights the item under the pointer.
@@ -1386,6 +1458,22 @@ fn quote(text: impl std::fmt::Display) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hot_corner_fires_once_per_visit() {
+        let screen = Rectangle::new((0, 0).into(), (1920, 1080).into());
+        let mut corner = HotCorner::default();
+        assert!(!corner.moved((10.0, 0.0).into(), screen));
+        assert!(!corner.moved((0.0, 10.0).into(), screen));
+        assert!(corner.moved((0.0, 0.0).into(), screen));
+        assert!(!corner.moved((0.5, 0.0).into(), screen));
+        // A jitter a few pixels off and back does not fire it again...
+        assert!(!corner.moved((3.0, 2.0).into(), screen));
+        assert!(!corner.moved((0.0, 0.0).into(), screen));
+        // ...but going away and coming back does.
+        assert!(!corner.moved((40.0, 5.0).into(), screen));
+        assert!(corner.moved((0.0, 0.0).into(), screen));
+    }
 
     fn area(w: i32, h: i32) -> Rectangle<i32, Logical> {
         Rectangle::new((0, 0).into(), (w, h).into())
