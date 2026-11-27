@@ -33,6 +33,7 @@ Settings live in `~/.config/rustwm/config.toml`. Copy [resources/config.toml](..
 | `battery.command` | `rustwm-battery 20 10 5` | The battery watcher to start; `""` for none. `rustwm-battery` sends a notification each time the battery, while discharging, falls to one of the given percentages, the lowest as a critical one that stays until dismissed. The panel's battery module turns yellow at 20% and red at 10% (`states` in `resources/waybar/config.jsonc`); keep the two in step |
 | `switcher.wrap` | `true` | Whether the Alt+Tab switcher wraps windows onto more rows, shrinking the thumbnails when even those are not enough, so every window shows at once. `false` keeps one row of full-size thumbnails that scrolls |
 | `overview.file_search` | `plocate -i -- "$HOME/" "$1" \| grep -v '/\.' \| head -20` | What the overview's search runs to find files, with `sh -c` and the typed text as `$1`, one path per line. The default searches the plocate database (updated daily by `plocate-updatedb.timer`) under your home directory, leaving out hidden directories. `""` searches applications only |
+| `overview.hot_corner` | `true` | Open or close the overview when the pointer reaches the screen's top left corner, as in GNOME, except over a full screen window |
 
 Commands run with `sh -c`, so quoting, `&&` and `$HOME` work as in a terminal. An empty command (`""`) passes the key on to the focused application.
 
