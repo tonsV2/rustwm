@@ -33,7 +33,13 @@ mod xwayland;
 use std::io::IsTerminal;
 
 use anyhow::Context;
-use smithay::reexports::{calloop::EventLoop, wayland_server::Display};
+use smithay::reexports::{
+    calloop::{
+        EventLoop,
+        signals::{Signal, Signals},
+    },
+    wayland_server::Display,
+};
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
@@ -55,6 +61,7 @@ fn main() -> anyhow::Result<()> {
 
     let mut event_loop: EventLoop<'static, State> =
         EventLoop::try_new().context("failed to create event loop")?;
+    stop_on_signals(&event_loop)?;
     let display: Display<State> = Display::new().context("failed to create Wayland display")?;
 
     let config = config::Config::load();
@@ -135,6 +142,30 @@ fn main() -> anyhow::Result<()> {
     }
     info!("rustwm exiting");
     result
+}
+
+/// Stops the event loop on SIGTERM (logout, `systemctl stop`), SIGINT
+/// (Ctrl+C in the terminal that started it) and SIGHUP, so `main` returns
+/// and everything is dropped properly: the night light's tint comes off and
+/// the console comes back. Without this the signals would kill rustwm on
+/// the spot.
+///
+/// This blocks the signals for the thread and reads them from a file
+/// descriptor instead, so it must run before any other thread starts;
+/// threads started later inherit the block and leave the signals to this
+/// one. Programs rustwm starts get an empty mask again from Rust's
+/// `Command`.
+fn stop_on_signals(event_loop: &EventLoop<'static, State>) -> anyhow::Result<()> {
+    let signals = Signals::new(&[Signal::SIGTERM, Signal::SIGINT, Signal::SIGHUP])
+        .context("failed to watch for signals")?;
+    event_loop
+        .handle()
+        .insert_source(signals, |event, _, state| {
+            info!(signal = ?event.signal(), "stopping on signal");
+            state.loop_signal.stop();
+        })
+        .map_err(|err| anyhow::anyhow!("failed to add signals to the event loop: {}", err.error))?;
+    Ok(())
 }
 
 /// Inside an existing desktop session the compositor runs as a window;

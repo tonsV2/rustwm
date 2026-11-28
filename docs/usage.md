@@ -16,7 +16,7 @@ The night light tints the screen warm in the evening, which is easier on the eye
 
 The panel shows "Night Light" while the tint is on and "Night Light Off" while it is turned off until morning, with the time in its tooltip; clicking it does what `Super+n` does. By day with nothing overridden it is hidden. The panel asks with `rustwmctl night-light status` and `rustwmctl night-light toggle`, which talk to the running rustwm over a socket in `$XDG_RUNTIME_DIR/rustwm/`; other bars and scripts can use them too.
 
-Everything on screen is tinted, the pointer and the lock screen included, but screenshots and screen sharing are not, since the tint is set in the display's gamma table rather than drawn. The tint comes off when rustwm exits and before `Ctrl+Alt+F1`…`F12` switches to another virtual terminal, and goes back on when you return. If rustwm crashes, the tint stays until the next program sets the gamma table. Nested, and on a display without a gamma table, the night light does nothing.
+Everything on screen is tinted, the pointer and the lock screen included, but screenshots and screen sharing are not, since the tint is set in the display's gamma table rather than drawn. The tint comes off when rustwm exits, whether by `Ctrl+Alt+Backspace`, logging out or being stopped with SIGTERM, SIGINT or SIGHUP, and before `Ctrl+Alt+F1`…`F12` switches to another virtual terminal; it fades back in when you return. A switch started from elsewhere, such as `chvt`, may leave the tint on the other terminal. If rustwm crashes or is killed with SIGKILL, the tint stays until the next program sets the gamma table. Nested, and on a display without a gamma table, the night light does nothing.
 
 ## Switching windows
 
