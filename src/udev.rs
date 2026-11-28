@@ -3,7 +3,10 @@
 //! Deliberately simple: one GPU and one output. The first connected monitor
 //! is used; others are ignored until it is unplugged.
 
-use std::{path::PathBuf, time::Duration};
+use std::{
+    path::PathBuf,
+    time::{Duration, Instant},
+};
 
 use anyhow::{Context, anyhow};
 use smithay::{
@@ -39,7 +42,7 @@ use smithay::{
     output::{Mode, Output, PhysicalProperties, Scale as OutputScale, Subpixel},
     reexports::{
         calloop::{
-            EventLoop, LoopHandle,
+            EventLoop, LoopHandle, RegistrationToken,
             timer::{TimeoutAction, Timer},
         },
         drm::control::{Device as ControlDevice, ModeTypeFlags, connector, crtc},
@@ -58,6 +61,7 @@ use tracing::{error, info, warn};
 use crate::{
     config::{ClickMethod, InputConfig, OutputConfig, auto_scale},
     cursor::Cursors,
+    gamma::{self, CrtcGamma},
     handlers::LOCKED_BACKGROUND,
     state::{Backend, State},
     switcher::SwitcherElement,
@@ -74,6 +78,11 @@ type GbmOutput =
 
 /// Formats tried for the screen's framebuffer, best first.
 const COLOR_FORMATS: [Fourcc; 2] = [Fourcc::Argb8888, Fourcc::Xrgb8888];
+/// A last resort for a VT switch that was accepted but never paused the
+/// session: after this the night light tints the screen again. A real
+/// switch pauses it within milliseconds, after which the session being
+/// inactive keeps the table alone anyway.
+const VT_SWITCH_TIMEOUT: Duration = Duration::from_secs(10);
 pub const BACKGROUND: [f32; 4] = [0.1, 0.1, 0.1, 1.0];
 
 render_elements! {
@@ -95,6 +104,12 @@ pub struct UdevData {
     pub cursors: Cursors,
     /// False while another VT has the session; the GPU must not be touched.
     pub active: bool,
+    /// When a VT switch was asked for and the gamma table reset for it.
+    /// While set, the night light leaves the table alone. Set only for a
+    /// switch to another VT, so a pause is sure to follow; cleared when the
+    /// switch fails or the session comes back, with [`VT_SWITCH_TIMEOUT`]
+    /// as a last resort.
+    switching_vt: Option<Instant>,
     /// A render is already queued, either waiting for vblank or on a timer.
     render_pending: bool,
     /// The queued frame was drawn while locked; once it is on screen the
@@ -109,13 +124,21 @@ struct Screen {
     connector: connector::Handle,
     drm_output: GbmOutput,
     refresh: Duration,
+    /// The night light's tint; `None` when the display controller has no
+    /// gamma table.
+    gamma: Option<CrtcGamma>,
 }
 
 /// Opens the session and GPU and wires their events into the event loop.
+///
+/// Also returns the event source of the DRM device's events. It holds a
+/// reference to the device, so Smithay restores the display state it found
+/// only once both the backend and this source are gone; `main` removes it
+/// on exit for that.
 pub fn init_backend(
     event_loop: &mut EventLoop<'static, State>,
     dh: &DisplayHandle,
-) -> anyhow::Result<(UdevData, DmabufState)> {
+) -> anyhow::Result<(UdevData, DmabufState, RegistrationToken)> {
     let (session, session_notifier) = LibSeatSession::new().context(
         "failed to start a session; run rustwm from a text console (Ctrl+Alt+F3), \
          not from inside a desktop, and make sure logind or seatd is running",
@@ -139,6 +162,9 @@ pub fn init_backend(
             )
         })?;
     let fd = DrmDeviceFd::new(DeviceFd::from(fd));
+    // Before Smithay takes its snapshot of the display state, so its restore
+    // on exit stays valid; see `gamma::clear_color_tables`.
+    gamma::clear_color_tables(&fd);
 
     let (drm, drm_notifier) =
         DrmDevice::new(fd.clone(), true).context("failed to initialise DRM device")?;
@@ -190,7 +216,7 @@ pub fn init_backend(
         .map_err(|()| anyhow!("failed to assign libinput to seat {seat}"))?;
 
     let handle = event_loop.handle();
-    insert_sources(
+    let drm_events = insert_sources(
         &handle,
         drm_notifier,
         session_notifier,
@@ -209,10 +235,12 @@ pub fn init_backend(
             screen: None,
             cursors: Cursors::load(1),
             active: true,
+            switching_vt: None,
             render_pending: false,
             lock_frame_queued: false,
         },
         dmabuf_state,
+        drm_events,
     ))
 }
 
@@ -234,10 +262,10 @@ fn insert_sources(
     libinput: LibinputInputBackend,
     udev: UdevBackend,
     node: DrmNode,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<RegistrationToken> {
     let insert_error = |err| anyhow!("failed to add event source: {err}");
 
-    handle
+    let drm_events = handle
         .insert_source(drm_notifier, |event, _, state| match event {
             DrmEvent::VBlank(crtc) => on_vblank(state, crtc),
             DrmEvent::Error(err) => error!(?err, "DRM error"),
@@ -270,6 +298,10 @@ fn insert_sources(
             match event {
                 SessionEvent::PauseSession => {
                     info!("session paused (switched away)");
+                    // Best effort: the session is usually handed over by
+                    // now, so this mostly fails. A switch with Ctrl+Alt+Fn
+                    // resets the table before it starts (see `change_vt`).
+                    udev.reset_gamma();
                     udev.active = false;
                     udev.libinput.suspend();
                     udev.drm.pause();
@@ -281,17 +313,26 @@ fn insert_sources(
                 SessionEvent::ActivateSession => {
                     info!("session resumed");
                     udev.active = true;
+                    udev.switching_vt = None;
                     if udev.libinput.resume().is_err() {
                         error!("failed to resume input");
                     }
                     if let Err(err) = udev.drm.activate(false) {
                         error!(%err, "failed to resume display");
                     }
+                    // Whoever had the display meanwhile may have set its own
+                    // gamma table.
+                    if let Some(gamma) = udev.screen.as_mut().and_then(|s| s.gamma.as_mut()) {
+                        gamma.forget();
+                    }
                     udev.render_pending = false;
                     // Resuming lit the monitor again; the user switched back
                     // and wants to see it.
                     state.power_on_outputs();
                     render(state);
+                    // Shows neutral at once, over whatever table the other
+                    // VT left, then fades the tint back in.
+                    state.night_light_untinted();
                 }
             }
         })
@@ -308,7 +349,7 @@ fn insert_sources(
         })
         .map_err(|e| insert_error(e.error))?;
 
-    Ok(())
+    Ok(drm_events)
 }
 
 /// Sets up the first connected monitor if none is in use, and tears down
@@ -426,6 +467,7 @@ fn add_screen(state: &mut State, info: connector::Info, crtc: crtc::Handle) {
     };
 
     let refresh = Duration::from_secs_f64(1000.0 / mode.refresh.max(1) as f64);
+    let gamma = CrtcGamma::new(udev.drm.device(), crtc);
     info!(
         output = name,
         width = mode.size.w,
@@ -440,6 +482,7 @@ fn add_screen(state: &mut State, info: connector::Info, crtc: crtc::Handle) {
         connector: info.handle(),
         drm_output,
         refresh,
+        gamma,
     });
 
     state.space.map_output(&output, (0, 0));
@@ -452,6 +495,8 @@ fn add_screen(state: &mut State, info: connector::Info, crtc: crtc::Handle) {
         pointer.set_location(center.into());
     }
     render(state);
+    // After the first frame, which enabled the display controller.
+    apply_gamma(state);
 }
 
 fn output_scale(config: &OutputConfig, mode: Mode, width_mm: u32) -> f64 {
@@ -744,11 +789,65 @@ pub fn set_power(state: &mut State, output: &Output, on: bool) {
         screen.drm_output.reset_buffers();
         udev.render_pending = false;
         render(state);
+        // In case a write failed while the controller was off.
+        apply_gamma(state);
     } else if udev.active {
         if let Err(err) = screen.drm_output.with_compositor(|c| c.clear()) {
             warn!(%err, "failed to turn the monitor off");
         }
         udev.lock_frame_queued = false;
+    }
+}
+
+/// Switches to virtual terminal `vt` (Ctrl+Alt+Fn).
+///
+/// The night light is told when its wait for the switch ends without a
+/// pause, so the tint comes back at once rather than at its next tick: at
+/// once when the switch failed, as on a seat without VTs, and after
+/// [`VT_SWITCH_TIMEOUT`] otherwise. A switch that paused the session by
+/// then leaves it inactive, so the wake-up changes nothing.
+pub fn change_vt(state: &mut State, vt: i32) {
+    let Backend::Udev(udev) = &mut state.backend else {
+        return;
+    };
+    udev.change_vt(vt);
+    if udev.switching_vt.is_none() {
+        state.wake_night_light();
+        return;
+    }
+    let timer =
+        state
+            .loop_handle
+            .insert_source(Timer::from_duration(VT_SWITCH_TIMEOUT), |_, _, state| {
+                state.wake_night_light();
+                TimeoutAction::Drop
+            });
+    if let Err(err) = timer {
+        warn!(%err, "failed to time the VT switch; the tint returns at the next tick");
+    }
+}
+
+/// Gives the screen the night light's current temperature. Does nothing
+/// nested, while another VT has the session, or without a gamma table.
+pub fn apply_gamma(state: &mut State) {
+    let kelvin = state.night_light.kelvin();
+    let Backend::Udev(udev) = &mut state.backend else {
+        return;
+    };
+    if !udev.active {
+        return;
+    }
+    if udev
+        .switching_vt
+        .is_some_and(|asked| asked.elapsed() < VT_SWITCH_TIMEOUT)
+    {
+        return;
+    }
+    let Some(screen) = &mut udev.screen else {
+        return;
+    };
+    if let Some(gamma) = &mut screen.gamma {
+        gamma.set(udev.drm.device(), kelvin);
     }
 }
 
@@ -788,10 +887,72 @@ impl UdevData {
         self.active
     }
 
-    pub fn change_vt(&mut self, vt: i32) {
+    fn change_vt(&mut self, vt: i32) {
         info!(vt, "switching virtual terminal");
+        // Switching to the VT already on screen, usually our own, does
+        // nothing: no pause would come, so keep the tint as it is.
+        if foreground_vt() != Some(vt) {
+            // Untint before handing the display over: by the time the
+            // session is paused, it is usually too late to write the table.
+            // A night light tick before the pause must not tint it again.
+            self.reset_gamma();
+            self.switching_vt = Some(Instant::now());
+        }
         if let Err(err) = self.session.change_vt(vt) {
             warn!(?err, vt, "failed to switch virtual terminal");
+            // `change_vt` then wakes the night light to tint it again.
+            self.switching_vt = None;
         }
+    }
+
+    /// Takes the night light's tint off the screen, for whoever has the
+    /// display next.
+    fn reset_gamma(&mut self) {
+        if !self.active {
+            return;
+        }
+        if let Some(gamma) = self.screen.as_mut().and_then(|s| s.gamma.as_mut()) {
+            gamma.reset(self.drm.device());
+        }
+    }
+}
+
+/// The number of the VT on screen, from the kernel. `None` when it cannot be
+/// read, which counts as a switch to another VT.
+fn foreground_vt() -> Option<i32> {
+    let active = std::fs::read_to_string("/sys/class/tty/tty0/active").ok()?;
+    parse_tty_name(&active)
+}
+
+/// 3 for "tty3\n".
+fn parse_tty_name(name: &str) -> Option<i32> {
+    name.trim().strip_prefix("tty")?.parse().ok()
+}
+
+/// Untints the screen when rustwm exits, however `main` returns.
+///
+/// `drop` runs before the fields are dropped, so the DRM device is still
+/// open and ours. On an atomic driver Smithay then restores the display
+/// state it found at startup when its device drops, and since
+/// [`gamma::clear_color_tables`] ran first, that state has no gamma table:
+/// untinted as well. Smithay's legacy restore leaves gamma alone, so there
+/// this identity table is what stays. A crash or SIGKILL skips both,
+/// leaving the tint until the next program sets the table.
+impl Drop for UdevData {
+    fn drop(&mut self) {
+        self.reset_gamma();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_tty_name;
+
+    #[test]
+    fn tty_names_parse() {
+        assert_eq!(parse_tty_name("tty3\n"), Some(3));
+        assert_eq!(parse_tty_name("tty12"), Some(12));
+        assert_eq!(parse_tty_name("ttyS0"), None);
+        assert_eq!(parse_tty_name(""), None);
     }
 }

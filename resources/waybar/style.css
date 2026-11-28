@@ -12,6 +12,7 @@ window#waybar {
 
 #clock,
 #tray,
+#custom-night-light,
 #pulseaudio,
 #backlight,
 #network,
@@ -20,7 +21,8 @@ window#waybar {
 }
 
 #pulseaudio.muted,
-#network.disconnected {
+#network.disconnected,
+#custom-night-light.paused {
     color: rgba(242, 242, 242, 0.5);
 }
 

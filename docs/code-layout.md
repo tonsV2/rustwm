@@ -25,3 +25,8 @@
 | `src/winit.rs` | Nested backend and rendering |
 | `src/udev.rs` | Hardware backend: session, GPU, monitor, libinput, rendering |
 | `src/cursor.rs` | Cursor images from the theme for the hardware backend |
+| `src/night_light/` | The night light: colour temperature to gamma ramps, the sun's position and the schedule (no Smithay, unit tested), and the timer that applies it |
+| `src/control.rs` | The control socket the panel uses to show and toggle the night light |
+| `src/ipc.rs`, `src/lib.rs` | What the control socket and `rustwmctl` share: the socket's path and the requests |
+| `src/bin/rustwmctl.rs` | `rustwmctl night-light toggle\|status`, the control socket's client |
+| `src/gamma.rs` | Writes the night light into the display controller's gamma table (hardware backend only) |

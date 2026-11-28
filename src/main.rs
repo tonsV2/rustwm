@@ -3,16 +3,19 @@ mod bell;
 mod capture;
 mod commands;
 mod config;
+mod control;
 mod cursor;
 mod dialog;
 mod fade;
 mod focus;
+mod gamma;
 mod group;
 mod handlers;
 mod input;
 mod keyboard;
 mod keymap;
 mod layout;
+mod night_light;
 mod osd;
 mod overview;
 mod panel;
@@ -30,7 +33,13 @@ mod xwayland;
 use std::io::IsTerminal;
 
 use anyhow::Context;
-use smithay::reexports::{calloop::EventLoop, wayland_server::Display};
+use smithay::reexports::{
+    calloop::{
+        EventLoop,
+        signals::{Signal, Signals},
+    },
+    wayland_server::Display,
+};
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
@@ -52,10 +61,13 @@ fn main() -> anyhow::Result<()> {
 
     let mut event_loop: EventLoop<'static, State> =
         EventLoop::try_new().context("failed to create event loop")?;
+    stop_on_signals(&event_loop)?;
     let display: Display<State> = Display::new().context("failed to create Wayland display")?;
 
     let config = config::Config::load();
     let nested = nested();
+    // On the hardware, the DRM device's event source; see the end of main.
+    let mut drm_events = None;
     let mut state = if nested {
         info!("running nested inside the current session");
         let (winit, winit_loop, dmabuf_state) = winit::init_backend(&display.handle())?;
@@ -70,7 +82,8 @@ fn main() -> anyhow::Result<()> {
         state
     } else {
         info!("running on the hardware (DRM/KMS)");
-        let (udev, dmabuf_state) = udev::init_backend(&mut event_loop, &display.handle())?;
+        let (udev, dmabuf_state, events) = udev::init_backend(&mut event_loop, &display.handle())?;
+        drm_events = Some(events);
         let shm_formats = udev.shm_formats();
         let mut state = State::new(
             &mut event_loop,
@@ -101,6 +114,10 @@ fn main() -> anyhow::Result<()> {
     let _rfkill = session::bus_is_ours(nested)
         .then(rfkill::Daemon::start)
         .flatten();
+    // Kept until the end of main; dropping it removes the socket file.
+    // Bound before anything is started, so a panel or autostart command
+    // asking for the night light's status finds it.
+    let _control = state.start_control_socket();
     let notifications = &state.config.notifications.command;
     if !notifications.is_empty() {
         info!(command = notifications, "starting notifications");
@@ -117,16 +134,62 @@ fn main() -> anyhow::Result<()> {
     }
     state.start_panel();
     state.watch_config();
+    state.start_night_light();
 
     let result = event_loop
         .run(None, &mut state, State::after_dispatch)
         .context("event loop failed");
+
+    // Give the display back now rather than at the end of main, before
+    // stopping the session target below waits on systemd, during which on
+    // logout the display may be taken away or SIGKILL arrive. Dropping the
+    // state untints the screen. Smithay restores the display state it found
+    // (the console) only when the last reference to its DRM device goes:
+    // the backend's, then the DRM event source's, which removing it drops at
+    // once. The session's event source stays until the end; it holds the
+    // seat, and with it the right to use the display, which the restore
+    // needs.
+    //
+    // The Wayland display lives in its own event source too, so clients stay
+    // connected, but nothing answers them while the target stops.
+    //
+    // The signals stay blocked until the event loop drops at the very end,
+    // so one arriving now cannot kill rustwm part way through the shutdown.
+    // A shutdown that hangs still ends with logind's SIGKILL.
+    drop(state);
+    if let Some(token) = drm_events {
+        event_loop.handle().remove(token);
+    }
 
     if graphical_session {
         session::stop_session_target();
     }
     info!("rustwm exiting");
     result
+}
+
+/// Stops the event loop on SIGTERM (logout, `systemctl stop`), SIGINT
+/// (Ctrl+C in the terminal that started it) and SIGHUP, so `main` returns
+/// and everything is dropped properly: the night light's tint comes off and
+/// the console comes back. Without this the signals would kill rustwm on
+/// the spot.
+///
+/// This blocks the signals for the thread and reads them from a file
+/// descriptor instead, so it must run before any other thread starts;
+/// threads started later inherit the block and leave the signals to this
+/// one. Programs rustwm starts get an empty mask again from Rust's
+/// `Command`.
+fn stop_on_signals(event_loop: &EventLoop<'static, State>) -> anyhow::Result<()> {
+    let signals = Signals::new(&[Signal::SIGTERM, Signal::SIGINT, Signal::SIGHUP])
+        .context("failed to watch for signals")?;
+    event_loop
+        .handle()
+        .insert_source(signals, |event, _, state| {
+            info!(signal = ?event.signal(), "stopping on signal");
+            state.loop_signal.stop();
+        })
+        .map_err(|err| anyhow::anyhow!("failed to add signals to the event loop: {}", err.error))?;
+    Ok(())
 }
 
 /// Inside an existing desktop session the compositor runs as a window;

@@ -10,7 +10,13 @@ use std::{env, fs, path::PathBuf};
 use serde::Deserialize;
 use tracing::{info, warn};
 
-use crate::keyboard::{App, Command};
+use crate::{
+    keyboard::{App, Command},
+    night_light::{
+        schedule::TimeOfDay,
+        temperature::{MIN, NEUTRAL},
+    },
+};
 
 #[derive(Debug, Default, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
@@ -29,6 +35,7 @@ pub struct Config {
     pub overview: OverviewConfig,
     pub switcher: SwitcherConfig,
     pub lock: LockConfig,
+    pub night_light: NightLightConfig,
 }
 
 #[derive(Debug, Default, Deserialize, PartialEq)]
@@ -289,6 +296,76 @@ impl Default for LockConfig {
     }
 }
 
+/// The night light: a warm tint at night, set in the display's gamma table.
+#[derive(Debug, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct NightLightConfig {
+    /// Follow the schedule. Off still lets Super+n warm the screen until morning.
+    pub enabled: bool,
+    /// The colour temperature at night in Kelvin, from 1000 (warmest) to 6500 (no tint).
+    pub temperature: u32,
+    pub schedule: NightLightSchedule,
+    /// When the fixed schedule's night starts, local time "HH:MM". It is fully warm by then.
+    pub from: TimeOfDay,
+    /// When the fixed schedule's night ends. Equal to `from` means never.
+    pub to: TimeOfDay,
+    /// How long the fixed schedule takes to warm up before `from` and to cool down before `to`, in minutes. 0 switches at once.
+    pub transition_minutes: u32,
+    /// Where you are, for the sunset schedule: degrees north (negative south).
+    pub latitude: Option<f64>,
+    /// Degrees east (negative west).
+    pub longitude: Option<f64>,
+}
+
+impl Default for NightLightConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            temperature: 2700,
+            schedule: NightLightSchedule::Fixed,
+            from: TimeOfDay::new(20, 0),
+            to: TimeOfDay::new(6, 0),
+            transition_minutes: 60,
+            latitude: None,
+            longitude: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum NightLightSchedule {
+    /// From `from` to `to` every day.
+    Fixed,
+    /// From sunset to sunrise at `latitude` and `longitude`.
+    Sunset,
+}
+
+impl NightLightConfig {
+    /// What is wrong with the values, which TOML alone cannot check.
+    fn problem(&self) -> Option<String> {
+        if !(MIN..=NEUTRAL).contains(&self.temperature) {
+            return Some(format!(
+                "night_light.temperature is {}, but must be from {MIN} to {NEUTRAL}",
+                self.temperature
+            ));
+        }
+        if self.latitude.is_some_and(|l| !(-90.0..=90.0).contains(&l)) {
+            return Some("night_light.latitude must be from -90 to 90".into());
+        }
+        if self
+            .longitude
+            .is_some_and(|l| !(-180.0..=180.0).contains(&l))
+        {
+            return Some("night_light.longitude must be from -180 to 180".into());
+        }
+        if self.latitude.is_some() != self.longitude.is_some() {
+            return Some("set both night_light.latitude and longitude".into());
+        }
+        None
+    }
+}
+
 /// Programs started once the Wayland socket is ready, such as swayidle.
 #[derive(Debug, Default, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
@@ -400,6 +477,9 @@ impl Config {
         // A rate of 0 would divide by zero when timing repeats.
         config.keyboard.repeat_delay = config.keyboard.repeat_delay.max(0);
         config.keyboard.repeat_rate = config.keyboard.repeat_rate.max(1);
+        if let Some(problem) = config.night_light.problem() {
+            return Err(serde::de::Error::custom(problem));
+        }
         Ok(config)
     }
 }
@@ -512,6 +592,7 @@ mod tests {
             "swaylock -f -c 000000 --indicator-idle-visible"
         );
         assert_eq!(config.lock, LockConfig::default());
+        assert_eq!(config.night_light, NightLightConfig::default());
         assert_eq!(config.commands.terminal, CommandsConfig::default().terminal);
     }
 
@@ -584,6 +665,58 @@ mod tests {
         let config = Config::parse("[lock]\nfade_ms = 0\n").unwrap();
         assert_eq!(config.lock.fade_ms, 0);
         assert!(Config::parse("[lock]\nfade = 5\n").is_err());
+    }
+
+    #[test]
+    fn night_light_parses() {
+        let defaults = Config::default().night_light;
+        assert!(!defaults.enabled);
+        assert_eq!(defaults.temperature, 2700);
+        assert_eq!(defaults.schedule, NightLightSchedule::Fixed);
+        assert_eq!(
+            (defaults.from.minutes(), defaults.to.minutes()),
+            (1200, 360)
+        );
+        assert_eq!(defaults.transition_minutes, 60);
+
+        let config = Config::parse(
+            "[night_light]\nenabled = true\ntemperature = 3500\nfrom = \"21:30\"\nto = \"7:00\"\ntransition_minutes = 0\n",
+        )
+        .unwrap()
+        .night_light;
+        assert!(config.enabled);
+        assert_eq!(config.temperature, 3500);
+        assert_eq!(config.from, TimeOfDay::new(21, 30));
+        assert_eq!(config.to, TimeOfDay::new(7, 0));
+        assert_eq!(config.transition_minutes, 0);
+
+        let config = Config::parse(
+            "[night_light]\nschedule = \"sunset\"\nlatitude = 55.68\nlongitude = 12.57\n",
+        )
+        .unwrap()
+        .night_light;
+        assert_eq!(config.schedule, NightLightSchedule::Sunset);
+        assert_eq!(
+            (config.latitude, config.longitude),
+            (Some(55.68), Some(12.57))
+        );
+    }
+
+    #[test]
+    fn night_light_rejects_bad_values() {
+        for bad in [
+            "temperature = 500",
+            "temperature = 7000",
+            "latitude = 91.0\nlongitude = 0.0",
+            "latitude = 0.0\nlongitude = -181.0",
+            "latitude = 55.68",
+            "from = \"25:00\"",
+            "schedule = \"sometimes\"",
+            "colour = 3000",
+        ] {
+            let text = format!("[night_light]\n{bad}\n");
+            assert!(Config::parse(&text).is_err(), "{bad}");
+        }
     }
 
     #[test]

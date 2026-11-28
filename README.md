@@ -13,7 +13,7 @@ make
 sudo make install
 ```
 
-Log out and pick "rustwm" from the gear menu on the login screen. Run `make && sudo make install` again after pulling; `sudo make uninstall` removes it. To try it first in a window inside your current session, run `scripts/nested.sh`.
+Log out and pick "rustwm" from the gear menu on the login screen. Run `make && sudo make install` again after pulling, which also updates `rustwmctl`, the panel's night light client; `sudo make uninstall` removes it. To try it first in a window inside your current session, run `scripts/nested.sh`.
 
 ## Keys
 
@@ -28,6 +28,7 @@ Log out and pick "rustwm" from the gear menu on the login screen. Run `make && s
 | `Super+Return` / `Super+f` / `Super+b` | Terminal / file manager / browser |
 | `Super+q` or `Alt+F4` | Close the window |
 | `Super+l` | Lock the screen |
+| `Super+n` | Night light off (at night) or on (by day) until morning |
 | `Print` / `Super+Shift+s` | Screenshot of the screen / of an area, to `~/Pictures/Screenshots` |
 | `Ctrl+Alt+Backspace` | Quit rustwm |
 
@@ -39,7 +40,7 @@ Copy [resources/config.toml](resources/config.toml) to `~/.config/rustwm/config.
 
 ## More
 
-- [Using rustwm](docs/usage.md): the overview, locking, notifications, battery warnings, screenshots and screen sharing
+- [Using rustwm](docs/usage.md): the overview, night light, locking, notifications, battery warnings, screenshots and screen sharing
 - [Configuration](docs/configuration.md): settings, default apps, dark style
 - [Development](docs/development.md): building, running nested or from a console, the D-Bus session
 - [Code layout](docs/code-layout.md)

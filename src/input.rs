@@ -22,8 +22,9 @@ use crate::{
     focus::WindowId,
     keyboard::{Action, App, Command, Key, Mods},
     layout::{Direction, Layout},
-    state::{Backend, State},
+    state::State,
     switcher::SCROLL_STEP,
+    udev,
 };
 use tracing::{info, warn};
 
@@ -204,11 +205,7 @@ impl State {
                 self.sync_focus();
                 self.update_pointer_constraint();
             }
-            Action::SwitchVt(vt) => {
-                if let Backend::Udev(udev) = &mut self.backend {
-                    udev.change_vt(vt);
-                }
-            }
+            Action::SwitchVt(vt) => udev::change_vt(self, vt),
             Action::Run(command) => self.run_command(command),
             Action::Spawn(app) => {
                 // As if the overview had not been open.
@@ -250,6 +247,7 @@ impl State {
                 }
             }
             Action::CycleGroup { forward } => self.cycle_group(forward),
+            Action::ToggleNightLight => self.toggle_night_light(),
             Action::Quit => {
                 info!("quit requested");
                 self.loop_signal.stop();
