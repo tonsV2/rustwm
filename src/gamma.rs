@@ -52,16 +52,37 @@ const COLOR_PROPERTIES: [&[u8]; 3] = [b"GAMMA_LUT", b"DEGAMMA_LUT", b"CTM"];
 /// Only for atomic drivers. Smithay's legacy restore does not touch gamma,
 /// so there [`CrtcGamma::reset`] on exit is what untints the screen.
 pub fn clear_color_tables(fd: &DrmDeviceFd) {
+    // Smithay then drives the device the legacy way, and turning on the
+    // atomic API on its file would defeat that escape hatch.
+    if smithay_forces_legacy() {
+        return;
+    }
+    // Smithay asks for the same capability next and falls back to legacy
+    // when it is refused.
+    if let Err(err) = fd.set_client_capability(ClientCapability::Atomic, true) {
+        debug!(%err, "not an atomic driver; colour tables left as they are");
+        return;
+    }
     match try_clear_color_tables(fd) {
         Ok(0) => {}
         Ok(cleared) => info!(cleared, "cleared colour tables left by another program"),
-        Err(err) => debug!(%err, "did not clear colour tables (not an atomic driver?)"),
+        Err(err) => warn!(
+            %err,
+            "failed to clear colour tables; restoring the display on exit may fail"
+        ),
     }
 }
 
-/// Returns how many properties it cleared.
+/// Smithay's own test for `SMITHAY_USE_LEGACY`, in `DrmDevice::new`.
+fn smithay_forces_legacy() -> bool {
+    std::env::var("SMITHAY_USE_LEGACY").is_ok_and(|value| {
+        let value = value.to_lowercase();
+        value == "1" || value == "true" || value == "yes" || value == "y"
+    })
+}
+
+/// Returns how many properties it cleared. The atomic capability must be on.
 fn try_clear_color_tables(fd: &DrmDeviceFd) -> io::Result<usize> {
-    fd.set_client_capability(ClientCapability::Atomic, true)?;
     let mut request = AtomicModeReq::new();
     let mut cleared = 0;
     for &crtc in fd.resource_handles()?.crtcs() {
