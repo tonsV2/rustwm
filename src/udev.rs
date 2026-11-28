@@ -305,7 +305,9 @@ fn insert_sources(
                     // and wants to see it.
                     state.power_on_outputs();
                     render(state);
-                    apply_gamma(state);
+                    // Shows neutral at once, over whatever table the other
+                    // VT left, then fades the tint back in.
+                    state.night_light_untinted();
                 }
             }
         })

@@ -59,10 +59,13 @@ pub enum Status {
     Paused { until: Option<DateTime<Utc>> },
 }
 
-/// A fade from `from` towards the current target.
+/// A fade from `from` towards `to`, the target at the last step. Small
+/// moves of the target, as when the schedule ramps, are followed; a jump
+/// starts a new fade.
 #[derive(Debug, Clone, Copy)]
 struct Fade {
     from: u32,
+    to: u32,
     started: Instant,
 }
 
@@ -110,14 +113,25 @@ impl NightLight {
             Some(Manual { on: false, .. }) => NEUTRAL,
             None => scheduled,
         };
+        // The target jumped during a fade, as when Super+n is pressed again
+        // before the fade ends: fade again from what is shown now, rather
+        // than leaping along the old fade's path.
+        if self
+            .fade
+            .is_some_and(|fade| fade.to.abs_diff(target) > JUMP_KELVIN)
+        {
+            self.fade = None;
+        }
         if self.fade.is_none() && target.abs_diff(self.shown) > JUMP_KELVIN {
             self.fade = Some(Fade {
                 from: self.shown,
+                to: target,
                 started: instant,
             });
         }
-        let next = match self.fade {
+        let next = match &mut self.fade {
             Some(fade) => {
+                fade.to = target;
                 let progress = instant
                     .saturating_duration_since(fade.started)
                     .as_secs_f64()
@@ -126,8 +140,6 @@ impl NightLight {
                     self.fade = None;
                     target
                 } else {
-                    // The target may move during the fade, as when the
-                    // schedule ramps; the fade simply follows it.
                     lerp(fade.from, target, progress)
                 }
             }
@@ -138,6 +150,13 @@ impl NightLight {
         }
         self.shown = next;
         Some(next)
+    }
+
+    /// The screen lost our tint, as when another VT had the display: what
+    /// it shows now is neutral, so the next update fades in from there.
+    fn untinted(&mut self) {
+        self.shown = NEUTRAL;
+        self.fade = None;
     }
 
     /// Drops an override whose morning has come.
@@ -235,6 +254,13 @@ impl State {
         self.wake_night_light();
     }
 
+    /// The screen came back without our tint (back from another VT). The
+    /// tint fades in again rather than appearing at once.
+    pub fn night_light_untinted(&mut self) {
+        self.night_light.untinted();
+        self.wake_night_light();
+    }
+
     /// Updates the night light now rather than at the next tick, so a
     /// change starts fading at once.
     fn wake_night_light(&mut self) {
@@ -302,11 +328,19 @@ fn scheduled_now(
     now: &DateTime<Local>,
 ) -> (bool, Option<DateTime<Utc>>) {
     let schedule = Schedule::from_config(config);
-    let on = config.enabled && schedule.level(now) > 0.0;
+    let on = config.enabled && looks_on(schedule.level(now));
     let morning = schedule
         .next_morning(now)
         .map(|morning| morning.with_timezone(&Utc));
     (on, morning)
+}
+
+/// Whether the schedule's tint at `level` reads as on: more than halfway
+/// warm. Super+n then turns the light the other way from what the screen
+/// shows, so early in the evening ramp, while the screen is still close to
+/// neutral, it turns the light on rather than off.
+fn looks_on(level: f64) -> bool {
+    level >= 0.5
 }
 
 /// " until 06:00" in local time, or nothing without a morning.
@@ -447,6 +481,61 @@ mod tests {
         assert_eq!(
             light.status(now(), false, morning),
             Status::On { until: morning }
+        );
+    }
+
+    #[test]
+    fn toggle_early_in_the_evening_ramp_turns_it_on() {
+        let mut light = NightLight::default();
+        let morning = Some(now() + hours(10));
+        // A fifth of the way into the warm-up: the screen is nearly neutral.
+        assert!(!looks_on(0.2));
+        light.toggle(looks_on(0.2), morning);
+        assert_eq!(
+            light.manual,
+            Some(Manual {
+                on: true,
+                until: morning
+            })
+        );
+        assert!(looks_on(0.5));
+        assert!(looks_on(1.0));
+        assert!(!looks_on(0.0));
+    }
+
+    #[test]
+    fn reversing_a_fade_does_not_jump() {
+        let mut light = NightLight::default();
+        let start = Instant::now();
+        light.update(now(), start, NIGHT, NIGHT);
+        assert_eq!(
+            light.update(now(), start + FADE / 2, NIGHT, NIGHT),
+            Some(4600)
+        );
+        // Back to neutral halfway through: a new fade from 4600.
+        assert_eq!(light.update(now(), start + FADE / 2, NEUTRAL, NIGHT), None);
+        assert_eq!(
+            light.update(now(), start + FADE, NEUTRAL, NIGHT),
+            Some(5550)
+        );
+        assert_eq!(
+            light.update(now(), start + FADE + FADE / 2, NEUTRAL, NIGHT),
+            Some(NEUTRAL)
+        );
+        assert_eq!(light.next_tick(), TICK);
+    }
+
+    #[test]
+    fn untinted_fades_back_in() {
+        let mut light = NightLight::default();
+        assert_eq!(settled(&mut light, now(), NIGHT), NIGHT);
+        light.untinted();
+        assert_eq!(light.kelvin(), NEUTRAL);
+        let start = Instant::now();
+        assert_eq!(light.update(now(), start, NIGHT, NIGHT), None);
+        assert_eq!(
+            light.update(now(), start + FADE / 2, NIGHT, NIGHT),
+            Some(4600)
         );
     }
 
