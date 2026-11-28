@@ -6,19 +6,26 @@
 //! slow or stuck client cannot stall it.
 
 use std::{
+    cell::Cell,
     env,
-    fs::{self, DirBuilder},
+    fs::{self, DirBuilder, Permissions},
     io::{ErrorKind, Read, Write},
     os::unix::{
-        fs::DirBuilderExt,
+        fs::{DirBuilderExt, PermissionsExt},
         net::{UnixListener, UnixStream},
     },
     path::PathBuf,
+    rc::Rc,
+    time::Duration,
 };
 
 use anyhow::{Context, anyhow};
 use rustwm::ipc::{self, ERROR_PREFIX, USAGE};
-use smithay::reexports::calloop::{Interest, Mode, PostAction, generic::Generic};
+use smithay::reexports::calloop::{
+    Interest, Mode, PostAction, RegistrationToken,
+    generic::Generic,
+    timer::{TimeoutAction, Timer},
+};
 use tracing::{debug, info, warn};
 
 use crate::{
@@ -28,6 +35,38 @@ use crate::{
 
 /// Longer requests are not ours; the connection is closed.
 const MAX_REQUEST: usize = 256;
+/// Connections open at once; more are closed straight away.
+const MAX_CONNECTIONS: usize = 16;
+/// A connection that has not sent its request by then is closed.
+const CONNECTION_DEADLINE: Duration = Duration::from_secs(2);
+/// How long the socket stops accepting after an accept error, such as
+/// running out of file descriptors. The listener is level-triggered, so
+/// without a pause it would spin on the same error.
+const ACCEPT_BACKOFF: Duration = Duration::from_secs(1);
+
+/// What the listener and its connections share.
+#[derive(Default)]
+struct Connections {
+    /// The listener's event source, to start it again after a pause.
+    listener: Cell<Option<RegistrationToken>>,
+    /// Connections open now.
+    open: Cell<usize>,
+}
+
+/// One connection waiting for its request line. Dropped with the
+/// connection's event source, however that ends, which closes it and
+/// counts it as gone.
+struct Connection {
+    request: Vec<u8>,
+    connections: Rc<Connections>,
+}
+
+impl Drop for Connection {
+    fn drop(&mut self) {
+        let open = &self.connections.open;
+        open.set(open.get() - 1);
+    }
+}
 
 /// The listening socket's file, removed when this is dropped.
 pub struct ControlSocket {
@@ -60,12 +99,15 @@ impl State {
         let path = ipc::socket_path(&runtime_dir, &name)
             .ok_or_else(|| anyhow!("the Wayland socket {name:?} has no name"))?;
         if let Some(dir) = path.parent() {
-            // Only we may connect: the socket toggles our night light.
+            // Only we may connect: the socket toggles our night light. The
+            // mode is set again in case the directory already existed.
             DirBuilder::new()
                 .recursive(true)
                 .mode(0o700)
                 .create(dir)
                 .with_context(|| format!("failed to create {}", dir.display()))?;
+            fs::set_permissions(dir, Permissions::from_mode(0o700))
+                .with_context(|| format!("failed to make {} private", dir.display()))?;
         }
         // The Wayland socket's lock file makes the name ours, so a file
         // here is left over from a rustwm that did not exit cleanly.
@@ -74,15 +116,16 @@ impl State {
             .with_context(|| format!("failed to listen on {}", path.display()))?;
         let socket = ControlSocket { path };
         listener.set_nonblocking(true)?;
-        self.loop_handle
+        let connections = Rc::new(Connections::default());
+        let shared = connections.clone();
+        let token = self
+            .loop_handle
             .insert_source(
                 Generic::new(listener, Interest::READ, Mode::Level),
-                |_, listener, state| {
-                    accept_all(listener, state);
-                    Ok(PostAction::Continue)
-                },
+                move |_, listener, state| Ok(accept_all(listener, &shared, state)),
             )
             .map_err(|err| anyhow!("failed to add the control socket: {}", err.error))?;
+        connections.listener.set(Some(token));
         info!(path = %socket.path.display(), "control socket ready");
         Ok(socket)
     }
@@ -101,76 +144,128 @@ impl State {
 }
 
 /// Takes every waiting connection and watches each for its request.
-fn accept_all(listener: &UnixListener, state: &mut State) {
+fn accept_all(
+    listener: &UnixListener,
+    connections: &Rc<Connections>,
+    state: &mut State,
+) -> PostAction {
     loop {
         match listener.accept() {
-            Ok((stream, _)) => watch_connection(stream, state),
-            Err(err) if err.kind() == ErrorKind::WouldBlock => return,
+            Ok((stream, _)) if connections.open.get() >= MAX_CONNECTIONS => {
+                debug!("too many control connections; closing one");
+                drop(stream);
+            }
+            Ok((stream, _)) => watch_connection(stream, connections, state),
+            Err(err) if err.kind() == ErrorKind::WouldBlock => return PostAction::Continue,
             Err(err) => {
-                warn!(%err, "control socket accept failed");
-                return;
+                warn!(%err, "control socket accept failed; pausing it");
+                resume_accepting_later(connections, state);
+                return PostAction::Disable;
             }
         }
     }
 }
 
+/// Starts accepting again after [`ACCEPT_BACKOFF`].
+fn resume_accepting_later(connections: &Rc<Connections>, state: &mut State) {
+    let connections = connections.clone();
+    let timer = state.loop_handle.insert_source(
+        Timer::from_duration(ACCEPT_BACKOFF),
+        move |_, _, state| {
+            if let Some(token) = connections.listener.get()
+                && let Err(err) = state.loop_handle.enable(&token)
+            {
+                warn!(%err, "failed to resume the control socket");
+            }
+            TimeoutAction::Drop
+        },
+    );
+    if let Err(err) = timer {
+        warn!(err = %err.error, "failed to schedule resuming the control socket");
+    }
+}
+
 /// Reads the connection's request as it arrives, without blocking, then
-/// replies and closes it.
-fn watch_connection(stream: UnixStream, state: &mut State) {
+/// replies and closes it. Closes it unanswered after [`CONNECTION_DEADLINE`].
+fn watch_connection(stream: UnixStream, connections: &Rc<Connections>, state: &mut State) {
     if let Err(err) = stream.set_nonblocking(true) {
         debug!(%err, "control connection dropped");
         return;
     }
-    let mut request = Vec::new();
+    connections.open.set(connections.open.get() + 1);
+    // Owned by the source's callback, so it is dropped with the source.
+    let mut connection = Connection {
+        request: Vec::new(),
+        connections: connections.clone(),
+    };
     let result = state.loop_handle.insert_source(
         Generic::new(stream, Interest::READ, Mode::Level),
         move |_, stream, state| {
             // Reading through `&UnixStream` needs no mutable access to the
             // source's stream.
             let stream: &UnixStream = stream;
-            Ok(read_request(stream, &mut request, state))
+            Ok(connection.read(stream, state))
         },
     );
-    if let Err(err) = result {
-        warn!(err = %err.error, "failed to watch a control connection");
+    let token = match result {
+        Ok(token) => token,
+        Err(err) => {
+            warn!(err = %err.error, "failed to watch a control connection");
+            return;
+        }
+    };
+    let deadline = state.loop_handle.insert_source(
+        Timer::from_duration(CONNECTION_DEADLINE),
+        move |_, _, state| {
+            // Does nothing if the connection was already answered: calloop
+            // tokens carry a version, so a stale one matches no other source.
+            state.loop_handle.remove(token);
+            TimeoutAction::Drop
+        },
+    );
+    if let Err(err) = deadline {
+        warn!(err = %err.error, "failed to time a control connection");
+        state.loop_handle.remove(token);
     }
 }
 
-/// Reads what has arrived. Once the line is complete, replies and asks for
-/// the connection to be removed, which closes it.
-fn read_request(mut stream: &UnixStream, request: &mut Vec<u8>, state: &mut State) -> PostAction {
-    let mut chunk = [0; MAX_REQUEST];
-    let ended = match stream.read(&mut chunk) {
-        Ok(0) => true,
-        Ok(n) => {
-            request.extend_from_slice(&chunk[..n]);
-            false
+impl Connection {
+    /// Reads what has arrived. Once the line is complete, replies and asks
+    /// for the connection to be removed, which closes it.
+    fn read(&mut self, mut stream: &UnixStream, state: &mut State) -> PostAction {
+        let mut chunk = [0; MAX_REQUEST];
+        let ended = match stream.read(&mut chunk) {
+            Ok(0) => true,
+            Ok(n) => {
+                self.request.extend_from_slice(&chunk[..n]);
+                false
+            }
+            Err(err) if err.kind() == ErrorKind::WouldBlock => return PostAction::Continue,
+            Err(err) => {
+                debug!(%err, "control connection failed");
+                return PostAction::Remove;
+            }
+        };
+        let line_end = self.request.iter().position(|&b| b == b'\n');
+        if line_end.is_none() && !ended {
+            if self.request.len() > MAX_REQUEST {
+                debug!("control request too long");
+                return PostAction::Remove;
+            }
+            return PostAction::Continue;
         }
-        Err(err) if err.kind() == ErrorKind::WouldBlock => return PostAction::Continue,
-        Err(err) => {
-            debug!(%err, "control connection failed");
-            return PostAction::Remove;
+        let line = &self.request[..line_end.unwrap_or(self.request.len())];
+        let reply = match std::str::from_utf8(line) {
+            Ok(line) => state.control_reply(line.trim()),
+            Err(_) => format!("{ERROR_PREFIX}{USAGE}"),
+        };
+        // A reply this short fits in the socket's buffer, so it is written
+        // whole without waiting.
+        if let Err(err) = stream.write_all(format!("{reply}\n").as_bytes()) {
+            debug!(%err, "failed to answer a control request");
         }
-    };
-    let line_end = request.iter().position(|&b| b == b'\n');
-    if line_end.is_none() && !ended {
-        if request.len() > MAX_REQUEST {
-            debug!("control request too long");
-            return PostAction::Remove;
-        }
-        return PostAction::Continue;
+        PostAction::Remove
     }
-    let line = &request[..line_end.unwrap_or(request.len())];
-    let reply = match std::str::from_utf8(line) {
-        Ok(line) => state.control_reply(line.trim()),
-        Err(_) => format!("{ERROR_PREFIX}{USAGE}"),
-    };
-    // A reply this short fits in the socket's buffer, so it is written
-    // whole without waiting.
-    if let Err(err) = stream.write_all(format!("{reply}\n").as_bytes()) {
-        debug!(%err, "failed to answer a control request");
-    }
-    PostAction::Remove
 }
 
 /// What Waybar's custom module shows, as its JSON. Empty text hides the

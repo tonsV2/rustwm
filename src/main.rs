@@ -104,6 +104,10 @@ fn main() -> anyhow::Result<()> {
     let _rfkill = session::bus_is_ours(nested)
         .then(rfkill::Daemon::start)
         .flatten();
+    // Kept until the end of main; dropping it removes the socket file.
+    // Bound before anything is started, so a panel or autostart command
+    // asking for the night light's status finds it.
+    let _control = state.start_control_socket();
     let notifications = &state.config.notifications.command;
     if !notifications.is_empty() {
         info!(command = notifications, "starting notifications");
@@ -118,9 +122,6 @@ fn main() -> anyhow::Result<()> {
         info!(command, "autostart");
         commands::run(command, &state.child_env(), || {});
     }
-    // Kept until the end of main; dropping it removes the socket file.
-    // Bound before the panel starts, so its first status request finds it.
-    let _control = state.start_control_socket();
     state.start_panel();
     state.watch_config();
     state.start_night_light();
