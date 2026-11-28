@@ -17,10 +17,10 @@
     },
     // Shown only while the night light is on or turned off until morning; a click does what Super+n does.
     "custom/night-light": {
-        "exec": "rustwm night-light status",
+        "exec": "rustwmctl night-light status",
         "return-type": "json",
         "interval": 30,
-        "on-click": "rustwm night-light toggle"
+        "on-click": "rustwmctl night-light toggle"
     },
     "pulseaudio": {
         "format": "Volume {volume}%",

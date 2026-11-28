@@ -13,7 +13,7 @@ make
 sudo make install
 ```
 
-Log out and pick "rustwm" from the gear menu on the login screen. Run `make && sudo make install` again after pulling; `sudo make uninstall` removes it. To try it first in a window inside your current session, run `scripts/nested.sh`.
+Log out and pick "rustwm" from the gear menu on the login screen. Run `make && sudo make install` again after pulling, which also updates `rustwmctl`, the panel's night light client; `sudo make uninstall` removes it. To try it first in a window inside your current session, run `scripts/nested.sh`.
 
 ## Keys
 

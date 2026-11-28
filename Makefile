@@ -19,6 +19,8 @@ PORTALDIR ?= /usr/share/xdg-desktop-portal
 WLRPORTALDIR ?= /etc/xdg/xdg-desktop-portal-wlr
 
 BINARY = target/release/rustwm
+# Talks to the running rustwm, for the panel's night light module.
+CTL = target/release/rustwmctl
 SCRIPTS = rustwm-session rustwm-bus-relay rustwm-volume rustwm-terminal rustwm-panel rustwm-notifications rustwm-battery rustwm-share-chooser
 WAYBAR = config.jsonc style.css
 MAKODIR = $(PREFIX)/share/rustwm/mako
@@ -32,8 +34,8 @@ build:
 	cargo build --release
 
 install:
-	@test -x $(BINARY) || { echo "$(BINARY) is missing; run make first" >&2; exit 1; }
-	install -D -m 755 -t $(DESTDIR)$(BINDIR) $(BINARY) $(addprefix resources/,$(SCRIPTS))
+	@test -x $(BINARY) -a -x $(CTL) || { echo "$(BINARY) or $(CTL) is missing; run make first" >&2; exit 1; }
+	install -D -m 755 -t $(DESTDIR)$(BINDIR) $(BINARY) $(CTL) $(addprefix resources/,$(SCRIPTS))
 	install -D -m 644 -t $(DESTDIR)$(WAYBARDIR) $(addprefix resources/waybar/,$(WAYBAR))
 	install -D -m 644 -t $(DESTDIR)$(MAKODIR) resources/mako/config
 	install -D -m 644 -t $(DESTDIR)$(DBUSDIR) resources/dbus/session.conf
@@ -48,7 +50,7 @@ install:
 	chmod 644 $(DESTDIR)$(WLRPORTALDIR)/rustwm
 
 uninstall:
-	rm -f $(DESTDIR)$(BINDIR)/rustwm $(addprefix $(DESTDIR)$(BINDIR)/,$(SCRIPTS)) $(DESTDIR)$(BINDIR)/rustwm-secrets-relay
+	rm -f $(DESTDIR)$(BINDIR)/rustwm $(DESTDIR)$(BINDIR)/rustwmctl $(addprefix $(DESTDIR)$(BINDIR)/,$(SCRIPTS)) $(DESTDIR)$(BINDIR)/rustwm-secrets-relay
 	rm -rf $(DESTDIR)$(PREFIX)/share/rustwm
 	rm -f $(DESTDIR)$(SESSIONDIR)/rustwm.desktop
 	rm -f $(DESTDIR)$(PORTALDIR)/rustwm-portals.conf
