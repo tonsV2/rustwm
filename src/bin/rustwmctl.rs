@@ -43,6 +43,11 @@ fn main() -> anyhow::Result<()> {
         .read_to_string(&mut reply)
         .context("no reply from rustwm")?;
     let reply = reply.trim_end();
+    // rustwm always answers with a line; nothing means it closed the
+    // connection first, as when it gave up waiting for the request.
+    if reply.is_empty() {
+        bail!("rustwm closed the connection without a reply");
+    }
     if let Some(error) = reply.strip_prefix(ipc::ERROR_PREFIX) {
         bail!("{error}");
     }
