@@ -7,12 +7,14 @@ mod cursor;
 mod dialog;
 mod fade;
 mod focus;
+mod gamma;
 mod group;
 mod handlers;
 mod input;
 mod keyboard;
 mod keymap;
 mod layout;
+mod night_light;
 mod osd;
 mod overview;
 mod panel;
@@ -117,6 +119,7 @@ fn main() -> anyhow::Result<()> {
     }
     state.start_panel();
     state.watch_config();
+    state.start_night_light();
 
     let result = event_loop
         .run(None, &mut state, State::after_dispatch)

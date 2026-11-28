@@ -25,3 +25,5 @@
 | `src/winit.rs` | Nested backend and rendering |
 | `src/udev.rs` | Hardware backend: session, GPU, monitor, libinput, rendering |
 | `src/cursor.rs` | Cursor images from the theme for the hardware backend |
+| `src/night_light/` | The night light: colour temperature to gamma ramps, the sun's position and the schedule (no Smithay, unit tested), and the timer that applies it |
+| `src/gamma.rs` | Writes the night light into the display controller's gamma table (hardware backend only) |

@@ -1,6 +1,6 @@
 # Configuration
 
-Settings live in `~/.config/rustwm/config.toml`. Copy [resources/config.toml](../resources/config.toml) there as a starting point. Everything is optional. Saving the file applies it right away: pointer and touchpad settings, the keyboard layout and repeat, the output scale, commands and the indicator. A file with a mistake is reported in the log and the current settings stay. The panel's `command`, `position` and `mode`, `notifications.command`, `battery.command` and `[autostart]` apply the next time rustwm starts.
+Settings live in `~/.config/rustwm/config.toml`. Copy [resources/config.toml](../resources/config.toml) there as a starting point. Everything is optional. Saving the file applies it right away: pointer and touchpad settings, the keyboard layout and repeat, the output scale, commands, the indicator and the night light. A file with a mistake is reported in the log and the current settings stay. The panel's `command`, `position` and `mode`, `notifications.command`, `battery.command` and `[autostart]` apply the next time rustwm starts.
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
@@ -34,6 +34,14 @@ Settings live in `~/.config/rustwm/config.toml`. Copy [resources/config.toml](..
 | `switcher.wrap` | `true` | Whether the Alt+Tab switcher wraps windows onto more rows, shrinking the thumbnails when even those are not enough, so every window shows at once. `false` keeps one row of full-size thumbnails that scrolls |
 | `overview.file_search` | `plocate -i -- "$HOME/" "$1" \| grep -v '/\.' \| head -20` | What the overview's search runs to find files, with `sh -c` and the typed text as `$1`, one path per line. The default searches the plocate database (updated daily by `plocate-updatedb.timer`) under your home directory, leaving out hidden directories. `""` searches applications only |
 | `overview.hot_corner` | `true` | Open or close the overview when the pointer reaches the screen's top left corner, as in GNOME, except over a full screen window |
+| `night_light.enabled` | `false` | Tint the screen warm at night, on the schedule below |
+| `night_light.temperature` | `2700` | The colour temperature at night in Kelvin, from `1000` (warmest) to `6500` (no tint) |
+| `night_light.schedule` | `"fixed"` | `"fixed"`: night from `from` to `to`. `"sunset"`: night follows the sun at `latitude` and `longitude` |
+| `night_light.from`, `to` | `"20:00"`, `"06:00"` | When the fixed schedule's night starts and ends, local time `"HH:MM"`. Equal times mean never night |
+| `night_light.transition_minutes` | `60` | How long the fixed schedule takes to warm up before `from` and to cool down before `to`; `0` switches at once |
+| `night_light.latitude`, `longitude` | none | Where you are, for the sunset schedule: degrees north and east, negative for south and west. Set both or neither |
+
+The sunset schedule needs no network or location service: the sun's position is worked out from the clock and `latitude` and `longitude`. The screen starts warming when the sun is 3° above the horizon and is fully warm once it is 6° below, and the same in reverse in the morning. Without a location it falls back to `from` and `to`, with a warning in the log. Near the poles in summer or winter the night light stays off or on all day.
 
 Commands run with `sh -c`, so quoting, `&&` and `$HOME` work as in a terminal. An empty command (`""`) passes the key on to the focused application.
 

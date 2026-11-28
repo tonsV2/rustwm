@@ -89,6 +89,22 @@ file_search = "plocate -i -- \"$HOME/\" \"$1\" | grep -v '/\\.' | head -20"
 # Open or close the overview when the pointer reaches the screen's top left corner.
 hot_corner = true
 
+[night_light]
+# Tint the screen warm at night, through the display's gamma table. Screenshots and screen sharing are not tinted.
+enabled = false
+# Kelvin at night, from 1000 (warmest) to 6500 (no tint).
+temperature = 2700
+# "fixed" uses from and to, local time; "sunset" follows the sun at latitude and longitude.
+schedule = "fixed"
+# Fully warm by from, back to normal by to. Equal times mean never.
+from = "20:00"
+to = "06:00"
+# Minutes the fixed schedule takes to warm up before from and to cool down before to.
+transition_minutes = 60
+# For "sunset": degrees north and east (negative for south and west).
+# latitude = 55.68
+# longitude = 12.57
+
 [notifications]
 # rustwm-notifications runs mako with the config in resources/mako (copy it to ~/.config/rustwm/mako to change it). "" for no notifications, or when you start your own daemon.
 command = "rustwm-notifications"

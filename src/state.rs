@@ -76,6 +76,7 @@ use crate::{
     keyboard::Bindings,
     keymap,
     layout::{Layout, Rect},
+    night_light::NightLight,
     osd::Osd,
     overview::Overview,
     panel::Panel,
@@ -212,6 +213,8 @@ pub struct State {
     pub fade: Fade,
     /// The visual bell's flash.
     pub bell: Bell,
+    /// The warm tint at night.
+    pub night_light: NightLight,
 }
 
 impl State {
@@ -348,6 +351,7 @@ impl State {
             idle_inhibitors: Vec::new(),
             fade: Fade::default(),
             bell: Bell::default(),
+            night_light: NightLight::default(),
         })
     }
 

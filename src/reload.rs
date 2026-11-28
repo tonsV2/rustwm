@@ -97,6 +97,9 @@ impl State {
         if old.lock != self.config.lock {
             self.schedule_idle_fade();
         }
+        if old.night_light != self.config.night_light {
+            self.night_light_config_changed();
+        }
     }
 
     fn reconfigure_keyboard(&mut self) {
