@@ -4,7 +4,7 @@
 //! remembered between calls, so clock changes, daylight saving and suspend
 //! need no special handling.
 
-use chrono::{DateTime, TimeZone, Timelike, Utc};
+use chrono::{DateTime, TimeDelta, TimeZone, Timelike, Utc};
 use serde::Deserialize;
 
 use super::sun;
@@ -15,6 +15,8 @@ const MINUTES_PER_DAY: f64 = 1440.0;
 const DAY_ELEVATION: f64 = 3.0;
 /// The sun's height at and below which it is full night, in degrees.
 const NIGHT_ELEVATION: f64 = -6.0;
+/// How far ahead [`Schedule::next_morning`] looks, in minutes.
+const MORNING_HORIZON: i64 = 2 * 1440;
 
 /// A time of day in the config, written "HH:MM".
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -106,6 +108,24 @@ impl Schedule {
                 longitude,
             } => sun_level(sun::elevation(at.with_timezone(&Utc), latitude, longitude)),
         }
+    }
+
+    /// The end of the night `now` is in, or of the next night when it is
+    /// day: the first minute after some night that is fully day again.
+    /// `None` when that does not happen within two days, as in polar day
+    /// and night.
+    pub fn next_morning<Tz: TimeZone>(&self, now: &DateTime<Tz>) -> Option<DateTime<Tz>> {
+        let mut seen_night = self.level(now) > 0.0;
+        for minutes in 1..=MORNING_HORIZON {
+            // Adding to the zoned time keeps daylight saving changes right.
+            let at = now.clone() + TimeDelta::minutes(minutes);
+            let night = self.level(&at) > 0.0;
+            if seen_night && !night {
+                return Some(at);
+            }
+            seen_night |= night;
+        }
+        None
     }
 }
 
@@ -240,6 +260,8 @@ mod tests {
             assert_eq!(LONGYEARBYEN.level(&utc(2024, 12, 21, hour, 0)), 1.0);
         }
         assert_eq!(LONGYEARBYEN.level(&utc(2024, 6, 21, 0, 0)), 0.0);
+        assert_eq!(LONGYEARBYEN.next_morning(&utc(2024, 12, 21, 12, 0)), None);
+        assert_eq!(LONGYEARBYEN.next_morning(&utc(2024, 6, 21, 12, 0)), None);
     }
 
     fn fixed() -> Schedule {
@@ -262,6 +284,23 @@ mod tests {
         assert_eq!(fixed().level(&local(10, 3, 0)), 1.0);
         // A zone other than local time works too: 12:00 UTC is day.
         assert_eq!(fixed().level(&utc(2024, 3, 10, 12, 0)), 0.0);
+    }
+
+    #[test]
+    fn next_morning_in_a_fixed_schedule() {
+        let schedule = fixed();
+        assert_eq!(
+            schedule.next_morning(&local(10, 22, 0)),
+            Some(local(11, 6, 0))
+        );
+        assert_eq!(
+            schedule.next_morning(&local(10, 12, 0)),
+            Some(local(11, 6, 0))
+        );
+        assert_eq!(
+            schedule.next_morning(&local(10, 5, 30)),
+            Some(local(10, 6, 0))
+        );
     }
 
     fn parse(text: &str) -> Result<TimeOfDay, String> {

@@ -250,6 +250,7 @@ impl State {
                 }
             }
             Action::CycleGroup { forward } => self.cycle_group(forward),
+            Action::ToggleNightLight => self.toggle_night_light(),
             Action::Quit => {
                 info!("quit requested");
                 self.loop_signal.stop();

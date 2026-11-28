@@ -147,6 +147,9 @@ pub enum Action {
     CycleGroup {
         forward: bool,
     },
+    /// Turn the night light off until morning at night, or on until morning
+    /// by day (Super+n).
+    ToggleNightLight,
     /// Stop the compositor. On real hardware this is the way out when
     /// something goes wrong.
     Quit,
@@ -366,6 +369,7 @@ fn super_action(key: Key) -> Option<Action> {
     match key {
         Key::Char('q') => Some(Action::Close),
         Key::Char('g') => Some(Action::Group),
+        Key::Char('n') => Some(Action::ToggleNightLight),
         Key::Digit(n) => Some(Action::FocusNth(n as usize)),
         _ => None,
     }
@@ -445,6 +449,7 @@ mod tests {
     const S: u32 = 39;
     const THREE: u32 = 12;
     const G: u32 = 42;
+    const N: u32 = 57;
     const RETURN: u32 = 36;
     const BACKSPACE: u32 = 22;
     const F2: u32 = 68;
@@ -512,6 +517,7 @@ mod tests {
             (Q, Key::Char('q'), logo(), Action::Close),
             (G, Key::Char('g'), logo(), Action::Group),
             (G, Key::Char('g'), shift_logo, Action::Ungroup),
+            (N, Key::Char('n'), logo(), Action::ToggleNightLight),
             (THREE, Key::Digit(3), logo(), Action::FocusNth(3)),
             (
                 LEFT,
@@ -978,6 +984,7 @@ mod tests {
             (Q, Key::Char('q'), Action::Close),
             (THREE, Key::Digit(3), Action::FocusNth(3)),
             (G, Key::Char('g'), Action::Group),
+            (N, Key::Char('n'), Action::ToggleNightLight),
         ];
         let super_shift = Mods {
             shift: true,
@@ -1106,6 +1113,7 @@ mod tests {
             (L, Key::Char('l'), logo()),
             (Q, Key::Char('q'), logo()),
             (G, Key::Char('g'), logo()),
+            (N, Key::Char('n'), logo()),
             (TAB, Key::Tab, logo()),
             (THREE, Key::Digit(3), logo()),
         ];

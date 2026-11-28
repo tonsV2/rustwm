@@ -8,6 +8,14 @@ The search field edits like any text field, with a blinking caret: Left and Righ
 
 The windows stay where they are underneath; the overview is only a picture of them, drawn by the compositor from the same textures it shows the windows with, so nothing is copied and no other program is involved.
 
+## Night light
+
+The night light tints the screen warm in the evening, which is easier on the eyes than blue-white light. Turn it on with `night_light.enabled = true` in the [configuration](configuration.md), which also sets the temperature and the schedule: fixed times (20:00 to 06:00 by default, warming up over the hour before) or sunset to sunrise where you are. Changes fade in over a second.
+
+`Super+n` overrides the schedule until morning, like GNOME's "Disable until tomorrow": at night it turns the tint off, by day it turns it on. Morning is the end of the current night, or of the next one when pressed by day. Pressing it again goes back to the schedule. It works with `enabled = false` too, for a warm screen just this evening. Saving the night light settings ends the override.
+
+Everything on screen is tinted, the pointer and the lock screen included, but screenshots and screen sharing are not, since the tint is set in the display's gamma table rather than drawn. The tint comes off when rustwm exits and before `Ctrl+Alt+F1`…`F12` switches to another virtual terminal, and goes back on when you return. If rustwm crashes, the tint stays until the next program sets the gamma table. Nested, and on a display without a gamma table, the night light does nothing.
+
 ## Switching windows
 
 Alt+Tab walks the windows, most recently used first, and releasing Alt brings the highlighted one to the front; Shift+Tab, Left and Right step back and forth, Up and Down move a row, Escape cancels. A quick Alt+Tab toggles between the two most recent windows without the switcher showing. While it shows, the thumbnail under the pointer is highlighted and clicking it brings that window to the front at once; moving the pointer off the thumbnails puts the highlight back on the window Alt+Tab picked, and releasing Alt still picks that one, which keeps a fainter highlight while another thumbnail is hovered. When more windows are open than fit across the screen, they wrap onto more rows, filled as evenly as possible, reading left to right and then top to bottom; when the rows that fit are not enough, the thumbnails shrink. Only past the smallest size does the grid scroll by whole rows to keep the highlight in view, with an arrow at either end and a count such as "+4" for the windows hidden before and after. With `switcher.wrap = false` in the [configuration](configuration.md) the switcher stays one row of full-size thumbnails that scrolls a window at a time. Clicking an arrow selects the nearest hidden window, and the mouse wheel or a touchpad scroll over the switcher moves the selection one window at a time, stopping at the first and last.
