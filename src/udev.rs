@@ -3,7 +3,10 @@
 //! Deliberately simple: one GPU and one output. The first connected monitor
 //! is used; others are ignored until it is unplugged.
 
-use std::{path::PathBuf, time::Duration};
+use std::{
+    path::PathBuf,
+    time::{Duration, Instant},
+};
 
 use anyhow::{Context, anyhow};
 use smithay::{
@@ -58,7 +61,7 @@ use tracing::{error, info, warn};
 use crate::{
     config::{ClickMethod, InputConfig, OutputConfig, auto_scale},
     cursor::Cursors,
-    gamma::CrtcGamma,
+    gamma::{self, CrtcGamma},
     handlers::LOCKED_BACKGROUND,
     state::{Backend, State},
     switcher::SwitcherElement,
@@ -75,6 +78,10 @@ type GbmOutput =
 
 /// Formats tried for the screen's framebuffer, best first.
 const COLOR_FORMATS: [Fourcc; 2] = [Fourcc::Argb8888, Fourcc::Xrgb8888];
+/// How long after asking for a VT switch the night light leaves the gamma
+/// table alone. The session is normally paused well within it; if the
+/// switch never happens, the tint comes back afterwards.
+const VT_SWITCH_GRACE: Duration = Duration::from_secs(2);
 pub const BACKGROUND: [f32; 4] = [0.1, 0.1, 0.1, 1.0];
 
 render_elements! {
@@ -96,6 +103,9 @@ pub struct UdevData {
     pub cursors: Cursors,
     /// False while another VT has the session; the GPU must not be touched.
     pub active: bool,
+    /// When a VT switch was asked for and the gamma table reset for it. Until
+    /// the session pauses, the night light must not tint the screen again.
+    switching_vt: Option<Instant>,
     /// A render is already queued, either waiting for vblank or on a timer.
     render_pending: bool,
     /// The queued frame was drawn while locked; once it is on screen the
@@ -143,6 +153,9 @@ pub fn init_backend(
             )
         })?;
     let fd = DrmDeviceFd::new(DeviceFd::from(fd));
+    // Before Smithay takes its snapshot of the display state, so its restore
+    // on exit stays valid; see `gamma::clear_color_tables`.
+    gamma::clear_color_tables(&fd);
 
     let (drm, drm_notifier) =
         DrmDevice::new(fd.clone(), true).context("failed to initialise DRM device")?;
@@ -213,6 +226,7 @@ pub fn init_backend(
             screen: None,
             cursors: Cursors::load(1),
             active: true,
+            switching_vt: None,
             render_pending: false,
             lock_frame_queued: false,
         },
@@ -289,6 +303,7 @@ fn insert_sources(
                 SessionEvent::ActivateSession => {
                     info!("session resumed");
                     udev.active = true;
+                    udev.switching_vt = None;
                     if udev.libinput.resume().is_err() {
                         error!("failed to resume input");
                     }
@@ -784,6 +799,12 @@ pub fn apply_gamma(state: &mut State) {
     if !udev.active {
         return;
     }
+    if udev
+        .switching_vt
+        .is_some_and(|asked| asked.elapsed() < VT_SWITCH_GRACE)
+    {
+        return;
+    }
     let Some(screen) = &mut udev.screen else {
         return;
     };
@@ -831,11 +852,14 @@ impl UdevData {
     pub fn change_vt(&mut self, vt: i32) {
         info!(vt, "switching virtual terminal");
         // Untint before handing the display over: by the time the session
-        // is paused, it is usually too late to write the table. If the
-        // switch fails, the next night light tick tints the screen again.
+        // is paused, it is usually too late to write the table. A night light
+        // tick before the pause arrives must not tint it again.
         self.reset_gamma();
+        self.switching_vt = Some(Instant::now());
         if let Err(err) = self.session.change_vt(vt) {
             warn!(?err, vt, "failed to switch virtual terminal");
+            // The next night light tick tints the screen again.
+            self.switching_vt = None;
         }
     }
 
@@ -854,11 +878,12 @@ impl UdevData {
 /// Untints the screen when rustwm exits, however `main` returns.
 ///
 /// `drop` runs before the fields are dropped, so the DRM device is still
-/// open and ours. Smithay then restores the display state it found at
-/// startup, including that gamma table, when its device drops; if the
-/// startup table no longer exists, because writing ours freed it, that
-/// restore fails and this identity table is what stays. A crash or SIGKILL
-/// skips both, leaving the tint until the next program sets the table.
+/// open and ours. On an atomic driver Smithay then restores the display
+/// state it found at startup when its device drops, and since
+/// [`gamma::clear_color_tables`] ran first, that state has no gamma table:
+/// untinted as well. Smithay's legacy restore leaves gamma alone, so there
+/// this identity table is what stays. A crash or SIGKILL skips both,
+/// leaving the tint until the next program sets the table.
 impl Drop for UdevData {
     fn drop(&mut self) {
         self.reset_gamma();

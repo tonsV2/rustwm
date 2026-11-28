@@ -5,30 +5,98 @@
 //! atomic driver the kernel turns that into a blocking commit of the CRTC's
 //! `GAMMA_LUT` property, which waits for a queued page flip rather than
 //! failing, and needs no property lookup or blob of our own to keep alive.
-//! Smithay never resets `GAMMA_LUT` in its own commits, so the table stays
-//! through modesets and the monitor going off and on.
+//! That commit also clears the CRTC's `DEGAMMA_LUT` and `CTM`. Smithay never
+//! sets any of the three in its own commits, so the table stays through
+//! modesets and the monitor going off and on.
+//!
+//! Waiting for the flip means a write can hold up the event loop for up to
+//! a frame. A fade makes about ten writes over its second, so it can cost a
+//! few frames; the schedule alone writes at most every 30 seconds, and only
+//! when the table changes.
 //!
 //! The table applies at scanout, to everything on screen including the
 //! cursor plane, but not to screenshots or screen sharing, which read the
 //! buffers before it.
 
+use std::io;
+
 use smithay::{
-    backend::drm::DrmDevice,
-    reexports::drm::control::{Device as ControlDevice, crtc},
+    backend::drm::{DrmDevice, DrmDeviceFd},
+    reexports::drm::{
+        ClientCapability, Device as BasicDevice,
+        control::{
+            AtomicCommitFlags, Device as ControlDevice, atomic::AtomicModeReq, crtc, property,
+        },
+    },
 };
 use tracing::{debug, info, warn};
 
 use crate::night_light::temperature::{GammaRamp, NEUTRAL};
 
+/// The CRTC properties the gamma ioctl replaces or clears.
+const COLOR_PROPERTIES: [&[u8]; 3] = [b"GAMMA_LUT", b"DEGAMMA_LUT", b"CTM"];
+
+/// Takes the colour tables off every CRTC. Call it on the device before
+/// Smithay's `DrmDevice` opens it.
+///
+/// Smithay remembers the display state it finds at startup, and on exit
+/// commits all of it back at once. Those tables are blobs that the kernel
+/// frees once nothing uses them, so a blob left by a program that has
+/// exited, such as a crashed rustwm's tint, lives only as long as the CRTC
+/// shows it. Our first gamma write would free it, and Smithay's restore
+/// would then name a blob that no longer exists, which fails the whole
+/// commit, not just the gamma part: the console might not come back.
+/// Clearing the tables first makes Smithay remember "no table", which is
+/// always valid, and also what we want left behind: an untinted screen.
+///
+/// Only for atomic drivers. Smithay's legacy restore does not touch gamma,
+/// so there [`CrtcGamma::reset`] on exit is what untints the screen.
+pub fn clear_color_tables(fd: &DrmDeviceFd) {
+    match try_clear_color_tables(fd) {
+        Ok(0) => {}
+        Ok(cleared) => info!(cleared, "cleared colour tables left by another program"),
+        Err(err) => debug!(%err, "did not clear colour tables (not an atomic driver?)"),
+    }
+}
+
+/// Returns how many properties it cleared.
+fn try_clear_color_tables(fd: &DrmDeviceFd) -> io::Result<usize> {
+    fd.set_client_capability(ClientCapability::Atomic, true)?;
+    let mut request = AtomicModeReq::new();
+    let mut cleared = 0;
+    for &crtc in fd.resource_handles()?.crtcs() {
+        let properties = fd.get_properties(crtc)?;
+        let (handles, values) = properties.as_props_and_values();
+        for (&handle, &value) in handles.iter().zip(values) {
+            // 0 is no blob: nothing to clear.
+            if value == 0 {
+                continue;
+            }
+            let name = fd.get_property(handle)?.name().to_bytes().to_vec();
+            if COLOR_PROPERTIES.contains(&name.as_slice()) {
+                request.add_property(crtc, handle, property::Value::Blob(0));
+                cleared += 1;
+            }
+        }
+    }
+    if cleared > 0 {
+        // Changing colour tables needs no modeset.
+        fd.atomic_commit(AtomicCommitFlags::empty(), request)?;
+    }
+    Ok(cleared)
+}
+
 /// One CRTC's gamma table. It remembers what it last wrote, so writing the
-/// same temperature again costs nothing.
+/// same table again costs nothing.
 pub struct CrtcGamma {
     crtc: crtc::Handle,
     /// Entries per channel, which the driver decides.
     size: usize,
-    /// The temperature in the table, or `None` when unknown: not written
-    /// yet, a write failed, or another program may have changed it.
-    applied: Option<u32>,
+    /// The table last written, or `None` when unknown: not written yet, a
+    /// write failed, or another program may have changed it. Comparing
+    /// tables rather than temperatures also skips fade steps too small to
+    /// change any entry.
+    written: Option<GammaRamp>,
     /// A failed write was already reported; later ones are only debug logs,
     /// since the same failure would otherwise repeat every tick.
     warned: bool,
@@ -51,7 +119,7 @@ impl CrtcGamma {
         Some(Self {
             crtc,
             size,
-            applied: None,
+            written: None,
             warned: false,
         })
     }
@@ -59,14 +127,14 @@ impl CrtcGamma {
     /// Tints the screen for `kelvin`. A failed write is retried on the next
     /// call.
     pub fn set(&mut self, device: &DrmDevice, kelvin: u32) {
-        if self.applied == Some(kelvin) {
+        let ramp = GammaRamp::new(self.size, kelvin);
+        if self.written.as_ref() == Some(&ramp) {
             return;
         }
-        let ramp = GammaRamp::new(self.size, kelvin);
         match device.set_gamma(self.crtc, &ramp.red, &ramp.green, &ramp.blue) {
             Ok(()) => {
                 debug!(kelvin, "gamma table set");
-                self.applied = Some(kelvin);
+                self.written = Some(ramp);
             }
             Err(err) => {
                 if self.warned {
@@ -75,7 +143,7 @@ impl CrtcGamma {
                     warn!(%err, kelvin, "failed to set the gamma table for the night light");
                     self.warned = true;
                 }
-                self.applied = None;
+                self.written = None;
             }
         }
     }
@@ -89,12 +157,13 @@ impl CrtcGamma {
             // Usually because the session was already handed over.
             debug!(%err, "failed to reset the gamma table");
         }
-        self.applied = None;
+        // Another program may change it before we write again.
+        self.written = None;
     }
 
     /// Forgets what is in the table, so the next [`set`](Self::set) writes
     /// it. Another program may have changed it while it had the display.
     pub fn forget(&mut self) {
-        self.applied = None;
+        self.written = None;
     }
 }
