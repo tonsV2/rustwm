@@ -793,6 +793,34 @@ pub fn set_power(state: &mut State, output: &Output, on: bool) {
     }
 }
 
+/// Switches to virtual terminal `vt` (Ctrl+Alt+Fn).
+///
+/// The night light is told when its wait for the switch ends without a
+/// pause, so the tint comes back at once rather than at its next tick: at
+/// once when the switch failed, as on a seat without VTs, and after
+/// [`VT_SWITCH_TIMEOUT`] otherwise. A switch that paused the session by
+/// then leaves it inactive, so the wake-up changes nothing.
+pub fn change_vt(state: &mut State, vt: i32) {
+    let Backend::Udev(udev) = &mut state.backend else {
+        return;
+    };
+    udev.change_vt(vt);
+    if udev.switching_vt.is_none() {
+        state.wake_night_light();
+        return;
+    }
+    let timer =
+        state
+            .loop_handle
+            .insert_source(Timer::from_duration(VT_SWITCH_TIMEOUT), |_, _, state| {
+                state.wake_night_light();
+                TimeoutAction::Drop
+            });
+    if let Err(err) = timer {
+        warn!(%err, "failed to time the VT switch; the tint returns at the next tick");
+    }
+}
+
 /// Gives the screen the night light's current temperature. Does nothing
 /// nested, while another VT has the session, or without a gamma table.
 pub fn apply_gamma(state: &mut State) {
@@ -853,7 +881,7 @@ impl UdevData {
         self.active
     }
 
-    pub fn change_vt(&mut self, vt: i32) {
+    fn change_vt(&mut self, vt: i32) {
         info!(vt, "switching virtual terminal");
         // Switching to the VT already on screen, usually our own, does
         // nothing: no pause would come, so keep the tint as it is.
@@ -866,7 +894,7 @@ impl UdevData {
         }
         if let Err(err) = self.session.change_vt(vt) {
             warn!(?err, vt, "failed to switch virtual terminal");
-            // The next night light tick tints the screen again.
+            // `change_vt` then wakes the night light to tint it again.
             self.switching_vt = None;
         }
     }

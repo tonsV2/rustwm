@@ -263,7 +263,7 @@ impl State {
 
     /// Updates the night light now rather than at the next tick, so a
     /// change starts fading at once.
-    fn wake_night_light(&mut self) {
+    pub fn wake_night_light(&mut self) {
         // Never called from the night light's own timer callback, so the
         // source can be removed here.
         if let Some(token) = self.night_light.timer.take() {
