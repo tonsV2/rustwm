@@ -89,8 +89,9 @@ impl XdgShellHandler for State {
 
     /// A popup (menu) wants all input until it is dismissed.
     fn grab(&mut self, surface: PopupSurface, seat: wl_seat::WlSeat, serial: Serial) {
-        // Windows get no input while the screen is locked.
-        if self.is_locked() {
+        // Windows get no input while the screen is locked, or while the
+        // end-session dialog takes it all.
+        if self.is_locked() || self.end_session.is_modal() {
             surface.send_popup_done();
             return;
         }

@@ -153,6 +153,15 @@ pub enum Action {
     /// Stop the compositor. On real hardware this is the way out when
     /// something goes wrong.
     Quit,
+    /// Select the end-session dialog's next button, or the previous one
+    /// (Tab and the arrow keys).
+    DialogMove {
+        forward: bool,
+    },
+    /// Press the dialog's selected button (Return).
+    DialogPress,
+    /// Close the dialog without acting (Escape).
+    DialogCancel,
 }
 
 /// An edit of the overview's search text at its caret.
@@ -244,6 +253,10 @@ pub struct Bindings {
     /// Whether the overview's search has text. The caller sets this before
     /// each key; with text, Left, Right and Escape work on the text.
     pub overview_text: bool,
+    /// Whether the end-session dialog takes the keys. The caller sets this
+    /// before each key. While it does, no key reaches a window and the
+    /// Super shortcuts are off; only the keys in [`dialog_action`] work.
+    pub dialog: bool,
 }
 
 impl Bindings {
@@ -253,6 +266,15 @@ impl Bindings {
         } else {
             self.release(keycode, key)
         }
+    }
+
+    /// Drops the press of `keycode` without any action or reaching a
+    /// client, such as a key that woke a dark screen, and its release
+    /// later.
+    pub fn swallow(&mut self, keycode: u32) -> Outcome {
+        self.super_tap = false;
+        self.suppressed.insert(keycode);
+        Outcome::intercept(None)
     }
 
     /// A pointer button press while Super is held means Super was used as a
@@ -265,6 +287,12 @@ impl Bindings {
         if self.locked {
             self.super_tap = false;
             return self.consume(keycode, locked_action(key));
+        }
+        if self.dialog {
+            // Super is taken too, so its release does not open the overview.
+            self.super_tap = false;
+            self.suppressed.insert(keycode);
+            return Outcome::intercept(dialog_action(key, mods));
         }
         if key == Key::Super {
             self.super_tap = !(mods.ctrl || mods.alt || mods.shift);
@@ -417,6 +445,27 @@ fn overview_action(key: Key, mods: Mods, text: bool) -> Option<Action> {
     }
 }
 
+/// What a key does while the end-session dialog takes the keys: Return
+/// presses the selected button, Escape cancels, Tab and the arrow keys move
+/// between the buttons. As everywhere, `Ctrl+Alt+Backspace` quits at once,
+/// and the virtual terminal, brightness and volume keys work. Everything
+/// else does nothing.
+fn dialog_action(key: Key, mods: Mods) -> Option<Action> {
+    let forward = |forward: bool| Some(Action::DialogMove { forward });
+    match key {
+        Key::Backspace if mods.ctrl && mods.alt => Some(Action::Quit),
+        Key::SwitchVt(vt) => Some(Action::SwitchVt(vt)),
+        Key::Command(command) => Some(Action::Run(command)),
+        _ if mods.ctrl || mods.alt || mods.logo => None,
+        Key::Escape => Some(Action::DialogCancel),
+        Key::Return => Some(Action::DialogPress),
+        Key::Tab => forward(!mods.shift),
+        Key::Arrow(Direction::Right | Direction::Down) => forward(true),
+        Key::Arrow(Direction::Left | Direction::Up) => forward(false),
+        _ => None,
+    }
+}
+
 /// The only bindings that work while the screen is locked. Switching to a
 /// text console is safe, since it has its own login, and lets the user
 /// recover from a broken lock screen. The brightness and volume keys only
@@ -440,6 +489,7 @@ mod tests {
     const ALT: u32 = 64;
     const TAB: u32 = 23;
     const LEFT: u32 = 113;
+    const RIGHT: u32 = 114;
     const UP: u32 = 111;
     const A: u32 = 38;
     const L: u32 = 46;
@@ -1181,5 +1231,137 @@ mod tests {
         assert!(b.key(LEFT, left, true, logo()).action.is_some());
         b.locked = true;
         assert_eq!(b.key(LEFT, left, false, logo()), Outcome::intercept(None));
+    }
+
+    #[test]
+    fn dialog_takes_every_key() {
+        let mut b = Bindings {
+            dialog: true,
+            ..Bindings::default()
+        };
+        let shift = Mods {
+            shift: true,
+            ..none()
+        };
+        let right = Key::Arrow(Direction::Right);
+        let left = Key::Arrow(Direction::Left);
+        let cases = [
+            (RETURN, Key::Return, none(), Some(Action::DialogPress)),
+            (ESCAPE, Key::Escape, none(), Some(Action::DialogCancel)),
+            (
+                TAB,
+                Key::Tab,
+                none(),
+                Some(Action::DialogMove { forward: true }),
+            ),
+            (
+                TAB,
+                Key::Tab,
+                shift,
+                Some(Action::DialogMove { forward: false }),
+            ),
+            (
+                RIGHT,
+                right,
+                none(),
+                Some(Action::DialogMove { forward: true }),
+            ),
+            (
+                LEFT,
+                left,
+                none(),
+                Some(Action::DialogMove { forward: false }),
+            ),
+            (
+                UP,
+                Key::Arrow(Direction::Up),
+                none(),
+                Some(Action::DialogMove { forward: false }),
+            ),
+            // Typing, Super shortcuts and other combinations do nothing.
+            (A, Key::Char('a'), none(), None),
+            (RETURN, Key::Return, logo(), None),
+            (Q, Key::Char('q'), logo(), None),
+            (F4, Key::F4, alt(), None),
+        ];
+        for (keycode, key, mods, action) in cases {
+            assert_eq!(
+                b.key(keycode, key, true, mods),
+                Outcome::intercept(action),
+                "{key:?} {mods:?}"
+            );
+            // Releases of consumed presses never reach a window either.
+            assert_eq!(b.key(keycode, key, false, mods), Outcome::intercept(None));
+        }
+    }
+
+    #[test]
+    fn dialog_keeps_the_keys_that_work_everywhere() {
+        let mut b = Bindings {
+            dialog: true,
+            ..Bindings::default()
+        };
+        let ctrl_alt = Mods {
+            ctrl: true,
+            alt: true,
+            ..none()
+        };
+        assert_eq!(
+            b.key(BACKSPACE, Key::Backspace, true, ctrl_alt).action,
+            Some(Action::Quit)
+        );
+        assert_eq!(
+            b.key(F2, Key::SwitchVt(2), true, ctrl_alt).action,
+            Some(Action::SwitchVt(2))
+        );
+        assert_eq!(
+            b.key(VOLUME_UP, Key::Command(Command::VolumeUp), true, none())
+                .action,
+            Some(Action::Run(Command::VolumeUp))
+        );
+    }
+
+    #[test]
+    fn super_tap_in_the_dialog_does_not_open_the_overview() {
+        let mut b = Bindings {
+            dialog: true,
+            ..Bindings::default()
+        };
+        assert_eq!(
+            b.key(SUPER, Key::Super, true, logo()),
+            Outcome::intercept(None)
+        );
+        assert_eq!(
+            b.key(SUPER, Key::Super, false, none()),
+            Outcome::intercept(None)
+        );
+    }
+
+    #[test]
+    fn a_swallowed_press_takes_its_release_along() {
+        let mut b = Bindings::default();
+        assert_eq!(b.swallow(RETURN), Outcome::intercept(None));
+        assert_eq!(
+            b.key(RETURN, Key::Return, false, none()),
+            Outcome::intercept(None)
+        );
+        // A swallowed Super is no tap.
+        b.key(SUPER, Key::Super, true, logo());
+        b.swallow(A);
+        assert_eq!(b.key(SUPER, Key::Super, false, none()).action, None);
+    }
+
+    #[test]
+    fn lock_beats_the_dialog() {
+        let mut b = Bindings {
+            dialog: true,
+            locked: true,
+            ..Bindings::default()
+        };
+        // The lock screen gets the key, not the dialog.
+        assert_eq!(
+            b.key(RETURN, Key::Return, true, none()),
+            Outcome::forward(None)
+        );
     }
 }

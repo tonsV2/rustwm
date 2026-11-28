@@ -55,6 +55,12 @@ pub fn load_status_icon(name: &str, size: u32) -> Option<tiny_skia::Pixmap> {
     render_found_icon(&find_icon(name, size, "status")?, size)
 }
 
+/// Loads action icon `name`, such as `system-shutdown-symbolic`, from the
+/// icon theme, scaled to fit a `size` by `size` pixel square.
+pub fn load_action_icon(name: &str, size: u32) -> Option<tiny_skia::Pixmap> {
+    render_found_icon(&find_icon(name, size, "actions")?, size)
+}
+
 fn render_found_icon(path: &Path, size: u32) -> Option<tiny_skia::Pixmap> {
     let pixmap = render_icon(path, size);
     if pixmap.is_none() {
@@ -84,22 +90,29 @@ pub struct DesktopApp {
 }
 
 impl DesktopApp {
-    /// How well the app matches `query` (lowercased, not empty): 0 for a
-    /// name starting with it, 1 for a word of the name, 2 for anywhere in
-    /// the name, 3 for the keywords or generic name, `None` for no match.
+    /// How well the app matches `query`; see [`score`].
     pub fn score(&self, query: &str) -> Option<u8> {
-        let name = self.name.to_lowercase();
-        if name.starts_with(query) {
-            Some(0)
-        } else if name.split_whitespace().any(|word| word.starts_with(query)) {
-            Some(1)
-        } else if name.contains(query) {
-            Some(2)
-        } else if self.keywords.contains(query) {
-            Some(3)
-        } else {
-            None
-        }
+        score(&self.name, &self.keywords, query)
+    }
+}
+
+/// How well something called `name`, with lowercased `keywords`, matches
+/// `query` (lowercased, not empty): 0 for a name starting with it, 1 for a
+/// word of the name, 2 for anywhere in the name, 3 for the keywords, `None`
+/// for no match. Applications and the overview's system actions share it,
+/// so both rank the same way.
+pub fn score(name: &str, keywords: &str, query: &str) -> Option<u8> {
+    let name = name.to_lowercase();
+    if name.starts_with(query) {
+        Some(0)
+    } else if name.split_whitespace().any(|word| word.starts_with(query)) {
+        Some(1)
+    } else if name.contains(query) {
+        Some(2)
+    } else if keywords.contains(query) {
+        Some(3)
+    } else {
+        None
     }
 }
 
@@ -433,6 +446,17 @@ mod tests {
             parse_desktop_entry("[Other]\nName=X\n"),
             DesktopEntry::default()
         );
+    }
+
+    #[test]
+    fn score_ranks_name_start_word_substring_then_keywords() {
+        assert_eq!(score("Text Editor", "notepad", "text"), Some(0));
+        assert_eq!(score("Text Editor", "notepad", "edi"), Some(1));
+        assert_eq!(score("Text Editor", "notepad", "xt e"), Some(2));
+        assert_eq!(score("Text Editor", "notepad", "note"), Some(3));
+        assert_eq!(score("Text Editor", "notepad", "zzz"), None);
+        // The name is compared lowercased; the query already is.
+        assert_eq!(score("GIMP", "", "gi"), Some(0));
     }
 
     #[test]

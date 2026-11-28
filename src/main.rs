@@ -6,6 +6,7 @@ mod config;
 mod control;
 mod cursor;
 mod dialog;
+mod end_session;
 mod fade;
 mod focus;
 mod gamma;
@@ -15,6 +16,7 @@ mod input;
 mod keyboard;
 mod keymap;
 mod layout;
+mod logind;
 mod night_light;
 mod osd;
 mod overview;
@@ -25,6 +27,7 @@ mod security;
 mod session;
 mod state;
 mod switcher;
+mod system;
 mod udev;
 mod window;
 mod winit;
@@ -133,6 +136,7 @@ fn main() -> anyhow::Result<()> {
         commands::run(command, &state.child_env(), || {});
     }
     state.start_panel();
+    state.refresh_system_actions();
     state.watch_config();
     state.start_night_light();
 

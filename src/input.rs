@@ -19,6 +19,7 @@ use smithay::{
 
 use crate::{
     commands,
+    end_session::DialogKey,
     focus::WindowId,
     keyboard::{Action, App, Command, Key, Mods},
     layout::{Direction, Layout},
@@ -30,6 +31,7 @@ use tracing::{info, warn};
 
 impl State {
     pub fn process_input_event<I: InputBackend>(&mut self, event: InputEvent<I>) {
+        let mut swallow_key = false;
         if !matches!(
             event,
             InputEvent::DeviceAdded { .. } | InputEvent::DeviceRemoved { .. }
@@ -39,14 +41,34 @@ impl State {
             // does not light the screen: after Super+l the lock stays dark
             // until the next press.
             self.idle_activity();
+            let woke = self.any_output_off();
             self.power_on_outputs();
+            // A click that turns a dark screen on was aimed at nothing the
+            // user could see, such as a button of the panel waiting for
+            // windows to close, so it goes nowhere. Its release is dropped
+            // too.
+            if woke
+                && let InputEvent::PointerButton { event } = &event
+                && event.state() == ButtonState::Pressed
+            {
+                self.suppressed_buttons.insert(event.button_code());
+                self.wake_screen();
+                return;
+            }
             let release = matches!(&event, InputEvent::Keyboard { event } if event.state() == KeyState::Released);
             if !release {
                 self.wake_screen();
             }
+            // Likewise a key that wakes a dark screen while windows are
+            // being closed: Space or Return could answer a save prompt the
+            // user cannot see and let the action go ahead. Only this very
+            // event is swallowed; a pointer motion that wakes the screen
+            // must not cost the next key press.
+            let key_press = matches!(&event, InputEvent::Keyboard { event } if event.state() == KeyState::Pressed);
+            swallow_key = woke && key_press && self.end_session.machine.waiting_for_windows();
         }
         match event {
-            InputEvent::Keyboard { event } => self.on_keyboard::<I>(event),
+            InputEvent::Keyboard { event } => self.on_keyboard::<I>(event, swallow_key),
             InputEvent::PointerMotion { event } => self.on_pointer_motion::<I>(event),
             InputEvent::PointerMotionAbsolute { event } => {
                 self.on_pointer_motion_absolute::<I>(event)
@@ -57,7 +79,9 @@ impl State {
         }
     }
 
-    fn on_keyboard<I: InputBackend>(&mut self, event: I::KeyboardKeyEvent) {
+    /// Handles a key; `swallow` drops a press, and later its release, from
+    /// the bindings and the windows alike.
+    fn on_keyboard<I: InputBackend>(&mut self, event: I::KeyboardKeyEvent, swallow: bool) {
         let Some(keyboard) = self.seat.get_keyboard() else {
             return;
         };
@@ -112,7 +136,12 @@ impl State {
                 state.bindings.locked = state.is_locked();
                 state.bindings.overview = state.overview.open;
                 state.bindings.overview_text = state.overview.has_text();
-                let outcome = state.bindings.key(keycode.raw(), key, pressed, mods);
+                state.bindings.dialog = state.end_session.is_modal();
+                let outcome = if swallow && pressed {
+                    state.bindings.swallow(keycode.raw())
+                } else {
+                    state.bindings.key(keycode.raw(), key, pressed, mods)
+                };
                 action = outcome.action;
                 if action == Some(Action::OverviewType) {
                     typed = handle.modified_sym().key_char();
@@ -252,6 +281,9 @@ impl State {
                 info!("quit requested");
                 self.loop_signal.stop();
             }
+            Action::DialogMove { forward } => self.end_session_key(DialogKey::Move { forward }),
+            Action::DialogPress => self.end_session_key(DialogKey::Press),
+            Action::DialogCancel => self.end_session_key(DialogKey::Cancel),
         }
     }
 
@@ -379,6 +411,7 @@ impl State {
             ),
             None => {
                 self.panel_pointer_moved(pos);
+                self.end_session_pointer_moved(pos);
                 self.overview_pointer_moved(pos);
                 self.switcher_pointer_moved();
                 (pos, self.surface_under(pos))
@@ -417,7 +450,8 @@ impl State {
             // was lost, such as when the mouse was unplugged mid-click.
             self.suppressed_buttons.remove(&button);
             self.bindings.pointer_button();
-            if self.overview_click(pointer.current_location(), button)
+            if self.end_session_click(pointer.current_location())
+                || self.overview_click(pointer.current_location(), button)
                 || self.switcher_click(pointer.current_location())
             {
                 self.suppressed_buttons.insert(button);
@@ -491,6 +525,10 @@ impl State {
         } else {
             vertical
         };
+        // Nothing behind the dialog scrolls.
+        if self.end_session.is_modal() {
+            return;
+        }
         if self.switcher_scroll(pointer.current_location(), delta) {
             return;
         }

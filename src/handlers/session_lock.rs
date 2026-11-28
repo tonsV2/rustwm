@@ -20,7 +20,6 @@ use smithay::{
             delegate_global_dispatch, protocol::wl_output::WlOutput,
         },
     },
-    utils::SERIAL_COUNTER,
     wayland::session_lock::{
         ExtLockSurfaceUserData, LockSurface, SessionLockHandler, SessionLockManagerGlobalData,
         SessionLockManagerState, SessionLockState, SessionLocker,
@@ -129,15 +128,10 @@ impl State {
         self.focus.cancel_switch();
         self.switcher.hide();
         self.close_overview();
+        self.end_session_interrupted(crate::end_session::Interruption::Locked);
         // A popup menu or a held mouse button must not keep input flowing
         // to a window.
-        if let Some(keyboard) = self.seat.get_keyboard() {
-            keyboard.unset_grab(self);
-        }
-        if let Some(pointer) = self.seat.get_pointer() {
-            let time = self.start_time.elapsed().as_millis() as u32;
-            pointer.unset_grab(self, SERIAL_COUNTER.next_serial(), time);
-        }
+        self.release_grabs();
         // A cursor surface is drawn by its client, which could be a window.
         self.cursor_status = smithay::input::pointer::CursorImageStatus::default_named();
         self.sync_focus();
