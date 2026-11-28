@@ -35,7 +35,7 @@ use std::io::IsTerminal;
 use anyhow::Context;
 use smithay::reexports::{
     calloop::{
-        EventLoop,
+        EventLoop, RegistrationToken,
         signals::{Signal, Signals},
     },
     wayland_server::Display,
@@ -61,7 +61,7 @@ fn main() -> anyhow::Result<()> {
 
     let mut event_loop: EventLoop<'static, State> =
         EventLoop::try_new().context("failed to create event loop")?;
-    stop_on_signals(&event_loop)?;
+    let signals = stop_on_signals(&event_loop)?;
     let display: Display<State> = Display::new().context("failed to create Wayland display")?;
 
     let config = config::Config::load();
@@ -137,6 +137,15 @@ fn main() -> anyhow::Result<()> {
         .run(None, &mut state, State::after_dispatch)
         .context("event loop failed");
 
+    // Untint now rather than when the backend drops at the end of main:
+    // stopping the session target below waits on systemd, and on logout the
+    // display may be taken away, or SIGKILL arrive, in the meantime.
+    udev::reset_gamma_on_exit(&mut state);
+    // From here on a second SIGTERM, SIGINT or SIGHUP ends a shutdown that
+    // hangs: dropping the signal source unblocks them, and their default
+    // action kills the process.
+    event_loop.handle().remove(signals);
+
     if graphical_session {
         session::stop_session_target();
     }
@@ -154,8 +163,8 @@ fn main() -> anyhow::Result<()> {
 /// descriptor instead, so it must run before any other thread starts;
 /// threads started later inherit the block and leave the signals to this
 /// one. Programs rustwm starts get an empty mask again from Rust's
-/// `Command`.
-fn stop_on_signals(event_loop: &EventLoop<'static, State>) -> anyhow::Result<()> {
+/// `Command`. Removing the returned source unblocks the signals again.
+fn stop_on_signals(event_loop: &EventLoop<'static, State>) -> anyhow::Result<RegistrationToken> {
     let signals = Signals::new(&[Signal::SIGTERM, Signal::SIGINT, Signal::SIGHUP])
         .context("failed to watch for signals")?;
     event_loop
@@ -164,8 +173,7 @@ fn stop_on_signals(event_loop: &EventLoop<'static, State>) -> anyhow::Result<()>
             info!(signal = ?event.signal(), "stopping on signal");
             state.loop_signal.stop();
         })
-        .map_err(|err| anyhow::anyhow!("failed to add signals to the event loop: {}", err.error))?;
-    Ok(())
+        .map_err(|err| anyhow::anyhow!("failed to add signals to the event loop: {}", err.error))
 }
 
 /// Inside an existing desktop session the compositor runs as a window;

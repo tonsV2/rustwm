@@ -789,6 +789,15 @@ pub fn set_power(state: &mut State, output: &Output, on: bool) {
     }
 }
 
+/// Takes the night light's tint off the screen once the event loop has
+/// stopped, before the rest of the shutdown. Dropping the backend does it
+/// again, which is harmless.
+pub fn reset_gamma_on_exit(state: &mut State) {
+    if let Backend::Udev(udev) = &mut state.backend {
+        udev.reset_gamma();
+    }
+}
+
 /// Gives the screen the night light's current temperature. Does nothing
 /// nested, while another VT has the session, or without a gamma table.
 pub fn apply_gamma(state: &mut State) {
