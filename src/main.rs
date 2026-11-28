@@ -66,6 +66,8 @@ fn main() -> anyhow::Result<()> {
 
     let config = config::Config::load();
     let nested = nested();
+    // On the hardware, the DRM device's event source; see the end of main.
+    let mut drm_events = None;
     let mut state = if nested {
         info!("running nested inside the current session");
         let (winit, winit_loop, dmabuf_state) = winit::init_backend(&display.handle())?;
@@ -80,7 +82,8 @@ fn main() -> anyhow::Result<()> {
         state
     } else {
         info!("running on the hardware (DRM/KMS)");
-        let (udev, dmabuf_state) = udev::init_backend(&mut event_loop, &display.handle())?;
+        let (udev, dmabuf_state, events) = udev::init_backend(&mut event_loop, &display.handle())?;
+        drm_events = Some(events);
         let shm_formats = udev.shm_formats();
         let mut state = State::new(
             &mut event_loop,
@@ -137,15 +140,26 @@ fn main() -> anyhow::Result<()> {
         .run(None, &mut state, State::after_dispatch)
         .context("event loop failed");
 
-    // Drop the compositor now rather than at the end of main: the backend
-    // untints the screen and Smithay restores the display state it found,
-    // before stopping the session target below waits on systemd, during
-    // which on logout the display may be taken away or SIGKILL arrive.
+    // Give the display back now rather than at the end of main, before
+    // stopping the session target below waits on systemd, during which on
+    // logout the display may be taken away or SIGKILL arrive. Dropping the
+    // state untints the screen. Smithay restores the display state it found
+    // (the console) only when the last reference to its DRM device goes:
+    // the backend's, then the DRM event source's, which removing it drops at
+    // once. The session's event source stays until the end; it holds the
+    // seat, and with it the right to use the display, which the restore
+    // needs.
+    //
+    // The Wayland display lives in its own event source too, so clients stay
+    // connected, but nothing answers them while the target stops.
     //
     // The signals stay blocked until the event loop drops at the very end,
     // so one arriving now cannot kill rustwm part way through the shutdown.
     // A shutdown that hangs still ends with logind's SIGKILL.
     drop(state);
+    if let Some(token) = drm_events {
+        event_loop.handle().remove(token);
+    }
 
     if graphical_session {
         session::stop_session_target();

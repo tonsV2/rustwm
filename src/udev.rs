@@ -42,7 +42,7 @@ use smithay::{
     output::{Mode, Output, PhysicalProperties, Scale as OutputScale, Subpixel},
     reexports::{
         calloop::{
-            EventLoop, LoopHandle,
+            EventLoop, LoopHandle, RegistrationToken,
             timer::{TimeoutAction, Timer},
         },
         drm::control::{Device as ControlDevice, ModeTypeFlags, connector, crtc},
@@ -130,10 +130,15 @@ struct Screen {
 }
 
 /// Opens the session and GPU and wires their events into the event loop.
+///
+/// Also returns the event source of the DRM device's events. It holds a
+/// reference to the device, so Smithay restores the display state it found
+/// only once both the backend and this source are gone; `main` removes it
+/// on exit for that.
 pub fn init_backend(
     event_loop: &mut EventLoop<'static, State>,
     dh: &DisplayHandle,
-) -> anyhow::Result<(UdevData, DmabufState)> {
+) -> anyhow::Result<(UdevData, DmabufState, RegistrationToken)> {
     let (session, session_notifier) = LibSeatSession::new().context(
         "failed to start a session; run rustwm from a text console (Ctrl+Alt+F3), \
          not from inside a desktop, and make sure logind or seatd is running",
@@ -211,7 +216,7 @@ pub fn init_backend(
         .map_err(|()| anyhow!("failed to assign libinput to seat {seat}"))?;
 
     let handle = event_loop.handle();
-    insert_sources(
+    let drm_events = insert_sources(
         &handle,
         drm_notifier,
         session_notifier,
@@ -235,6 +240,7 @@ pub fn init_backend(
             lock_frame_queued: false,
         },
         dmabuf_state,
+        drm_events,
     ))
 }
 
@@ -256,10 +262,10 @@ fn insert_sources(
     libinput: LibinputInputBackend,
     udev: UdevBackend,
     node: DrmNode,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<RegistrationToken> {
     let insert_error = |err| anyhow!("failed to add event source: {err}");
 
-    handle
+    let drm_events = handle
         .insert_source(drm_notifier, |event, _, state| match event {
             DrmEvent::VBlank(crtc) => on_vblank(state, crtc),
             DrmEvent::Error(err) => error!(?err, "DRM error"),
@@ -343,7 +349,7 @@ fn insert_sources(
         })
         .map_err(|e| insert_error(e.error))?;
 
-    Ok(())
+    Ok(drm_events)
 }
 
 /// Sets up the first connected monitor if none is in use, and tears down
