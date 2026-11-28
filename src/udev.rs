@@ -78,10 +78,11 @@ type GbmOutput =
 
 /// Formats tried for the screen's framebuffer, best first.
 const COLOR_FORMATS: [Fourcc; 2] = [Fourcc::Argb8888, Fourcc::Xrgb8888];
-/// How long after asking for a VT switch the night light leaves the gamma
-/// table alone. The session is normally paused well within it; if the
-/// switch never happens, the tint comes back afterwards.
-const VT_SWITCH_GRACE: Duration = Duration::from_secs(2);
+/// A last resort for a VT switch that was accepted but never paused the
+/// session: after this the night light tints the screen again. A real
+/// switch pauses it within milliseconds, after which the session being
+/// inactive keeps the table alone anyway.
+const VT_SWITCH_TIMEOUT: Duration = Duration::from_secs(10);
 pub const BACKGROUND: [f32; 4] = [0.1, 0.1, 0.1, 1.0];
 
 render_elements! {
@@ -103,8 +104,11 @@ pub struct UdevData {
     pub cursors: Cursors,
     /// False while another VT has the session; the GPU must not be touched.
     pub active: bool,
-    /// When a VT switch was asked for and the gamma table reset for it. Until
-    /// the session pauses, the night light must not tint the screen again.
+    /// When a VT switch was asked for and the gamma table reset for it.
+    /// While set, the night light leaves the table alone. Set only for a
+    /// switch to another VT, so a pause is sure to follow; cleared when the
+    /// switch fails or the session comes back, with [`VT_SWITCH_TIMEOUT`]
+    /// as a last resort.
     switching_vt: Option<Instant>,
     /// A render is already queued, either waiting for vblank or on a timer.
     render_pending: bool,
@@ -810,7 +814,7 @@ pub fn apply_gamma(state: &mut State) {
     }
     if udev
         .switching_vt
-        .is_some_and(|asked| asked.elapsed() < VT_SWITCH_GRACE)
+        .is_some_and(|asked| asked.elapsed() < VT_SWITCH_TIMEOUT)
     {
         return;
     }
@@ -860,11 +864,15 @@ impl UdevData {
 
     pub fn change_vt(&mut self, vt: i32) {
         info!(vt, "switching virtual terminal");
-        // Untint before handing the display over: by the time the session
-        // is paused, it is usually too late to write the table. A night light
-        // tick before the pause arrives must not tint it again.
-        self.reset_gamma();
-        self.switching_vt = Some(Instant::now());
+        // Switching to the VT already on screen, usually our own, does
+        // nothing: no pause would come, so keep the tint as it is.
+        if foreground_vt() != Some(vt) {
+            // Untint before handing the display over: by the time the
+            // session is paused, it is usually too late to write the table.
+            // A night light tick before the pause must not tint it again.
+            self.reset_gamma();
+            self.switching_vt = Some(Instant::now());
+        }
         if let Err(err) = self.session.change_vt(vt) {
             warn!(?err, vt, "failed to switch virtual terminal");
             // The next night light tick tints the screen again.
@@ -884,6 +892,18 @@ impl UdevData {
     }
 }
 
+/// The number of the VT on screen, from the kernel. `None` when it cannot be
+/// read, which counts as a switch to another VT.
+fn foreground_vt() -> Option<i32> {
+    let active = std::fs::read_to_string("/sys/class/tty/tty0/active").ok()?;
+    parse_tty_name(&active)
+}
+
+/// 3 for "tty3\n".
+fn parse_tty_name(name: &str) -> Option<i32> {
+    name.trim().strip_prefix("tty")?.parse().ok()
+}
+
 /// Untints the screen when rustwm exits, however `main` returns.
 ///
 /// `drop` runs before the fields are dropped, so the DRM device is still
@@ -896,5 +916,18 @@ impl UdevData {
 impl Drop for UdevData {
     fn drop(&mut self) {
         self.reset_gamma();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_tty_name;
+
+    #[test]
+    fn tty_names_parse() {
+        assert_eq!(parse_tty_name("tty3\n"), Some(3));
+        assert_eq!(parse_tty_name("tty12"), Some(12));
+        assert_eq!(parse_tty_name("ttyS0"), None);
+        assert_eq!(parse_tty_name(""), None);
     }
 }
