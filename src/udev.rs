@@ -307,6 +307,8 @@ fn insert_sources(
                     udev.drm.pause();
                     // The held key's release will not arrive.
                     state.stop_key_repeat();
+                    // Whoever is at the screen now cannot see the dialog.
+                    state.end_session_interrupted(crate::end_session::Interruption::Paused);
                     // Nothing of the session is on screen any more.
                     state.lock_frame_shown();
                 }

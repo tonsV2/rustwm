@@ -48,8 +48,15 @@ impl State {
         info!(output = output.name(), on, "output power changed");
         if on {
             self.output_power.off.retain(|o| o != output);
+            // The monitor takes a moment to light up; see
+            // `EndSession::screen_woke`.
+            self.end_session.screen_woke(std::time::Instant::now());
         } else {
             self.output_power.off.push(output.clone());
+            // Nobody can see or answer the dialog on a dark screen, and
+            // nothing of it may be clicked until it is drawn again.
+            self.end_session_interrupted(crate::end_session::Interruption::ScreenOff);
+            self.end_session.forget_drawn();
         }
         let mode = if on { Mode::On } else { Mode::Off };
         for (control, _) in self
@@ -67,6 +74,11 @@ impl State {
         if !self.is_showing() {
             self.lock_frame_shown();
         }
+    }
+
+    /// Whether any output is off, as after `wlopm --off`.
+    pub fn any_output_off(&self) -> bool {
+        !self.output_power.off.is_empty()
     }
 
     /// Turns every output that is off back on, on user input.

@@ -55,8 +55,9 @@ use crate::{
     state::State,
     switcher::{
         BACKGROUND, Canvas, HIGHLIGHT, Image, NAME_COLOR, PLACEHOLDER, SwitcherElement, TEXT_COLOR,
-        TextStyle, app_id_and_title, fit, image_src, load_font, text_width,
+        TextStyle, app_id_and_title, fit, image_src, load_font, text_width, tint,
     },
+    system::SystemAction,
 };
 
 // Sizes in logical pixels.
@@ -250,6 +251,38 @@ enum Item {
         folder: String,
         kind: String,
     },
+    /// Suspend, Log Out, Restart or Power Off.
+    System { action: SystemAction },
+}
+
+/// A search result before it is laid out: a system action, or an
+/// application by its index in the list of installed ones.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Ranked {
+    System(SystemAction),
+    App(usize),
+}
+
+/// Ranks the matching system actions and applications, each with its
+/// score, together: best score first. On equal scores the actions with a
+/// dialog come first, so "pow" puts Power Off ahead of Power Statistics,
+/// but Suspend, which acts at once, comes after the applications. Equal
+/// applications keep their order, which is by name. At most `max` are kept.
+fn ranked(system: Vec<(u8, SystemAction)>, apps: Vec<(u8, usize)>, max: usize) -> Vec<Ranked> {
+    let system = system
+        .into_iter()
+        .enumerate()
+        .map(|(order, (score, action))| {
+            let kind = if action.wins_ties() { 0 } else { 2 };
+            ((score, kind, order), Ranked::System(action))
+        });
+    let apps = apps
+        .into_iter()
+        .map(|(score, index)| ((score, 1, index), Ranked::App(index)));
+    let mut all: Vec<((u8, u8, usize), Ranked)> = system.chain(apps).collect();
+    all.sort_by_key(|(key, _)| *key);
+    all.truncate(max);
+    all.into_iter().map(|(_, ranked)| ranked).collect()
 }
 
 impl Overview {
@@ -301,27 +334,40 @@ impl Overview {
             .or_insert_with(|| apps::load_icon(name, size));
     }
 
-    /// The applications matching the query, best first, then the files.
-    fn results(&self) -> Vec<Item> {
+    /// Loads a system action's symbolic icon, painted in the text colour
+    /// since symbolic icons are drawn dark.
+    fn load_action_icon(&mut self, name: &str, size: u32) {
+        self.icons
+            .entry((name.to_string(), size))
+            .or_insert_with(|| apps::load_action_icon(name, size).map(|i| tint(i, TEXT_COLOR)));
+    }
+
+    /// The `system` actions and applications matching the query, best
+    /// first, then the files.
+    fn results(&self, system: &[SystemAction]) -> Vec<Item> {
         let query = self.query.trim().to_lowercase();
-        let mut apps: Vec<(u8, usize)> = self
+        let system: Vec<(u8, SystemAction)> = system
+            .iter()
+            .filter_map(|&action| action.score(&query).map(|score| (score, action)))
+            .collect();
+        let apps: Vec<(u8, usize)> = self
             .apps
             .iter()
             .enumerate()
             .filter_map(|(index, app)| app.score(&query).map(|score| (score, index)))
             .collect();
-        // Equal scores keep the name order the list has.
-        apps.sort_by_key(|&(score, index)| (score, index));
-        apps.truncate(MAX_APP_RESULTS);
-        let mut items: Vec<Item> = apps
+        let mut items: Vec<Item> = ranked(system, apps, MAX_APP_RESULTS)
             .into_iter()
-            .map(|(_, index)| {
-                let app = &self.apps[index];
-                Item::App {
-                    index,
-                    name: app.name.clone(),
-                    detail: app.detail.clone(),
-                    icon: app.icon.clone(),
+            .map(|ranked| match ranked {
+                Ranked::System(action) => Item::System { action },
+                Ranked::App(index) => {
+                    let app = &self.apps[index];
+                    Item::App {
+                        index,
+                        name: app.name.clone(),
+                        detail: app.detail.clone(),
+                        icon: app.icon.clone(),
+                    }
                 }
             })
             .collect();
@@ -356,6 +402,9 @@ impl Overview {
                     Item::App {
                         icon: Some(icon), ..
                     } => self.load_icon(icon, px(ROW_ICON)),
+                    Item::System { action } => {
+                        self.load_action_icon(action.icon_name(), px(ROW_ICON))
+                    }
                     _ => {}
                 }
             }
@@ -364,11 +413,12 @@ impl Overview {
                 .iter()
                 .map(|placed| {
                     let (icon, size) = match &placed.item {
-                        Item::Window { app, .. } => (app.icon.as_ref()?, px(ICON_SIZE)),
-                        Item::App { icon, .. } => (icon.as_ref()?, px(ROW_ICON)),
+                        Item::Window { app, .. } => (app.icon.as_deref()?, px(ICON_SIZE)),
+                        Item::App { icon, .. } => (icon.as_deref()?, px(ROW_ICON)),
+                        Item::System { action } => (action.icon_name(), px(ROW_ICON)),
                         Item::File { .. } => return None,
                     };
-                    self.icons.get(&(icon.clone(), size))?.as_ref()
+                    self.icons.get(&(icon.to_string(), size))?.as_ref()
                 })
                 .collect();
             let font = self.font.get_or_insert_with(load_font).as_ref();
@@ -485,7 +535,7 @@ impl State {
     }
 
     pub fn open_overview(&mut self) {
-        if self.overview.open || self.is_locked() {
+        if self.overview.open || self.is_locked() || self.end_session.is_modal() {
             return;
         }
         info!("overview opened");
@@ -500,6 +550,8 @@ impl State {
         self.overview.files.clear();
         self.overview.apps = apps::all_apps();
         self.overview.cache = None;
+        // What logind allows can change, so the search asks each time.
+        self.refresh_system_actions();
         self.restart_blink();
         self.overview_panel(true);
         // Windows get no keys while the overview is open.
@@ -677,7 +729,14 @@ impl State {
         // can have the focus while it still covers the corner. The open
         // overview covers it in turn, so the corner can close that.
         let fullscreen = !self.overview.open && self.windows.iter().any(|w| w.fullscreen);
-        if !self.config.overview.hot_corner || button_held || fullscreen || self.is_locked() {
+        // The dialog holds the corner back too. The visit was still used up
+        // above, so the corner does not fire the moment the dialog closes.
+        if !self.config.overview.hot_corner
+            || button_held
+            || fullscreen
+            || self.is_locked()
+            || self.end_session.is_modal()
+        {
             return;
         }
         info!("hot corner");
@@ -760,6 +819,10 @@ impl State {
                 let command = format!("xdg-open {}", quote(file.path.display()));
                 commands::run(&command, &child_env, || {});
             }
+            Item::System { action } => {
+                info!(?action, "system action picked in the overview");
+                self.start_system_action(action);
+            }
         }
     }
 
@@ -770,6 +833,7 @@ impl State {
         let area = layer_map_for_output(output).non_exclusive_zone();
         let screen = (geometry.size.w, geometry.size.h);
         let query = self.overview.query.clone();
+        let system = self.offered_system_actions();
         let (items, columns, empty) = if query.trim().is_empty() {
             let ids: Vec<WindowId> = self
                 .focus
@@ -831,7 +895,7 @@ impl State {
             let rows = (content.size.h / ROW_HEIGHT).max(0) as usize;
             let items: Vec<Placed> = self
                 .overview
-                .results()
+                .results(&system)
                 .into_iter()
                 .take(rows)
                 .enumerate()
@@ -1173,6 +1237,11 @@ fn draw(
                 draw_icon(&mut below, font, icon, icon_box, name);
                 draw_row_text(&mut below, font, tile, name, detail, s);
             }
+            Item::System { action } => {
+                let icon_box = row_icon_box(tile, s);
+                draw_icon(&mut below, font, icon, icon_box, action.name());
+                draw_row_text(&mut below, font, tile, action.name(), action.detail(), s);
+            }
             Item::File {
                 name, folder, kind, ..
             } => {
@@ -1240,7 +1309,7 @@ fn row_icon_box((x, y, _, h): (f32, f32, f32, f32), s: f32) -> (f32, f32, f32, f
 
 /// Draws `icon` in `icon_box`, or a placeholder with the first letter of
 /// `name` when there is none.
-fn draw_icon(
+pub(crate) fn draw_icon(
     canvas: &mut Canvas,
     font: Option<&Font>,
     icon: Option<&Pixmap>,
@@ -1604,6 +1673,98 @@ mod tests {
         assert!(!apply_edit(&mut text, &mut caret, Edit::Clear));
         assert_eq!(char_to_byte("héllo", 2), 3);
         assert_eq!(char_to_byte("héllo", 9), 6);
+    }
+
+    #[test]
+    fn system_actions_rank_with_the_applications() {
+        use SystemAction::*;
+        // Equal scores: the system action first, then apps in their order.
+        assert_eq!(
+            ranked(vec![(0, PowerOff)], vec![(0, 3), (0, 1)], 6),
+            [Ranked::System(PowerOff), Ranked::App(1), Ranked::App(3)]
+        );
+        // A better app score still comes first.
+        assert_eq!(
+            ranked(vec![(3, LogOut)], vec![(0, 2)], 6),
+            [Ranked::App(2), Ranked::System(LogOut)]
+        );
+        // The cap is for both together.
+        assert_eq!(
+            ranked(vec![(1, PowerOff), (3, LogOut)], vec![(0, 0), (2, 1)], 2),
+            [Ranked::App(0), Ranked::System(PowerOff)]
+        );
+    }
+
+    #[test]
+    fn a_short_query_and_return_never_suspends() {
+        use SystemAction::*;
+        // The first result for `query` with one app installed.
+        let first = |query: &str, app: &str| {
+            let system: Vec<(u8, SystemAction)> = [Suspend, LogOut, Restart, PowerOff]
+                .into_iter()
+                .filter_map(|action| action.score(query).map(|score| (score, action)))
+                .collect();
+            let apps: Vec<(u8, usize)> = apps::score(app, "", query)
+                .map(|score| (score, 0))
+                .into_iter()
+                .collect();
+            ranked(system, apps, MAX_APP_RESULTS)
+                .first()
+                .copied()
+                .expect("something matches")
+        };
+        // The first result for `query` with no app matching, if any.
+        let first_alone = |query: &str| {
+            let system: Vec<(u8, SystemAction)> = [Suspend, LogOut, Restart, PowerOff]
+                .into_iter()
+                .filter_map(|action| action.score(query).map(|score| (score, action)))
+                .collect();
+            ranked(system, Vec::new(), MAX_APP_RESULTS).first().copied()
+        };
+        assert_eq!(first("s", "Settings"), Ranked::App(0));
+        assert_eq!(first("su", "Sublime Text"), Ranked::App(0));
+        // On a tie, the app still comes before Suspend.
+        assert_eq!(first("sus", "Suspicious App"), Ranked::App(0));
+        assert_eq!(
+            ranked(vec![(0, Suspend)], vec![(0, 4)], 6),
+            [Ranked::App(4), Ranked::System(Suspend)]
+        );
+        // Typed out, Suspend is found.
+        assert_eq!(first("sus", "Settings"), Ranked::System(Suspend));
+        assert_eq!(first("sleep", "Settings"), Ranked::System(Suspend));
+        assert_eq!(first("susp", "Settings"), Ranked::System(Suspend));
+        // Parts of Suspend's words find nothing that suspends.
+        for query in ["end", "eep", "usp", "pend"] {
+            assert_ne!(first_alone(query), Some(Ranked::System(Suspend)), "{query}");
+        }
+    }
+
+    #[test]
+    fn system_action_row_is_drawn_like_an_app() {
+        let scene = Scene {
+            output: (0, 0).into(),
+            area: area(800, 600),
+            query: "pow".into(),
+            search: Rectangle::new((80, SEARCH_TOP).into(), (640, SEARCH_HEIGHT).into()),
+            caret_x: 120,
+            content: content_area(area(800, 600)),
+            items: vec![Placed {
+                tile: Rectangle::new((40, 160).into(), (720, ROW_HEIGHT).into()),
+                item: Item::System {
+                    action: SystemAction::PowerOff,
+                },
+            }],
+            columns: 1,
+            selected: 0,
+            empty: None,
+        };
+        let mut icon = Pixmap::new(ROW_ICON as u32, ROW_ICON as u32).unwrap();
+        icon.fill(resvg::tiny_skia::Color::WHITE);
+        let (below, _) = draw(None, &scene, &[Some(&icon)], 1.0);
+        let i =
+            (((160 + ROW_HEIGHT / 2) * below.width + 40 + ROW_PADDING + ROW_ICON / 2) * 4) as usize;
+        // The icon is drawn where an app's icon goes.
+        assert_eq!(&below.pixels[i..i + 4], [255, 255, 255, 255]);
     }
 
     #[test]

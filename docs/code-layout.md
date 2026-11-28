@@ -14,6 +14,9 @@
 | `src/fade.rs` | The screen fading to black before the lock and back on input |
 | `src/switcher.rs` | Alt+Tab switcher: thumbnails, icons and text (fontdue, font from fontconfig) |
 | `src/overview.rs` | The Super tap overview: window previews, date, and the application and file search |
+| `src/system.rs` | The overview's system actions: Suspend, Log Out, Restart and Power Off, their keywords and which are offered (no Smithay, unit tested) |
+| `src/logind.rs` | Asks logind through `busctl` on a thread whether it can suspend, restart and power off, which programs block a shutdown, and to do it |
+| `src/end_session/` | The Log Out, Restart and Power Off dialog: state machine (`machine.rs`, no Smithay, unit tested), drawing (`draw.rs`) and its timers, input and rendering (`mod.rs`) |
 | `src/apps.rs` | Application names and icons from desktop files and icon themes, and the list of installed applications |
 | `src/session.rs` | The environment of started apps, the D-Bus session bus and the systemd graphical session |
 | `src/xwayland.rs` | Starts xwayland-satellite for X11 apps |

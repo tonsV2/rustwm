@@ -69,6 +69,7 @@ use crate::{
     bell::Bell,
     capture::{image_copy::ImageCopyState, screencopy::ScreencopyState},
     config::{Config, KeyboardConfig},
+    end_session::EndSession,
     fade::Fade,
     focus::{FocusHistory, WindowId},
     group::Groups,
@@ -76,6 +77,7 @@ use crate::{
     keyboard::Bindings,
     keymap,
     layout::{Layout, Rect},
+    logind::Logind,
     night_light::NightLight,
     osd::Osd,
     overview::Overview,
@@ -215,6 +217,10 @@ pub struct State {
     pub bell: Bell,
     /// The warm tint at night.
     pub night_light: NightLight,
+    /// Suspend, Log Out, Restart and Power Off from the overview.
+    pub end_session: EndSession,
+    /// Asks logind about suspending, restarting and powering off.
+    pub logind: Logind,
 }
 
 impl State {
@@ -288,6 +294,8 @@ impl State {
         let socket_name = init_wayland_listener(display, event_loop)?;
         let osd = Osd::new(&event_loop.handle())?;
         let overview = Overview::new(&event_loop.handle())?;
+        let nested = matches!(backend, Backend::Winit(_));
+        let logind = Logind::new(&event_loop.handle(), nested)?;
 
         Ok(Self {
             start_time: Instant::now(),
@@ -352,6 +360,8 @@ impl State {
             fade: Fade::default(),
             bell: Bell::default(),
             night_light: NightLight::default(),
+            end_session: EndSession::new(nested),
+            logind,
         })
     }
 
@@ -363,6 +373,7 @@ impl State {
         self.space.refresh();
         self.popups.cleanup();
         self.update_idle_inhibit();
+        self.end_session_after_dispatch();
         if let Err(err) = self.display_handle.flush_clients() {
             warn!(%err, "failed to flush clients");
         }
@@ -607,7 +618,7 @@ impl State {
         // While locked, only the lock screen gets the keyboard.
         let target = if self.is_locked() {
             self.lock_focus().map(|s| s.wl_surface().clone())
-        } else if self.overview.open {
+        } else if self.overview.open || self.end_session.is_modal() {
             None
         } else {
             match &self.layer_focus {
@@ -629,6 +640,18 @@ impl State {
             }
         }
         self.set_keyboard_focus(target);
+    }
+
+    /// Ends any keyboard or pointer grab, such as an open popup menu or a
+    /// held mouse button, so input stops flowing to the window that has it.
+    pub fn release_grabs(&mut self) {
+        if let Some(keyboard) = self.seat.get_keyboard() {
+            keyboard.unset_grab(self);
+        }
+        if let Some(pointer) = self.seat.get_pointer() {
+            let time = self.start_time.elapsed().as_millis() as u32;
+            pointer.unset_grab(self, SERIAL_COUNTER.next_serial(), time);
+        }
     }
 
     pub fn set_keyboard_focus(&mut self, surface: Option<WlSurface>) {
@@ -659,6 +682,11 @@ impl State {
             let surface = self.lock_surface(output)?.wl_surface();
             return under_from_surface_tree(surface, pos, output_geo.loc, WindowSurfaceType::ALL)
                 .map(|(surface, loc)| (surface, loc.to_f64()));
+        }
+        // The dialog's dimming covers everything, the panel too; the panel
+        // listing windows still open covers only itself.
+        if self.end_session.is_modal() || self.end_session.covers(pos) {
+            return None;
         }
         let layers = layer_map_for_output(output);
         let pos_in_output = pos - output_geo.loc.to_f64();

@@ -15,7 +15,7 @@ use std::{
     time::Duration,
 };
 
-use resvg::tiny_skia::{Pixmap, PremultipliedColorU8};
+use resvg::tiny_skia::Pixmap;
 use smithay::{
     backend::{
         allocator::Fourcc,
@@ -39,7 +39,7 @@ use crate::{
     keyboard::Command,
     state::State,
     switcher::{
-        BACKGROUND, Canvas, HIGHLIGHT, Image, RADIUS, SwitcherElement, TEXT_COLOR, image_src,
+        BACKGROUND, Canvas, HIGHLIGHT, Image, RADIUS, SwitcherElement, TEXT_COLOR, image_src, tint,
     },
 };
 
@@ -277,10 +277,11 @@ impl State {
     }
 
     /// Everything drawn over the windows on `output`, front to back: the
-    /// panel while it slides, the brightness and volume indicator, the
-    /// Alt+Tab switcher, then the overview.
+    /// end-session dialog, the panel while it slides, the brightness and
+    /// volume indicator, the Alt+Tab switcher, then the overview.
     pub fn overlay_elements(&mut self, output: &Output) -> Vec<SwitcherElement> {
-        let mut elements = self.panel_slide_elements(output);
+        let mut elements = self.end_session_elements(output);
+        elements.extend(self.panel_slide_elements(output));
         elements.extend(self.osd_elements(output));
         elements.extend(self.switcher_elements(output));
         elements.extend(self.overview_elements(output));
@@ -361,25 +362,6 @@ fn parse_brightness(text: &str) -> Option<f64> {
     let curve = |raw: f64| (raw / max).powf(1.0 / BRIGHTNESS_EXPONENT);
     let floor = curve(1.0);
     Some(((curve(value) - floor) / (1.0 - floor)).clamp(0.0, 1.0))
-}
-
-/// `icon` with every pixel painted `color`, keeping its shape. Symbolic
-/// icons are drawn dark, for light backgrounds.
-fn tint(mut icon: Pixmap, color: [f32; 4]) -> Pixmap {
-    for pixel in icon.pixels_mut() {
-        let alpha = pixel.alpha() as f32 / 255.0 * color[3];
-        let channel = |c: f32| (c * alpha * 255.0).round() as u8;
-        let tinted = PremultipliedColorU8::from_rgba(
-            channel(color[0]),
-            channel(color[1]),
-            channel(color[2]),
-            (alpha * 255.0).round() as u8,
-        );
-        if let Some(tinted) = tinted {
-            *pixel = tinted;
-        }
-    }
-    icon
 }
 
 /// Draws the panel: the background, `icon` on the left if there is one, and

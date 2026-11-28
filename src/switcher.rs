@@ -26,7 +26,7 @@
 use std::{collections::HashMap, fs, process::Command, time::Duration};
 
 use fontdue::{Font, FontSettings};
-use resvg::tiny_skia::Pixmap;
+use resvg::tiny_skia::{Pixmap, PremultipliedColorU8};
 use smithay::{
     backend::{
         allocator::Fourcc,
@@ -105,6 +105,8 @@ const SELECTION_MARK: [f32; 4] = [1.0, 1.0, 1.0, 0.06];
 pub(crate) const TEXT_COLOR: [f32; 4] = [0.95, 0.95, 0.95, 1.0];
 pub(crate) const NAME_COLOR: [f32; 4] = [0.95, 0.95, 0.95, 0.75];
 pub(crate) const PLACEHOLDER: [f32; 4] = [0.35, 0.37, 0.42, 1.0];
+/// The button that goes ahead, such as a dialog's confirming button.
+pub(crate) const ACCENT: [f32; 4] = [0.21, 0.52, 0.89, 1.0];
 /// Behind a group's members, where the screen shows through between them.
 const GROUP_BACKGROUND: [f32; 4] = [0.0, 0.0, 0.0, 0.6];
 /// The arrows and counts of hidden windows.
@@ -1362,6 +1364,25 @@ impl Canvas {
     }
 }
 
+/// `icon` with every pixel painted `color`, keeping its shape. Symbolic
+/// icons are drawn dark, for light backgrounds.
+pub(crate) fn tint(mut icon: Pixmap, color: [f32; 4]) -> Pixmap {
+    for pixel in icon.pixels_mut() {
+        let alpha = pixel.alpha() as f32 / 255.0 * color[3];
+        let channel = |c: f32| (c * alpha * 255.0).round() as u8;
+        let tinted = PremultipliedColorU8::from_rgba(
+            channel(color[0]),
+            channel(color[1]),
+            channel(color[2]),
+            (alpha * 255.0).round() as u8,
+        );
+        if let Some(tinted) = tinted {
+            *pixel = tinted;
+        }
+    }
+    icon
+}
+
 pub(crate) fn text_width(font: &Font, text: &str, size: f32) -> f32 {
     text.chars()
         .map(|c| font.metrics(c, size).advance_width)
@@ -1370,20 +1391,57 @@ pub(crate) fn text_width(font: &Font, text: &str, size: f32) -> f32 {
 
 /// `text` shortened with a trailing ellipsis so it fits in `max_width`.
 fn fit_text(font: &Font, text: &str, size: f32, max_width: f32) -> String {
-    if text_width(font, text, size) <= max_width {
+    fit_measured(text, max_width, |part| text_width(font, part, size))
+}
+
+/// `text` shortened with a trailing ellipsis so that `measure` finds it no
+/// wider than `max_width`.
+fn fit_measured(text: &str, max_width: f32, measure: impl Fn(&str) -> f32) -> String {
+    if measure(text) <= max_width {
         return text.to_string();
     }
-    let ellipsis = text_width(font, "…", size);
-    let mut used = 0.0;
+    let ellipsis = measure("…");
     let mut result = String::new();
     for c in text.chars() {
-        used += font.metrics(c, size).advance_width;
-        if used + ellipsis > max_width {
+        result.push(c);
+        if measure(&result) + ellipsis > max_width {
+            result.pop();
             break;
         }
-        result.push(c);
     }
     result.trim_end().to_string() + "…"
+}
+
+/// Breaks `text` into lines between words, each no wider than `max_width`
+/// as `measure` finds it. A word too long for a line of its own is cut
+/// short with an ellipsis. Taking the measure as a function lets this be
+/// tested without a font.
+pub(crate) fn wrap_lines(text: &str, max_width: f32, measure: impl Fn(&str) -> f32) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut line = String::new();
+    for word in text.split_whitespace() {
+        let joined = if line.is_empty() {
+            word.to_string()
+        } else {
+            format!("{line} {word}")
+        };
+        if measure(&joined) <= max_width {
+            line = joined;
+            continue;
+        }
+        if !line.is_empty() {
+            lines.push(std::mem::take(&mut line));
+        }
+        if measure(word) <= max_width {
+            line = word.to_string();
+        } else {
+            lines.push(fit_measured(word, max_width, &measure));
+        }
+    }
+    if !line.is_empty() {
+        lines.push(line);
+    }
+    lines
 }
 
 /// Loads the desktop's default sans-serif font through fontconfig.
@@ -1417,6 +1475,23 @@ pub(crate) fn load_font() -> Option<Font> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn text_wraps_between_words() {
+        // Every character is 1 wide.
+        let measure = |text: &str| text.chars().count() as f32;
+        assert_eq!(
+            wrap_lines("the quick brown fox", 10.0, measure),
+            ["the quick", "brown fox"]
+        );
+        assert_eq!(wrap_lines("short", 10.0, measure), ["short"]);
+        assert_eq!(wrap_lines("  ", 10.0, measure), Vec::<String>::new());
+        // A word too long for a line is cut short on a line of its own.
+        assert_eq!(
+            wrap_lines("a abcdefghijkl b", 6.0, measure),
+            ["a", "abcde…", "b"]
+        );
+    }
 
     fn view(n: usize, selected: usize) -> View {
         View {
