@@ -50,6 +50,8 @@ rustwm picks its backend automatically: inside a desktop session (`WAYLAND_DISPL
 2. Run `./start.sh`. It builds a release binary and starts it through `resources/rustwm-session`, logging to `logs/rustwm.log` (the previous run's log is kept as `logs/rustwm.log.old`).
 3. `Ctrl+Alt+Backspace` quits. `Ctrl+Alt+F2` (or whichever VT GNOME is on) switches back to your desktop while rustwm keeps running.
 
+The panel's night light module runs `rustwm night-light status` from `PATH`, which is the installed binary, not the one `start.sh` built. An installed binary from before the night light ignores the arguments and starts a nested rustwm instead, so run `sudo make install` before using a panel config with the module.
+
 Installed as a login session, rustwm logs to the journal instead: `journalctl -b _UID=$(id -u)`.
 
 ## D-Bus bus and keyring

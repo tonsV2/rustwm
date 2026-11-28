@@ -26,4 +26,5 @@
 | `src/udev.rs` | Hardware backend: session, GPU, monitor, libinput, rendering |
 | `src/cursor.rs` | Cursor images from the theme for the hardware backend |
 | `src/night_light/` | The night light: colour temperature to gamma ramps, the sun's position and the schedule (no Smithay, unit tested), and the timer that applies it |
+| `src/control.rs` | The control socket and the `rustwm night-light toggle\|status` client the panel uses |
 | `src/gamma.rs` | Writes the night light into the display controller's gamma table (hardware backend only) |

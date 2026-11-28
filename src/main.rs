@@ -3,6 +3,7 @@ mod bell;
 mod capture;
 mod commands;
 mod config;
+mod control;
 mod cursor;
 mod dialog;
 mod fade;
@@ -39,6 +40,13 @@ use tracing_subscriber::EnvFilter;
 use crate::state::{Backend, State};
 
 fn main() -> anyhow::Result<()> {
+    // With arguments, rustwm is a client of the running compositor, as in
+    // `rustwm night-light toggle` from the panel.
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if !args.is_empty() {
+        return control::run_client(&args);
+    }
+
     // Logs go to stderr so they can be captured apart from anything a
     // backend prints on stdout.
     tracing_subscriber::fmt()
@@ -117,6 +125,9 @@ fn main() -> anyhow::Result<()> {
         info!(command, "autostart");
         commands::run(command, &state.child_env(), || {});
     }
+    // Kept until the end of main; dropping it removes the socket file.
+    // Bound before the panel starts, so its first status request finds it.
+    let _control = state.start_control_socket();
     state.start_panel();
     state.watch_config();
     state.start_night_light();

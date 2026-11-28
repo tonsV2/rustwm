@@ -7,13 +7,20 @@
     "spacing": 4,
     "modules-left": ["clock"],
     "modules-center": [],
-    "modules-right": ["tray", "pulseaudio", "backlight", "network", "battery"],
+    "modules-right": ["tray", "custom/night-light", "pulseaudio", "backlight", "network", "battery"],
     "clock": {
         "format": "{:%a %d %b  %H:%M}",
         "tooltip-format": "<tt>{calendar}</tt>"
     },
     "tray": {
         "spacing": 8
+    },
+    // Shown only while the night light is on or turned off until morning; a click does what Super+n does.
+    "custom/night-light": {
+        "exec": "rustwm night-light status",
+        "return-type": "json",
+        "interval": 30,
+        "on-click": "rustwm night-light toggle"
     },
     "pulseaudio": {
         "format": "Volume {volume}%",

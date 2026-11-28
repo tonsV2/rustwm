@@ -48,6 +48,17 @@ struct Manual {
     until: Option<DateTime<Utc>>,
 }
 
+/// What the night light is doing, for the panel.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Status {
+    /// No tint, and none scheduled.
+    Off,
+    /// Tinted, by the schedule or Super+n, until `until`.
+    On { until: Option<DateTime<Utc>> },
+    /// Turned off with Super+n at night, until `until`.
+    Paused { until: Option<DateTime<Utc>> },
+}
+
 /// A fade from `from` towards the current target.
 #[derive(Debug, Clone, Copy)]
 struct Fade {
@@ -155,6 +166,27 @@ impl NightLight {
         };
     }
 
+    /// What the night light is doing at `now`. `scheduled_on` and `morning`
+    /// are as for [`toggle`](Self::toggle).
+    fn status(
+        &self,
+        now: DateTime<Utc>,
+        scheduled_on: bool,
+        morning: Option<DateTime<Utc>>,
+    ) -> Status {
+        // An override whose morning has come, but which the next tick has
+        // not dropped yet, is already over.
+        let manual = self
+            .manual
+            .filter(|m| m.until.is_none_or(|until| until > now));
+        match manual {
+            Some(Manual { on: true, until }) => Status::On { until },
+            Some(Manual { on: false, until }) => Status::Paused { until },
+            None if scheduled_on => Status::On { until: morning },
+            None => Status::Off,
+        }
+    }
+
     /// Goes back to the schedule.
     fn clear_manual(&mut self) {
         self.manual = None;
@@ -226,6 +258,14 @@ impl State {
         }
     }
 
+    /// What the night light is doing now, for the panel.
+    pub fn night_light_status(&self) -> Status {
+        let now = Local::now();
+        let (scheduled_on, morning) = scheduled_now(&self.config.night_light, &now);
+        self.night_light
+            .status(now.with_timezone(&Utc), scheduled_on, morning)
+    }
+
     /// Works out the temperature from the clock and applies it. Returns
     /// when to run again.
     fn tick_night_light(&mut self) -> Duration {
@@ -270,7 +310,7 @@ fn scheduled_now(
 }
 
 /// " until 06:00" in local time, or nothing without a morning.
-fn until_text(until: Option<DateTime<Utc>>) -> String {
+pub fn until_text(until: Option<DateTime<Utc>>) -> String {
     match until {
         Some(until) => format!(" until {}", until.with_timezone(&Local).format("%H:%M")),
         None => String::new(),
@@ -384,6 +424,30 @@ mod tests {
         settled(&mut light, now() + hours(24 * 30), NIGHT);
         assert_eq!(light.kelvin(), NEUTRAL);
         assert!(light.manual.is_some());
+    }
+
+    #[test]
+    fn status_follows_the_override_and_the_schedule() {
+        let mut light = NightLight::default();
+        let morning = Some(now() + hours(6));
+        assert_eq!(light.status(now(), false, morning), Status::Off);
+        assert_eq!(
+            light.status(now(), true, morning),
+            Status::On { until: morning }
+        );
+        light.toggle(true, morning);
+        assert_eq!(
+            light.status(now(), true, morning),
+            Status::Paused { until: morning }
+        );
+        // Over once the morning has come, even before the next tick.
+        assert_eq!(light.status(now() + hours(6), false, None), Status::Off);
+        light.clear_manual();
+        light.toggle(false, morning);
+        assert_eq!(
+            light.status(now(), false, morning),
+            Status::On { until: morning }
+        );
     }
 
     #[test]
